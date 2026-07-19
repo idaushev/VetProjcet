@@ -1704,10 +1704,41 @@
   // REPORTS — инициализация отдельных страниц
   // ═══════════════════════════════════════════════════════════════════════
 
+  // Может ли пользователь выбирать врача в отчёте за день.
+  // Право привязано к «просмотр и создание персонала»: кто управляет
+  // персоналом, тот видит отчёт любого врача. Остальные — только свой.
+  function _reportCanPickDoctor() {
+    return !!(window.VetAuth && VetAuth.can('staff', 'view') && VetAuth.can('staff', 'create'));
+  }
+
   async function initReportDaily() {
     var dateInput = document.getElementById('report-date');
     if (dateInput && !dateInput.value) {
       dateInput.value = new Date().toISOString().slice(0, 10);
+    }
+    // Фильтр по врачу — только с правом на персонал; иначе отчёт
+    // формируется по врачу текущего пользователя.
+    var wrap = document.getElementById('report-doctor-wrap');
+    var sel  = document.getElementById('report-doctor');
+    if (wrap && sel) {
+      if (_reportCanPickDoctor()) {
+        wrap.style.display = '';
+        if (!sel.options.length) {
+          var staff = [];
+          try { staff = await window.VetDB.getAll('staff'); } catch(e) {}
+          staff = staff.filter(function(s){ return !s.is_deleted && s.is_active !== false; })
+                       .sort(function(a,b){ return (a.name||'').localeCompare(b.name||'','ru'); });
+          var myStaff = window.VetAuth && VetAuth.user() ? (VetAuth.user().staff_id || '') : '';
+          sel.innerHTML = '<option value="">Все врачи</option>'
+            + staff.map(function(s){ return '<option value="'+esc(s.id)+'"'+(s.id===myStaff?' selected':'')+'>'+esc(s.name)+'</option>'; }).join('');
+          sel.onchange = function() {
+            var d = document.getElementById('report-date');
+            if (d && d.value) generateReport(d.value);
+          };
+        }
+      } else {
+        wrap.style.display = 'none';
+      }
     }
     var genBtn = document.getElementById('btn-generate-report');
     if (genBtn) genBtn.onclick = function() {
@@ -1961,8 +1992,24 @@
         dayVisits = dayVisits.filter(function(v){ return VetAuth.canSeeSum(v.staff_id); });
       }
 
+      // Отчёт формируется по врачу: с правом на персонал — по выбранному
+      // в фильтре («Все врачи» = пусто), без права — по врачу пользователя.
+      var staffFilter = '';
+      var filterName = '';
+      if (_reportCanPickDoctor()) {
+        var sel = document.getElementById('report-doctor');
+        staffFilter = sel ? sel.value : '';
+      } else if (window.VetAuth && VetAuth.user() && VetAuth.user().staff_id) {
+        staffFilter = VetAuth.user().staff_id;
+      }
+      if (staffFilter) {
+        dayVisits = dayVisits.filter(function(v){ return v.staff_id === staffFilter; });
+        filterName = staffMap[staffFilter] ? staffMap[staffFilter].name : '';
+      }
+
       if (!dayVisits.length) {
-        el.innerHTML = '<div class="report-empty">Нет приёмов за ' + esc(fmtDate(dateStr)) + '</div>';
+        el.innerHTML = '<div class="report-empty">Нет приёмов за ' + esc(fmtDate(dateStr))
+          + (filterName ? ' у врача ' + esc(filterName) : '') + '</div>';
         document.getElementById('btn-print-report').style.display = 'none';
         return;
       }
@@ -2013,7 +2060,7 @@
       var drugs    = rows.filter(function(r){ return r.type === 'drug'; })
                          .sort(function(a,b){ return a.name.localeCompare(b.name,'ru'); });
 
-      el.innerHTML = buildReportHTML(dateStr, services, drugs, dayVisits, petsMap, ownersMap, staffMap, dayVisitItems, catalogMap);
+      el.innerHTML = buildReportHTML(dateStr, services, drugs, dayVisits, petsMap, ownersMap, staffMap, dayVisitItems, catalogMap, filterName);
 
       var printBtn = document.getElementById('btn-print-report');
       if (printBtn) printBtn.style.display = '';
@@ -2026,7 +2073,7 @@
 
   // dayVisitItems и catalogMap нужны для разбивки по врачам: заработок считается
   // из кассовой стоимости позиций, а она живёт в каталоге, не в приёме.
-  function buildReportHTML(dateStr, services, drugs, dayVisits, petsMap, ownersMap, staffMap, dayVisitItems, catalogMap) {
+  function buildReportHTML(dateStr, services, drugs, dayVisits, petsMap, ownersMap, staffMap, dayVisitItems, catalogMap, filterName) {
 
     function rowsHTML(rows) {
       return rows.map(function(r) {
@@ -2171,9 +2218,15 @@
       + '</tr></tfoot>'
       + '</table></div>';
 
+    // Итог расчёта: из заработка (сумма − касса) вычитаем оплату картой.
+    // Наличные собирает врач, карта уходит клинике напрямую — итог показывает,
+    // сколько наличных остаётся врачу после сдачи кассы (минус = врач доплачивает
+    // клинике / клиника должна врачу с безнала).
+    var settleTotal = (grandTotal - grandCash) - grandCard;
+
     return '<div class="report-wrap">'
       + '<div class="report-header">'
-      + '<h2>Отчёт за ' + esc(fmtDateFull(dateStr)) + '</h2>'
+      + '<h2>Отчёт за ' + esc(fmtDateFull(dateStr)) + (filterName ? ' · ' + esc(filterName) : '') + '</h2>'
       + '<span class="text-muted text-sm">Приёмов: ' + dayVisits.length + '</span>'
       + '</div>'
       + visitListHTML
@@ -2186,6 +2239,9 @@
       + '<div class="report-grand-row"><span>'+I('cash')+' Наличные</span><span>' + fmtMoney(grandCashPaid) + '</span></div>'
       + '<div class="report-grand-row" style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;"><span>'+I('hospital')+' Доля клиники (касса)</span><span>' + fmtMoney(grandCash) + '</span></div>'
       + '<div class="report-grand-row grand-diff"><span>'+I('stethoscope')+' Заработок врачей</span><span style="color:var(--accent);font-weight:800;">' + fmtMoney(doctorShare) + '</span></div>'
+      + '<div class="report-grand-row" style="border-top:2px solid var(--border);margin-top:8px;padding-top:10px;font-size:1rem;">'
+      + '<span><b>Итог расчёта</b> <span class="text-muted text-sm">(сумма − касса − безнал)</span></span>'
+      + '<span style="font-weight:900;color:' + (settleTotal < 0 ? 'var(--danger, #dc3545)' : 'var(--text)') + ';">' + fmtMoney(settleTotal) + '</span></div>'
       + '</div>'
       + '</div>';
   }

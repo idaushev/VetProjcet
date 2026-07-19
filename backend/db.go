@@ -451,6 +451,53 @@ var migrations = []string{
 	`ALTER TABLE pets ADD COLUMN chip_date DATETIME`,
 	`ALTER TABLE clinic_staff ADD COLUMN created_by TEXT`,
 	`ALTER TABLE clinic_staff ADD COLUMN updated_by TEXT`,
+
+	// ─── Портал владельцев ────────────────────────────────────────────────
+	// Сессии владельцев отдельно от users/sessions: владелец — не сотрудник,
+	// у него нет пароля (вход по телефону) и нет прав на основное API.
+	`CREATE TABLE IF NOT EXISTS owner_sessions (
+	    token_hash TEXT PRIMARY KEY,
+	    owner_id   TEXT NOT NULL,
+	    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	    expires_at DATETIME NOT NULL,
+	    FOREIGN KEY (owner_id) REFERENCES owners(id)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_owner_sessions_owner ON owner_sessions(owner_id)`,
+
+	// ─── Телеграм-бот (архитектурный задел) ──────────────────────────────
+	// Привязка владельца к чату бота. Заполняется, когда владелец напишет
+	// боту /start <код привязки> (см. docs/TELEGRAM.md).
+	`CREATE TABLE IF NOT EXISTS owner_telegram (
+	    owner_id  TEXT PRIMARY KEY,
+	    chat_id   INTEGER NOT NULL,
+	    username  TEXT,
+	    linked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	    FOREIGN KEY (owner_id) REFERENCES owners(id)
+	)`,
+	// Одноразовые коды привязки: выдаются в клинике/портале, владелец
+	// отправляет боту, бот связывает chat_id с owner_id.
+	`CREATE TABLE IF NOT EXISTS telegram_link_codes (
+	    code       TEXT PRIMARY KEY,
+	    owner_id   TEXT NOT NULL,
+	    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	    expires_at DATETIME NOT NULL,
+	    used_at    DATETIME
+	)`,
+	// Outbox уведомлений: всё, что бот должен отправить. Пишем сюда,
+	// фоновый отправитель доставляет и помечает. Если владелец ещё не
+	// привязан (chat_id NULL) — строка ждёт привязки.
+	`CREATE TABLE IF NOT EXISTS notifications (
+	    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	    owner_id   TEXT,
+	    chat_id    INTEGER,
+	    kind       TEXT NOT NULL,             -- portal_access | visit_reminder | vaccination_due | custom
+	    message    TEXT NOT NULL,
+	    status     TEXT NOT NULL DEFAULT 'pending',  -- pending | sent | error
+	    error      TEXT,
+	    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	    sent_at    DATETIME
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_notifications_status ON notifications(status)`,
 }
 
 // ─── openDB ──────────────────────────────────────────────────────────────────

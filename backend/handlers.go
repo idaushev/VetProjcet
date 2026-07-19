@@ -110,6 +110,16 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST /sync/push", a.handleSyncPush)
 	mux.HandleFunc("GET /sync/pull",  a.handleSyncPull)
 
+	// Портал владельцев: своя авторизация (X-Portal-Token), см. portal.go
+	mux.HandleFunc("POST /portal/login",           a.handlePortalLogin)
+	mux.HandleFunc("GET /portal/me",               a.handlePortalMe)
+	mux.HandleFunc("GET /portal/pets",             a.handlePortalPets)
+	mux.HandleFunc("GET /portal/pets/{id}/visits", a.handlePortalPetVisits)
+	mux.HandleFunc("PUT /portal/pets/{id}/photo",  a.handlePortalPetPhoto)
+	mux.HandleFunc("GET /portal", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, filepath.Join(a.frontend, "portal.html"))
+	})
+
 	// Static frontend
 	fileServer := http.FileServer(http.Dir(a.frontend))
 	mux.Handle("GET /js/",     http.StripPrefix("/", fileServer))
@@ -139,7 +149,7 @@ func (a *app) routes() http.Handler {
 func (a *app) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Device-ID, X-Bypass-Local, X-Auth-Token")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Device-ID, X-Bypass-Local, X-Auth-Token, X-Portal-Token")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)

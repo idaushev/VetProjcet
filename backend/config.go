@@ -14,6 +14,9 @@ type Config struct {
 	Env         string // development | production
 	TLSCert     string // data/cert.pem  (если пусто — HTTP режим)
 	TLSKey      string // data/key.pem
+	// Токен телеграм-бота (@BotFather). Пусто — бот выключен,
+	// уведомления копятся в outbox (таблица notifications).
+	TelegramToken string
 }
 
 func LoadConfig() Config {
@@ -24,6 +27,7 @@ func LoadConfig() Config {
 		Env:         strings.ToLower(getEnv("ENV", "development")),
 		TLSCert:     getEnv("TLS_CERT", ""),
 		TLSKey:      getEnv("TLS_KEY", ""),
+		TelegramToken: getEnv("TELEGRAM_BOT_TOKEN", ""),
 	}
 }
 

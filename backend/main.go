@@ -40,6 +40,10 @@ func main() {
 	// Фоновая чистка диска: файлы вложений, удалённых больше трёх дней назад.
 	application.startAttachmentPurge()
 
+	// Телеграм-бот: отправитель уведомлений из outbox (включается по
+	// TELEGRAM_BOT_TOKEN, см. docs/TELEGRAM.md).
+	application.startTelegramNotifier()
+
 	appHandler := application.routes()
 
 	if cfg.TLSEnabled() {

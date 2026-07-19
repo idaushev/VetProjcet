@@ -195,6 +195,11 @@ func authExempt(r *http.Request) bool {
 	if p == "/health" || p == "/auth/login" {
 		return true
 	}
+	// Портал владельцев: авторизация своя (X-Portal-Token, проверяется
+	// в каждом /portal-хендлере), токен сотрудника не нужен.
+	if p == "/portal" || strings.HasPrefix(p, "/portal/") {
+		return true
+	}
 	return false
 }
 
