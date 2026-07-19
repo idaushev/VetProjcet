@@ -202,7 +202,7 @@ func (a *app) createPet(w http.ResponseWriter, r *http.Request) {
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, 1)`,
 		pet.ID, pet.OwnerID, pet.Name, pet.Type, pet.Gender,
 		nullableTime(pet.BirthDate), pet.Age, nullableString(pet.Breed),
-		nullableString(pet.Color), nullableString(pet.ChipNumber), nullableTime(pet.ChipDate), nullableString(pet.Photo),
+		nullableString(pet.Color), nullableString(pet.ChipNumber), nullableTime(pet.ChipDate), pet.Photo,
 		pet.Weight, nullableString(pet.Notes),
 		now, now,
 	); err != nil {
@@ -257,7 +257,7 @@ func (a *app) updatePet(w http.ResponseWriter, r *http.Request, id string) {
 		nullableTime(pet.BirthDate), pet.Age,
 		nullableString(pet.Breed), nullableString(pet.Color), nullableString(pet.ChipNumber),
 		pet.ChipNumber, chipDateArg,
-		nullableString(pet.Photo),
+		pet.Photo,
 		pet.Weight, nullableString(pet.Notes), T(nowUTC()), id,
 	)
 	if err != nil {
@@ -344,7 +344,7 @@ func upsertPet(ctx context.Context, tx *sql.Tx, pet Pet) (Pet, error) {
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, 1)`,
 			pet.ID, pet.OwnerID, pet.Name, pet.Type, pet.Gender,
 			nullableTime(pet.BirthDate), pet.Age,
-			nullableString(pet.Breed), nullableString(pet.Color), nullableString(pet.ChipNumber), nullableString(pet.Photo), pet.Weight,
+			nullableString(pet.Breed), nullableString(pet.Color), nullableString(pet.ChipNumber), pet.Photo, pet.Weight,
 			nullableString(pet.Notes), now, now,
 		)
 	} else {
@@ -355,7 +355,7 @@ func upsertPet(ctx context.Context, tx *sql.Tx, pet Pet) (Pet, error) {
 			 WHERE id=?`,
 			pet.OwnerID, pet.Name, pet.Type, pet.Gender,
 			nullableTime(pet.BirthDate), pet.Age,
-			nullableString(pet.Breed), nullableString(pet.Color), nullableString(pet.ChipNumber), nullableString(pet.Photo), pet.Weight,
+			nullableString(pet.Breed), nullableString(pet.Color), nullableString(pet.ChipNumber), pet.Photo, pet.Weight,
 			nullableString(pet.Notes), now, pet.ID,
 		)
 	}

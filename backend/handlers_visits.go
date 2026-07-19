@@ -158,13 +158,13 @@ func (a *app) createVisit(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO visits (id, pet_id, staff_id, visit_type, animal_weight, date, next_visit_date,
 		                     treatment_days, treatment_until,
 		                     patient_condition, anamnesis, diagnosis, treatment, notes,
-		                     total_amount, payment_card, change_log, created_at, updated_at, version)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+		                     total_amount, discount, payment_card, change_log, created_at, updated_at, version)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
 		v.ID, v.PetID, nullableString(v.StaffID), visitType, v.AnimalWeight, T(v.Date), Tp(v.NextVisitDate),
 		days, Tp(until),
 		nullableString(v.PatientCondition), nullableString(v.Anamnesis),
 		nullableString(v.Diagnosis), nullableString(v.Treatment),
-		nullableString(v.Notes), v.TotalAmount, v.PaymentCard, nullableString(v.ChangeLog), now, now,
+		nullableString(v.Notes), v.TotalAmount, v.Discount, v.PaymentCard, v.ChangeLog, now, now,
 	); err != nil {
 		a.logger.Printf("createVisit: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to create visit")
@@ -214,13 +214,13 @@ func (a *app) updateVisit(w http.ResponseWriter, r *http.Request, id string) {
 		`UPDATE visits SET pet_id=?, staff_id=?, visit_type=?, animal_weight=?,
 		                   date=?, next_visit_date=?, treatment_days=?, treatment_until=?,
 		                   patient_condition=?, anamnesis=?, diagnosis=?, treatment=?,
-		                   notes=?, total_amount=?, payment_card=?, change_log=?, updated_at=?, version=version+1
+		                   notes=?, total_amount=?, discount=?, payment_card=?, change_log=?, updated_at=?, version=version+1
 		 WHERE id=? AND is_deleted=0`,
 		v.PetID, nullableString(v.StaffID), visitType, v.AnimalWeight,
 		T(v.Date), Tp(v.NextVisitDate), days, Tp(until),
 		nullableString(v.PatientCondition), nullableString(v.Anamnesis),
 		nullableString(v.Diagnosis), nullableString(v.Treatment),
-		nullableString(v.Notes), v.TotalAmount, v.PaymentCard, nullableString(v.ChangeLog), T(nowUTC()), id,
+		nullableString(v.Notes), v.TotalAmount, v.Discount, v.PaymentCard, v.ChangeLog, T(nowUTC()), id,
 	)
 	if err != nil {
 		a.logger.Printf("updateVisit: %v", err)
@@ -343,7 +343,15 @@ func (a *app) handleCreateFullVisit(w http.ResponseWriter, r *http.Request) {
 			Total:    total,
 		})
 	}
-	totalAmount = roundMoney(totalAmount)
+	// Скидка фиксированной суммой уменьшает итог, но не ниже нуля.
+	discount := roundMoney(p.Visit.Discount)
+	if discount < 0 {
+		discount = 0
+	}
+	if discount > totalAmount {
+		discount = totalAmount
+	}
+	totalAmount = roundMoney(totalAmount - discount)
 
 	visitType := strings.TrimSpace(p.Visit.VisitType)
 	if visitType == "" {
@@ -361,6 +369,7 @@ func (a *app) handleCreateFullVisit(w http.ResponseWriter, r *http.Request) {
 	visit := Visit{
 		ID:               visitID,
 		PetID:            pet.ID,
+		StaffID:          strings.TrimSpace(p.Visit.StaffID),
 		VisitType:        visitType,
 		AnimalWeight:     p.Visit.AnimalWeight,
 		Date:             visitDate,
@@ -371,6 +380,7 @@ func (a *app) handleCreateFullVisit(w http.ResponseWriter, r *http.Request) {
 		Treatment:        strings.TrimSpace(p.Visit.Treatment),
 		Notes:            strings.TrimSpace(p.Visit.Notes),
 		TotalAmount:      totalAmount,
+		Discount:         discount,
 	}
 
 	// Курс и оплату клиент присылает и в «полном» приёме — терять их нельзя.
@@ -378,13 +388,13 @@ func (a *app) handleCreateFullVisit(w http.ResponseWriter, r *http.Request) {
 	// ("2026-07-17 12:00:00 +0000 UTC"), который не разбирает SQLite.
 	days, until := resolveTreatment(p.Visit.TreatmentDays, visit.Date)
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO visits (id, pet_id, visit_type, animal_weight, date, next_visit_date,
-		                     treatment_days, treatment_until, payment_card,
+		`INSERT INTO visits (id, pet_id, staff_id, visit_type, animal_weight, date, next_visit_date,
+		                     treatment_days, treatment_until, discount, payment_card,
 		                     patient_condition, anamnesis, diagnosis, treatment, notes,
 		                     total_amount, created_at, updated_at, version)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-		visit.ID, visit.PetID, visitType, visit.AnimalWeight, T(visit.Date), Tp(nextVisitDate),
-		days, Tp(until), p.Visit.PaymentCard,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+		visit.ID, visit.PetID, nullableString(visit.StaffID), visitType, visit.AnimalWeight, T(visit.Date), Tp(nextVisitDate),
+		days, Tp(until), visit.Discount, p.Visit.PaymentCard,
 		nullableString(visit.PatientCondition), nullableString(visit.Anamnesis),
 		nullableString(visit.Diagnosis), nullableString(visit.Treatment),
 		nullableString(visit.Notes), visit.TotalAmount, now, now,
@@ -586,7 +596,7 @@ SELECT v.id, v.pet_id, COALESCE(v.staff_id,''), COALESCE(v.visit_type,'перв�
        v.date, v.next_visit_date, COALESCE(v.treatment_days,0), v.treatment_until,
        COALESCE(v.patient_condition,''), COALESCE(v.anamnesis,''),
        COALESCE(v.diagnosis,''), COALESCE(v.treatment,''), COALESCE(v.notes,''),
-       v.total_amount, COALESCE(v.payment_card,0), COALESCE(v.change_log,''), v.created_at, v.updated_at, v.deleted_at,
+       v.total_amount, COALESCE(v.discount,0), COALESCE(v.payment_card,0), COALESCE(v.change_log,''), v.created_at, v.updated_at, v.deleted_at,
        v.is_deleted, COALESCE(v.device_id,''), COALESCE(v.version,1)
 FROM visits v`
 
@@ -617,7 +627,7 @@ func scanVisit(s interface{ Scan(...interface{}) error }) (Visit, error) {
 		&v.ID, &v.PetID, &v.StaffID, &v.VisitType, &animalWeight,
 		&visitDate, &nextVisitDate, &v.TreatmentDays, &treatmentUntil,
 		&v.PatientCondition, &v.Anamnesis, &v.Diagnosis, &v.Treatment, &v.Notes,
-		&v.TotalAmount, &v.PaymentCard, &v.ChangeLog, &createdAt, &updatedAt, &deletedAt,
+		&v.TotalAmount, &v.Discount, &v.PaymentCard, &v.ChangeLog, &createdAt, &updatedAt, &deletedAt,
 		&v.IsDeleted, &v.DeviceID, &v.Version,
 	)
 	if err != nil {
@@ -675,6 +685,9 @@ func visitFromPayload(p createVisitPayload) (Visit, error) {
 	if p.TotalAmount < 0 {
 		return Visit{}, errors.New("total_amount must be >= 0")
 	}
+	if p.Discount < 0 {
+		return Visit{}, errors.New("discount must be >= 0")
+	}
 	visitType := strings.TrimSpace(p.VisitType)
 	if visitType == "" {
 		visitType = "первичный"
@@ -692,6 +705,7 @@ func visitFromPayload(p createVisitPayload) (Visit, error) {
 		Treatment:        strings.TrimSpace(p.Treatment),
 		Notes:            strings.TrimSpace(p.Notes),
 		TotalAmount:      roundMoney(p.TotalAmount),
+		Discount:         roundMoney(p.Discount),
 		PaymentCard:      p.PaymentCard,
 		ChangeLog:        strings.TrimSpace(p.ChangeLog),
 	}

@@ -80,6 +80,7 @@ type Visit struct {
 	Treatment        string     `json:"treatment,omitempty"`
 	Notes            string     `json:"notes,omitempty"`
 	TotalAmount      float64    `json:"total_amount"`
+	Discount         float64    `json:"discount"`     // скидка фиксированной суммой, ₸
 	PaymentCard      float64    `json:"payment_card"` // сумма оплаченная картой (безнал)
 	ChangeLog        string     `json:"change_log,omitempty"` // JSON-массив истории изменений
 	SyncMeta
@@ -207,6 +208,7 @@ type createVisitPayload struct {
 	Treatment        string   `json:"treatment,omitempty"`
 	Notes            string   `json:"notes,omitempty"`
 	TotalAmount      float64  `json:"total_amount,omitempty"`
+	Discount         float64  `json:"discount,omitempty"`
 	PaymentCard      float64  `json:"payment_card,omitempty"`
 	ChangeLog        string   `json:"change_log,omitempty"`
 }
@@ -258,10 +260,12 @@ type visitItemPayload struct {
 
 type visitPayloadShort struct {
 	Date             string   `json:"date"`
+	StaffID          string   `json:"staff_id,omitempty"`
 	VisitType        string   `json:"visit_type,omitempty"`
 	AnimalWeight     *float64 `json:"animal_weight,omitempty"`
 	NextVisitDate    string   `json:"next_visit_date,omitempty"`
 	TreatmentDays    int      `json:"treatment_days,omitempty"`
+	Discount         float64  `json:"discount,omitempty"`
 	PaymentCard      float64  `json:"payment_card,omitempty"`
 	PatientCondition string   `json:"patient_condition,omitempty"`
 	Anamnesis        string   `json:"anamnesis"`
@@ -386,6 +390,7 @@ type visitSyncRecord struct {
 	Treatment        string   `json:"treatment"`
 	Notes            string   `json:"notes"`
 	TotalAmount      float64  `json:"total_amount"`
+	Discount         float64  `json:"discount"`
 	PaymentCard      float64  `json:"payment_card"`
 	ChangeLog        string   `json:"change_log"`
 	UpdatedAt        string   `json:"updated_at"`

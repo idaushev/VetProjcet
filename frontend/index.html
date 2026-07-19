@@ -768,9 +768,10 @@
     });
   });
 
-  // Modal close button
+  // Modal close button — через guard: спросит про несохранённые данные
   document.getElementById('modal-close-btn').addEventListener('click', function () {
-    if (window.VetUI) VetUI.hideModal();
+    if (!window.VetUI) return;
+    if (VetUI.requestHideModal) VetUI.requestHideModal(); else VetUI.hideModal();
   });
 
   // ── Hash navigation ────────────────────────────────────────────────

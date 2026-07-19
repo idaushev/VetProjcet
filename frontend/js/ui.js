@@ -55,10 +55,12 @@
   }
 
   // ── Confirm ────────────────────────────────────────────────────────────
-  function confirm(title, msg) {
+  // opts.yes / opts.no — подписи кнопок (по умолчанию «Удалить» / «Отмена»).
+  function confirm(title, msg, opts) {
+    opts = opts || {};
     return new Promise(function(resolve){
       var o = document.createElement('div'); o.className='confirm-overlay';
-      o.innerHTML='<div class="confirm-box"><div class="confirm-title">'+esc(title)+'</div><div class="confirm-msg">'+esc(msg||'')+'</div><div class="confirm-actions"><button class="btn btn-ghost" id="cn-no">Отмена</button><button class="btn btn-danger" id="cn-yes">Удалить</button></div></div>';
+      o.innerHTML='<div class="confirm-box"><div class="confirm-title">'+esc(title)+'</div><div class="confirm-msg">'+esc(msg||'')+'</div><div class="confirm-actions"><button class="btn btn-ghost" id="cn-no">'+esc(opts.no||'Отмена')+'</button><button class="btn btn-danger" id="cn-yes">'+esc(opts.yes||'Удалить')+'</button></div></div>';
       document.body.appendChild(o);
       o.querySelector('#cn-no').onclick  = function(){ o.remove(); resolve(false); };
       o.querySelector('#cn-yes').onclick = function(){ o.remove(); resolve(true);  };
@@ -85,17 +87,107 @@
     modalBody.innerHTML = cfg.bodyHTML||'';
     footer.innerHTML = '';
     if (cfg.onSave !== false) {
-      var cancel = document.createElement('button'); cancel.className='btn btn-ghost'; cancel.textContent=cfg.cancelLabel||'Отмена'; cancel.onclick=hideModal;
+      var cancel = document.createElement('button'); cancel.className='btn btn-ghost'; cancel.textContent=cfg.cancelLabel||'Отмена'; cancel.onclick=requestHideModal;
       var save   = document.createElement('button'); save.className='btn btn-primary'; save.id='modal-save-btn'; save.textContent=cfg.saveLabel||'Сохранить';
       if (cfg.onSave) save.onclick = cfg.onSave;
       footer.appendChild(cancel); footer.appendChild(save);
     }
     overlay.classList.add('open');
     if (cfg.afterOpen) setTimeout(cfg.afterOpen, 40);
+
+    // Защита от потери данных: запоминаем состояние формы после открытия.
+    // Guard включаем только у модалок с сохранением (onSave) — у карточек
+    // и просмотров терять нечего. Снимок с задержкой: afterOpen дорисовывает
+    // форму асинхронно (позиции приёма, области владельца/животного).
+    _modalGuard = !!cfg.onSave;
+    _modalSnapshot = null;
+    if (_modalGuard) setTimeout(function(){ _modalSnapshot = _serializeModalForm(); }, 400);
   }
-  function hideModal() { document.getElementById('modal-overlay').classList.remove('open'); }
-  document.addEventListener('keydown', function(e){ if(e.key==='Escape') hideModal(); });
-  document.addEventListener('click',   function(e){ if(e.target&&e.target.id==='modal-overlay') hideModal(); });
+  function hideModal() {
+    _modalGuard = false; _modalSnapshot = null;
+    document.getElementById('modal-overlay').classList.remove('open');
+  }
+
+  // ── Несохранённые данные в модалке ─────────────────────────────────────
+  var _modalGuard = false;    // включён ли контроль для текущей модалки
+  var _modalSnapshot = null;  // состояние полей формы сразу после открытия
+
+  function _serializeModalForm() {
+    var body = document.getElementById('modal-body');
+    if (!body) return '';
+    var parts = [];
+    body.querySelectorAll('input,textarea,select').forEach(function(el){
+      if (el.type === 'button' || el.type === 'submit' || el.type === 'file') return;
+      parts.push((el.id || el.name || '?') + '=' + (el.type === 'checkbox' ? el.checked : el.value));
+    });
+    return parts.join('');
+  }
+
+  function _modalIsDirty() {
+    if (!_modalGuard || _modalSnapshot === null) return false;
+    return _serializeModalForm() !== _modalSnapshot;
+  }
+
+  // Закрытие по инициативе пользователя (Escape, клик мимо, «Отмена», крестик):
+  // при несохранённых изменениях сначала спрашиваем. Программное закрытие
+  // после сохранения идёт напрямую через hideModal и вопросов не задаёт.
+  async function requestHideModal() {
+    var overlay = document.getElementById('modal-overlay');
+    if (!overlay || !overlay.classList.contains('open')) return;
+    if (_modalIsDirty()) {
+      var ok = await confirm('Несохранённые данные',
+        'В форме есть несохранённые изменения. Закрыть без сохранения?',
+        { yes: 'Закрыть без сохранения', no: 'Остаться' });
+      if (!ok) return;
+    }
+    hideModal();
+  }
+
+  // Обновление/закрытие вкладки с открытой заполненной формой —
+  // браузер покажет системное предупреждение.
+  window.addEventListener('beforeunload', function(e){
+    if (_modalIsDirty()) { e.preventDefault(); e.returnValue = ''; }
+  });
+
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') requestHideModal(); });
+  document.addEventListener('click',   function(e){ if(e.target&&e.target.id==='modal-overlay') requestHideModal(); });
+
+  // ── Маска телефона и проверка email ────────────────────────────────────
+  // Казахстанский формат: +7 XXX XXX-XX-XX. Работает на всех input[type=tel],
+  // включая создаваемые динамически (делегирование на document).
+  function formatPhoneKZ(v) {
+    var d = String(v || '').replace(/\D/g, '');
+    if (!d) return '';
+    if (d[0] === '8') d = '7' + d.slice(1);   // 8 707 ... → 7 707 ...
+    if (d[0] !== '7') d = '7' + d;            // набрали без кода страны
+    d = d.slice(0, 11);
+    var out = '+7';
+    if (d.length > 1) out += ' ' + d.slice(1, 4);
+    if (d.length > 4) out += ' ' + d.slice(4, 7);
+    if (d.length > 7) out += '-' + d.slice(7, 9);
+    if (d.length > 9) out += '-' + d.slice(9, 11);
+    return out;
+  }
+  document.addEventListener('input', function(e){
+    var el = e.target;
+    if (!el || !el.matches || !el.matches('input[type="tel"]')) return;
+    // При удалении не переформатируем: иначе стёртый разделитель
+    // тут же возвращается и поле невозможно очистить.
+    if (e.inputType && e.inputType.indexOf('delete') === 0) return;
+    // Форматируем только когда курсор в конце — не мешаем правке середины.
+    if (el.selectionStart !== el.value.length) return;
+    var f = formatPhoneKZ(el.value);
+    if (f !== el.value) el.value = f;
+  });
+  // Email: подсветка некорректного адреса при уходе с поля.
+  document.addEventListener('blur', function(e){
+    var el = e.target;
+    if (!el || !el.matches || !el.matches('input[type="email"]')) return;
+    var v = el.value.trim();
+    var bad = v && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
+    el.style.borderColor = bad ? 'var(--danger, #dc3545)' : '';
+    el.title = bad ? 'Некорректный email: ожидается адрес вида name@domain.kz' : '';
+  }, true);
 
   // ── Константы ──────────────────────────────────────────────────────────
 
@@ -115,7 +207,7 @@
     {value:'другое',label:'Другое'},
   ];
 
-  var CONDITIONS = ['Здоров','Лёгкое','средней тяжести','тяжелое','крайне тяжелое','терминальное'];
+  var CONDITIONS = ['Здоров','Стабильное','Лёгкое','средней тяжести','тяжелое','крайне тяжелое','терминальное'];
 
   var DEATH_REASONS = [
     'По возрасту','По болезни','Экстренное состояние','Несчастный случай',
@@ -499,8 +591,17 @@
     return localDatetimeStr(new Date());
   }
 
-  function buildVisitFormHTML(serverTime, prefill) {
+  function buildVisitFormHTML(serverTime, prefill, allStaff) {
     prefill  = prefill || {};
+    // Врач: у существующего приёма — сохранённый, у нового — привязанный
+    // к текущему пользователю сотрудник. Иначе приём остаётся «без врача»
+    // и выпадает из отчёта по врачам.
+    var curStaffId = prefill.staff_id
+      || (!prefill.id && window.VetAuth && VetAuth.user() && VetAuth.user().staff_id)
+      || '';
+    var staffOpts = '<option value="">— не указан —</option>'
+      + (allStaff||[]).filter(function(s){ return !s.is_deleted && s.is_active!==false; })
+          .map(function(s){ return '<option value="'+esc(s.id)+'"'+(s.id===curStaffId?' selected':'')+'>'+esc(s.name)+'</option>'; }).join('');
     // Дата по умолчанию — текущее время Астаны (UTC+5)
     // Астана = UTC+5. Date.now() всегда UTC, добавляем 5 часов → toISOString даёт Астана-время.
     // НЕ используем getTimezoneOffset — зависит от настроек браузера, ломается на девайсах в других TZ.
@@ -557,6 +658,10 @@
                  placeholder="0 — не назначен" oninput="VetUI.recalcTreatment()">
           <div id="f-treatment-hint" class="form-hint"></div>
         </div>
+        <div class="form-group" style="flex:0 0 200px;">
+          <label class="form-label">Врач</label>
+          <select id="f-staff" class="form-select">${staffOpts}</select>
+        </div>
         <div class="form-group" style="flex:0 0 150px;">
           <label class="form-label">Вид приёма</label>
           <select id="f-visit-type" class="form-select">
@@ -592,8 +697,8 @@
         </div>
         <div>
           <div class="form-group" style="margin-bottom:12px;">
-            <label class="form-label">Лечение</label>
-            <textarea id="f-treatment" class="form-textarea vf-grow" rows="2" placeholder="Назначенное лечение..." oninput="VetUI._autoGrow(this)">${esc(prefill.treatment||'')}</textarea>
+            <label class="form-label">Назначение и рекомендации</label>
+            <textarea id="f-treatment" class="form-textarea vf-grow" rows="2" placeholder="Назначения, рекомендации..." oninput="VetUI._autoGrow(this)">${esc(prefill.treatment||'')}</textarea>
           </div>
           <div class="form-group">
             <label class="form-label">Примечания</label>
@@ -621,6 +726,10 @@
         <span class="text-muted text-sm">Итого:</span>
         <span class="vitems-total-amount" id="vitem-total">0 ₸</span>
       </div>
+      <div class="vitems-total-row" id="vitem-pay-row" style="display:none;">
+        <span class="text-muted text-sm">К оплате со скидкой:</span>
+        <span class="vitems-total-amount" id="vitem-total-pay" style="color:var(--accent);">0 ₸</span>
+      </div>
     </div>
 
     <!-- Оплата. Свёрнута по умолчанию: наличными платят чаще всего, и тогда
@@ -633,8 +742,14 @@
         <span class="vs-summary" id="vf-payment-summary">${prefill && prefill.payment_card ? 'картой ' + prefill.payment_card + ' ₸' : 'наличными'}</span>
         <span class="vf-section-arrow">▾</span>
       </div>
-      <div class="vf-section-body${prefill && prefill.payment_card ? '' : ' collapsed'}" id="vf-payment">
+      <div class="vf-section-body${prefill && (prefill.payment_card || prefill.discount) ? '' : ' collapsed'}" id="vf-payment">
         <div class="payment-row">
+          <div class="payment-field">
+            <label class="form-label">${I('cash')} Скидка, ₸</label>
+            <input id="f-discount" class="form-input" type="number" min="0" step="1"
+                   placeholder="0" value="${prefill && prefill.discount ? prefill.discount : 0}"
+                   oninput="VetUI._updatePaymentSummary()">
+          </div>
           <div class="payment-field">
             <label class="form-label">${I('card')} Оплата картой (безнал), ₸</label>
             <input id="f-payment-card" class="form-input" type="number" min="0" step="1"
@@ -687,7 +802,15 @@
     var doctorEl = document.getElementById('payment-doctor-display');
     if (!totalEl || !cardEl) return;
 
-    var total = parseFloat(totalEl.textContent) || 0;
+    var gross = parseFloat(totalEl.textContent) || 0;
+    // Скидка фиксированной суммой: итог к оплате не может уйти в минус.
+    var discEl = document.getElementById('f-discount');
+    var disc  = Math.max(0, Math.min(parseFloat(discEl && discEl.value) || 0, gross));
+    var total = Math.max(0, gross - disc);
+    var payRow = document.getElementById('vitem-pay-row');
+    var payEl  = document.getElementById('vitem-total-pay');
+    if (payRow) payRow.style.display = disc > 0 ? '' : 'none';
+    if (payEl)  payEl.textContent = total.toFixed(0) + ' ₸';
     var card  = Math.max(0, Math.min(parseFloat(cardEl.value) || 0, total));
     var cash  = Math.max(0, total - card);
 
@@ -1053,7 +1176,10 @@
     var aw=parseFloat(document.getElementById('f-animal-weight')?document.getElementById('f-animal-weight').value:'')||null;
     var nvd=document.getElementById('f-next-visit-date')?document.getElementById('f-next-visit-date').value:'';
     var paymentCard=parseFloat(document.getElementById('f-payment-card')?document.getElementById('f-payment-card').value:'')||0;
+    var discount=Math.max(0,parseFloat(document.getElementById('f-discount')?document.getElementById('f-discount').value:'')||0);
     return {
+      staff_id:document.getElementById('f-staff')?document.getElementById('f-staff').value:'',
+      discount:discount,
       owner:_vs.owner, ownerNew:ownerNew, ownerMode:_vs.ownerMode,
       pet:_vs.pet, petNew:petNew,
       date:document.getElementById('f-visit-date')?document.getElementById('f-visit-date').value:'',
@@ -1147,7 +1273,7 @@
   window.VetUI = {
     icon:icon, esc:esc, avatar:avatar,
     toast:toast, confirm:confirm,
-    showModal:showModal, hideModal:hideModal,
+    showModal:showModal, hideModal:hideModal, requestHideModal:requestHideModal,
     ownerFormHTML:ownerFormHTML, ownerFormData:ownerFormData,
     petFormHTML:petFormHTML, petFormData:petFormData, petFormAfterOpen:petFormAfterOpen,
     itemFormHTML:itemFormHTML, itemFormData:itemFormData, recalcItemCost:recalcItemCost,

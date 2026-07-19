@@ -562,12 +562,16 @@
     var totalAmount = itemsInput.reduce(function (sum, item) {
       return sum + (Number(item.quantity || 1) * Number(item.price || 0));
     }, 0);
+    // Скидка фиксированной суммой — как на сервере: итог не ниже нуля.
+    var discount = Math.max(0, Math.min(Number(visitInput.discount || 0), totalAmount));
+    totalAmount = Math.max(0, totalAmount - discount);
 
     var visitDate = normalizeDatetime(visitInput.date);
     var visit = await window.VetDB.save("visits", Object.assign({}, visitInput, {
       id:           visitInput.id || window.VetDB.uuid(),
       pet_id:       pet.id,
       total_amount: totalAmount,
+      discount:     discount,
       // Нормализуем дату в RFC3339 — браузер даёт "2025-05-17T14:00" без секунд
       date: visitDate,
       // Срок курса считаем здесь же: офлайн сервера нет, а без этой даты

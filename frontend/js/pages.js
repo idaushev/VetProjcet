@@ -570,7 +570,7 @@
 
     UI.showModal({
       title: 'Новый приём', size: 'full',
-      bodyHTML: UI.buildVisitFormHTML(serverTime, lastWeight ? { animal_weight: lastWeight } : null),
+      bodyHTML: UI.buildVisitFormHTML(serverTime, lastWeight ? { animal_weight: lastWeight } : null, data.staff||[]),
       saveLabel: 'Сохранить приём',
       afterOpen: function() {
         UI.initVisitForm(data.owners||[], data.pets||[], data.items||[], prefillOwner, prefillPet);
@@ -603,17 +603,21 @@
 
         if (!finalPet) { UI.toast('Выберите или создайте животное', 'err'); return; }
 
-        var totalAmount = vs.items.reduce(function(s,i){ return s + (i.total||0); }, 0);
+        var grossAmount = vs.items.reduce(function(s,i){ return s + (i.total||0); }, 0);
+        var discount = Math.min(vs.discount || 0, grossAmount);
+        var totalAmount = Math.max(0, grossAmount - discount);
         var body = {
           owner: finalOwner,
           pet:   { id: finalPet.id, name: finalPet.name, type: finalPet.type, gender: finalPet.gender||'m', owner_id: finalOwner.id },
           visit: {
             date: vs.date, next_visit_date: vs.next_visit_date||'',
+            staff_id: vs.staff_id || '',
             treatment_days: vs.treatment_days || 0,
             visit_type: vs.visit_type, animal_weight: vs.animal_weight,
             patient_condition: vs.condition,
             anamnesis: vs.anamnesis, diagnosis: vs.diagnosis,
-            treatment: vs.treatment, notes: vs.notes, total_amount: totalAmount, payment_card: vs.payment_card || 0,
+            treatment: vs.treatment, notes: vs.notes,
+            total_amount: totalAmount, discount: discount, payment_card: vs.payment_card || 0,
           },
           items: vs.items,
         };
@@ -652,7 +656,7 @@
     UI.showModal({
       title: 'Приём',
       size: 'full',
-      bodyHTML: UI.buildVisitFormHTML(serverTime, visit),
+      bodyHTML: UI.buildVisitFormHTML(serverTime, visit, data.staff||[]),
       saveLabel: 'Сохранить',
       afterOpen: function() {
         UI.initVisitForm(data.owners||[], data.pets||[], data.items||[], owner, pet);
@@ -726,6 +730,7 @@
             weight:    oldV.animal_weight ? String(oldV.animal_weight) : '',
             next:      oldV.next_visit_date  || '',
             card:      oldV.payment_card ? String(oldV.payment_card) : '0',
+            disc:      oldV.discount ? String(oldV.discount) : '0',
             total:     oldV.total_amount     || 0,
           };
         } catch(e2) {}
@@ -745,7 +750,9 @@
         }
         if (!finalPet) { UI.toast('Укажите животное', 'err'); return; }
 
-        var totalAmount = vs.items.reduce(function(s,i){ return s+(i.total||0); }, 0);
+        var grossAmount = vs.items.reduce(function(s,i){ return s+(i.total||0); }, 0);
+        var discount = Math.min(vs.discount || 0, grossAmount);
+        var totalAmount = Math.max(0, grossAmount - discount);
 
         // Загружаем актуальные позиции ДО основного try — чтобы ошибка не съела toast.
         // Объединяем closure-список (был при открытии) со свежим из IndexedDB.
@@ -764,13 +771,15 @@
           _prevVisitSnapshot = null;
           await api('PUT', '/visits/'+id, {
             pet_id: finalPet.id,
+            staff_id: vs.staff_id || '',
             date: vs.date, patient_condition: vs.condition,
             visit_type: vs.visit_type,
             animal_weight: vs.animal_weight,
             next_visit_date: vs.next_visit_date||'',
             treatment_days: vs.treatment_days || 0,
             anamnesis: vs.anamnesis, diagnosis: vs.diagnosis,
-            treatment: vs.treatment, notes: vs.notes, total_amount: totalAmount, payment_card: vs.payment_card || 0,
+            treatment: vs.treatment, notes: vs.notes,
+            total_amount: totalAmount, discount: discount, payment_card: vs.payment_card || 0,
             change_log: vs._change_log || '',
           });
           // Сохранение правки = удалить все позиции и создать заново.
@@ -835,7 +844,7 @@
     UI.showModal({
       title: 'Копия приёма',
       size: 'full',
-      bodyHTML: UI.buildVisitFormHTML(serverTime, prefill),
+      bodyHTML: UI.buildVisitFormHTML(serverTime, prefill, data.staff||[]),
       saveLabel: 'Сохранить приём',
       afterOpen: function() {
         UI.initVisitForm(data.owners||[], data.pets||[], data.items||[], owner, pet);
@@ -853,18 +862,21 @@
         if (!finalOwner) { UI.toast('Укажите владельца', 'err'); return; }
         if (!finalPet)   { UI.toast('Укажите животное', 'err'); return; }
 
-        var totalAmount = vs.items.reduce(function(s,i){ return s+(i.total||0); }, 0);
+        var grossAmount = vs.items.reduce(function(s,i){ return s+(i.total||0); }, 0);
+        var discount = Math.min(vs.discount || 0, grossAmount);
+        var totalAmount = Math.max(0, grossAmount - discount);
         var body = {
           owner: { id: finalOwner.id },
           pet:   { id: finalPet.id, name: finalPet.name, type: finalPet.type, gender: finalPet.gender||'m', owner_id: finalOwner.id },
           visit: {
             date: vs.date, next_visit_date: vs.next_visit_date||'',
+            staff_id: vs.staff_id || '',
             treatment_days: vs.treatment_days || 0,
             visit_type: vs.visit_type, animal_weight: vs.animal_weight,
             patient_condition: vs.condition,
             anamnesis: vs.anamnesis, diagnosis: vs.diagnosis,
             treatment: vs.treatment, notes: vs.notes,
-            total_amount: totalAmount, payment_card: vs.payment_card || 0,
+            total_amount: totalAmount, discount: discount, payment_card: vs.payment_card || 0,
           },
           items: vs.items,
         };
@@ -1126,7 +1138,9 @@
       }
       if (!Array.isArray(existing)) existing = [];
 
-      var newTotal = vsState.items ? vsState.items.reduce(function(s,i){return s+(i.total||0);},0) : 0;
+      var newGross = vsState.items ? vsState.items.reduce(function(s,i){return s+(i.total||0);},0) : 0;
+      var newDisc  = Math.min(vsState.discount || 0, newGross);
+      var newTotal = Math.max(0, newGross - newDisc);
 
       // Собираем ВСЕ поля нового состояния
       var newFields = {
@@ -1139,6 +1153,7 @@
         weight:    vsState.animal_weight ? String(vsState.animal_weight) : '',
         next:      vsState.next_visit_date || '',
         card:      vsState.payment_card    ? String(vsState.payment_card) : '0',
+        disc:      newDisc ? String(newDisc) : '0',
         total:     newTotal,
       };
       // Старые поля (из prevSnapshot)
@@ -1152,6 +1167,7 @@
         weight:    prev.weight ? String(prev.weight) : '',
         next:      prev.next  || '',
         card:      prev.card  ? String(prev.card) : '0',
+        disc:      prev.disc  ? String(prev.disc) : '0',
         total:     prev.total || 0,
       } : null;
 
@@ -1412,15 +1428,16 @@
         + '<div style="font-weight:700;margin-bottom:12px;color:var(--text-2);font-size:.8rem;text-transform:uppercase;letter-spacing:.5px;">История изменений</div>'
         + log.map(function(e, i) {
             var isFirst = i === 0;
-            var LABELS = {diag:'Диагноз',anamnesis:'Анамнез',treat:'Лечение',
+            var LABELS = {diag:'Диагноз',anamnesis:'Анамнез',treat:'Назначение и рекомендации',
               notes:'Примечания',cond:'Состояние',vtype:'Тип приёма',
-              weight:'Вес (кг)',next:'След. приём',card:'Карта (₸)',total:'Сумма (₸)'};
+              weight:'Вес (кг)',next:'След. приём',disc:'Скидка (₸)',card:'Карта (₸)',total:'Сумма (₸)'};
             var after  = e.after  || {diag:e.diag||'',treat:e.treat||'',total:e.total||0};
             var before = e.before || null;
             var diffs = [];
             Object.keys(LABELS).forEach(function(k){
-              var a = k==='total'||k==='card' ? Number(after[k]||0).toFixed(0)+' ₸' : (after[k]||'');
-              var b = before ? (k==='total'||k==='card' ? Number(before[k]||0).toFixed(0)+' ₸' : (before[k]||'')) : null;
+              var isMoney = k==='total'||k==='card'||k==='disc';
+              var a = isMoney ? Number(after[k]||0).toFixed(0)+' ₸' : (after[k]||'');
+              var b = before ? (isMoney ? Number(before[k]||0).toFixed(0)+' ₸' : (before[k]||'')) : null;
               var d = diffRow(LABELS[k], b, a);
               if (d) diffs.push(d);
             });
@@ -2460,7 +2477,8 @@ ${services.length ? `<div class="section">
         +'</div></li>';
     }).join('')}
   </ul>
-  <div style="text-align:right;margin-top:8px;font-weight:700;font-size:12pt;color:#1a8c5e;">
+  ${visit.discount ? '<div style="text-align:right;margin-top:8px;font-size:10pt;color:#666;">Скидка: −'+fmtMoney(visit.discount)+'</div>' : ''}
+  <div style="text-align:right;margin-top:${visit.discount?'2':'8'}px;font-weight:700;font-size:12pt;color:#1a8c5e;">
     Итого: ${fmtMoney(visit.total_amount||0)}
   </div>
 </div>` : ''}
@@ -2869,7 +2887,7 @@ ${visit.notes ? `<div class="section">
       // Визиты
       +(petVisits.length
         ?'<div class="section-title">История визитов ('+petVisits.length+')</div>'
-         +'<table><thead><tr><th>Дата</th><th>Тип</th><th>Диагноз</th><th>Лечение</th><th>Сумма</th></tr></thead><tbody>'+visitsRows+'</tbody></table>'
+         +'<table><thead><tr><th>Дата</th><th>Тип</th><th>Диагноз</th><th>Назначения</th><th>Сумма</th></tr></thead><tbody>'+visitsRows+'</tbody></table>'
          +(petVisits.length>8?'<div style="font-size:9pt;color:#93a5b6;margin-top:6px;text-align:right">Показаны последние 8 из '+petVisits.length+'</div>':'')
         :'<div style="color:#93a5b6;margin:10px 0;">Визитов нет</div>')
       // Вакцинации
@@ -3359,7 +3377,7 @@ ${visit.notes ? `<div class="section">
 
     // Визиты
     body += '<div id="htab-visits">'
-      + '<table class="history-table"><thead><tr><th>Дата</th><th>Тип</th><th>Диагноз</th><th>Лечение</th><th>Вес</th><th>Сл. приём</th></tr></thead><tbody>'
+      + '<table class="history-table"><thead><tr><th>Дата</th><th>Тип</th><th>Диагноз</th><th>Назначения</th><th>Вес</th><th>Сл. приём</th></tr></thead><tbody>'
       + petVisits.map(function(v){
           return '<tr>'
             +'<td>'+fmtDate(v.date)+'</td>'
