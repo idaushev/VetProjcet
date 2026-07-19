@@ -1,0 +1,36 @@
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go caches
+.gocache/
+.gomodcache/
+.gotelemetry/
+
+# Logs
+*.log
+*.err
+server.log
+server.err.log
+
+# Local databases and runtime data
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Local certificates and secrets
+*.key
+*-key.pem
+key.pem
+cert.pem
+rootCA.pem
+ADMIN-PASSWORD.txt
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

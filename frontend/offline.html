@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#1a8c5e">
+  <title>VetClinic — Офлайн режим</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f0f4f9;
+      color: #1a2434;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .card {
+      background: #ffffff;
+      border-radius: 24px;
+      padding: 48px 40px 40px;
+      max-width: 460px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 4px 24px rgba(12,30,60,.1), 0 1px 6px rgba(12,30,60,.06);
+      border: 1px solid #e0e8f2;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Зелёная полоска сверху */
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 4px;
+      background: linear-gradient(90deg, #1a8c5e, #2dd4a0, #1a9fd4);
+    }
+
+    .logo {
+      width: 80px; height: 80px;
+      background: #eaf5ee;
+      border-radius: 24px;
+      border: 2px solid rgba(26,140,94,.2);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 24px;
+      font-size: 36px;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 800;
+      margin-bottom: 10px;
+      color: #1a2434;
+      letter-spacing: -.3px;
+    }
+
+    .subtitle {
+      font-size: .95rem;
+      color: #526070;
+      line-height: 1.65;
+      margin-bottom: 28px;
+    }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 28px;
+    }
+
+    .status-item {
+      background: #f7fafd;
+      border: 1px solid #e0e8f2;
+      border-radius: 12px;
+      padding: 12px 14px;
+      text-align: left;
+    }
+
+    .status-icon  { font-size: 1.4rem; margin-bottom: 4px; display: block; }
+    .status-label { font-size: .72rem; font-weight: 700; color: #93a5b6; text-transform: uppercase; letter-spacing: .4px; }
+    .status-value { font-size: .82rem; font-weight: 600; color: #1a2434; margin-top: 2px; }
+    .status-ok    { color: #1a8c5e !important; }
+    .status-warn  { color: #c97a0a !important; }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #1a8c5e;
+      color: #ffffff;
+      border: none;
+      height: 50px;
+      padding: 0 28px;
+      border-radius: 999px;
+      font-size: .95rem;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+      box-shadow: 0 2px 8px rgba(26,140,94,.3);
+      transition: background .18s, transform .12s;
+      margin-bottom: 14px;
+    }
+    .btn-primary:hover { background: #14714b; transform: translateY(-1px); }
+    .btn-primary:active { transform: translateY(0); }
+
+    .hint {
+      font-size: .8rem;
+      color: #93a5b6;
+      line-height: 1.5;
+    }
+
+    .hint a { color: #1a8c5e; text-decoration: none; font-weight: 600; }
+    .hint a:hover { text-decoration: underline; }
+
+    .db-counts {
+      margin: 16px 0 0;
+      font-size: .82rem;
+      color: #526070;
+      line-height: 1.6;
+    }
+
+    @media (max-width: 480px) {
+      .card { padding: 36px 24px 32px; border-radius: 20px; }
+      .status-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <div class="logo">🏥</div>
+
+  <h1>Нет подключения к сети</h1>
+  <p class="subtitle">
+    VetClinic работает в офлайн-режиме. Все сохранённые данные
+    доступны. Синхронизация произойдёт автоматически при восстановлении соединения.
+  </p>
+
+  <div class="status-grid">
+    <div class="status-item">
+      <span class="status-icon">📱</span>
+      <div class="status-label">Приложение</div>
+      <div class="status-value status-ok" id="sw-status">Загрузка…</div>
+    </div>
+    <div class="status-item">
+      <span class="status-icon">🗄️</span>
+      <div class="status-label">База данных</div>
+      <div class="status-value status-ok" id="db-status">Загрузка…</div>
+    </div>
+    <div class="status-item">
+      <span class="status-icon">🌐</span>
+      <div class="status-label">Сеть</div>
+      <div class="status-value status-warn" id="net-status">Недоступна</div>
+    </div>
+    <div class="status-item">
+      <span class="status-icon">🔄</span>
+      <div class="status-label">Ожидает синхронизации</div>
+      <div class="status-value" id="pending-status">Проверка…</div>
+    </div>
+  </div>
+
+  <button class="btn-primary" onclick="tryReload()">
+    <span>↺</span> Попробовать снова
+  </button>
+
+  <div class="hint">
+    Или <a href="/">откройте главную страницу</a> — данные
+    загрузятся из локального хранилища.
+  </div>
+
+  <div class="db-counts" id="db-counts"></div>
+</div>
+
+<script>
+(function () {
+  // Проверка Service Worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.ready.then(function () {
+      document.getElementById('sw-status').textContent = 'Установлен ✓';
+    }).catch(function () {
+      document.getElementById('sw-status').textContent = 'Не установлен';
+      document.getElementById('sw-status').className = 'status-value status-warn';
+    });
+  } else {
+    document.getElementById('sw-status').textContent = 'Не поддерживается';
+  }
+
+  // Проверка сети
+  function updateNetStatus() {
+    var el = document.getElementById('net-status');
+    if (navigator.onLine) {
+      el.textContent = 'Восстановлена ✓';
+      el.className = 'status-value status-ok';
+    } else {
+      el.textContent = 'Недоступна';
+      el.className = 'status-value status-warn';
+    }
+  }
+  updateNetStatus();
+  window.addEventListener('online',  function () { updateNetStatus(); setTimeout(function(){ location.href = '/'; }, 1500); });
+  window.addEventListener('offline', updateNetStatus);
+
+  // Проверка IndexedDB
+  try {
+    var req = indexedDB.open('vetclinic-pwa', 1);
+    req.onsuccess = function () {
+      document.getElementById('db-status').textContent = 'Доступна ✓';
+      var db = req.result;
+      var stores = Array.from(db.objectStoreNames);
+      var counts = [];
+      var tx = db.transaction(stores.filter(function(s){ return ['owners','pets','visits','vaccinations'].includes(s); }), 'readonly');
+      var results = {};
+      var pending = 0;
+
+      ['owners','pets','visits','vaccinations'].forEach(function(store) {
+        if (!db.objectStoreNames.contains(store)) return;
+        pending++;
+        var r = tx.objectStore(store).count();
+        r.onsuccess = function () {
+          results[store] = r.result;
+          pending--;
+          if (pending === 0) {
+            var lines = [];
+            if (results.owners)       lines.push('Владельцев: ' + results.owners);
+            if (results.pets)         lines.push('Животных: '  + results.pets);
+            if (results.visits)       lines.push('Приёмов: '   + results.visits);
+            if (results.vaccinations) lines.push('Вакцинаций: '+ results.vaccinations);
+            if (lines.length) {
+              document.getElementById('db-counts').textContent = '📊 В локальной базе: ' + lines.join(' · ');
+            }
+          }
+        };
+      });
+
+      // Pending sync count
+      if (db.objectStoreNames.contains('owners')) {
+        var pendingCount = 0;
+        ['owners','pets','visits','vaccinations'].forEach(function(store) {
+          if (!db.objectStoreNames.contains(store)) return;
+          var tx2 = db.transaction(store, 'readonly');
+          var idx = tx2.objectStore(store).index('sync_status');
+          var r2  = idx.count(IDBKeyRange.only('pending'));
+          r2.onsuccess = function () {
+            pendingCount += r2.result;
+            var el = document.getElementById('pending-status');
+            el.textContent = pendingCount > 0
+              ? pendingCount + ' записей ↑'
+              : 'Всё синхронизировано ✓';
+            el.className = 'status-value ' + (pendingCount > 0 ? '' : 'status-ok');
+          };
+        });
+      } else {
+        document.getElementById('pending-status').textContent = 'Данных нет';
+      }
+    };
+    req.onerror = function () {
+      document.getElementById('db-status').textContent = 'Ошибка доступа';
+      document.getElementById('db-status').className = 'status-value status-warn';
+    };
+  } catch(e) {
+    document.getElementById('db-status').textContent = 'Не поддерживается';
+  }
+
+  function tryReload() {
+    if (navigator.onLine) {
+      location.href = '/';
+    } else {
+      location.reload();
+    }
+  }
+  window.tryReload = tryReload;
+}());
+</script>
+</body>
+</html>

@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="VetClinic">
+  <meta name="description" content="Система управления ветеринарной клиникой">
+  <title>VetClinic</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <!-- Inter — локальная копия. С CDN шрифт в клинике без интернета не грузился,
+       и планшет рисовал Roboto: другая ширина букв, поехавшая вёрстка. -->
+  <link rel="preload" href="/vendor/fonts/inter-cyrillic-400.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/vendor/fonts/inter-cyrillic-600.woff2" as="font" type="font/woff2" crossorigin>
+  <link href="/vendor/fonts/inter.css" rel="stylesheet">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Экран входа. Виден, пока VetAuth не подтвердит пользователя. ── -->
+  <div id="login-screen" style="display:none;">
+    <form id="login-form" class="login-card" autocomplete="on">
+      <div class="login-logo">
+        <svg viewBox="0 0 36 36" width="52" height="52" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="18" cy="18" r="17" fill="#eaf5ee"/>
+          <circle cx="18" cy="18" r="17" stroke="#1a8c5e" stroke-width="1.2" opacity=".35"/>
+          <path d="M11 13 C11 10.2 13.2 8 16 8 C18.8 8 21 10.2 21 13 L21 17 C21 20.3 18.3 23 15 23" stroke="#1a8c5e" stroke-width="2" stroke-linecap="round" fill="none"/>
+          <path d="M15 23 C15 23 12 23.5 11 26 C10 28.5 12 29 13 28.5" stroke="#1a8c5e" stroke-width="2" stroke-linecap="round" fill="none"/>
+          <circle cx="21" cy="24" r="3.5" fill="#1a8c5e"/>
+          <circle cx="21" cy="24" r="1.8" fill="white"/>
+        </svg>
+        <div class="login-title">VetClinic</div>
+      </div>
+      <div id="login-error" class="login-error" style="display:none;"></div>
+      <div class="form-group">
+        <label class="form-label" for="login-login">Логин</label>
+        <input id="login-login" class="form-input" autocomplete="username" autocapitalize="none">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="login-password">Пароль</label>
+        <input id="login-password" class="form-input" type="password" autocomplete="current-password">
+      </div>
+      <button id="login-submit" class="btn btn-primary" type="submit" style="width:100%;margin-top:6px;">Войти</button>
+      <div class="login-hint">Первый вход на устройстве требует связи с сервером.<br>Дальше можно входить без сети.</div>
+    </form>
+  </div>
+
+  <!-- ── Topbar ───────────────────────────────────────────────────── -->
+  <header class="topbar" role="banner">
+    <button class="topbar-toggle" id="sidebar-toggle" aria-label="Сайдбар">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+        <rect x="3" y="3" width="7" height="18" rx="2"/>
+        <path d="M14 7h7M14 12h7M14 17h7"/>
+      </svg>
+    </button>
+    <div class="topbar-logo" onclick="navigate('dashboard')" role="button" title="Перейти на главную" tabindex="0" onkeydown="if(event.key==='Enter')navigate('dashboard')">
+      <!-- Логотип адаптирован под светлую медицинскую тему -->
+      <svg class="topbar-logo-svg" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="18" cy="18" r="17" fill="#eaf5ee"/>
+        <circle cx="18" cy="18" r="17" stroke="#1a8c5e" stroke-width="1.2" opacity=".35"/>
+        <!-- Стетоскоп — медицинский символ -->
+        <path d="M11 13 C11 10.2 13.2 8 16 8 C18.8 8 21 10.2 21 13 L21 17 C21 20.3 18.3 23 15 23" stroke="#1a8c5e" stroke-width="2" stroke-linecap="round" fill="none"/>
+        <path d="M15 23 C15 23 12 23.5 11 26 C10 28.5 12 29 13 28.5" stroke="#1a8c5e" stroke-width="2" stroke-linecap="round" fill="none"/>
+        <circle cx="21" cy="24" r="3.5" fill="#1a8c5e"/>
+        <circle cx="21" cy="24" r="1.8" fill="white"/>
+      </svg>
+      <span class="topbar-title">VetClinic</span>
+    </div>
+    <div class="topbar-spacer"></div>
+    <!-- #pwa-sync-status вставляется через app.js -->
+  </header>
+
+  <div class="layout">
+
+    <!-- Sidebar overlay (mobile) -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <!-- ── Sidebar ──────────────────────────────────────────────────── -->
+    <nav class="sidebar" id="sidebar" role="navigation">
+
+      <!-- Шапка сайдбара с логотипом. Видна только в выдвижном режиме
+           (на планшете/телефоне): меню теперь выезжает на всю высоту экрана
+           и перекрывает topbar, поэтому логотип нужен внутри.
+           На десктопе логотип уже есть в topbar — тут он скрыт. -->
+      <div class="sidebar-brand" onclick="navigate('dashboard')" role="button" tabindex="0"
+           title="На главную" onkeydown="if(event.key==='Enter')navigate('dashboard')">
+        <svg class="topbar-logo-svg" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="18" cy="18" r="17" fill="#eaf5ee"/>
+          <circle cx="18" cy="18" r="17" stroke="#1a8c5e" stroke-width="1.2" opacity=".35"/>
+          <path d="M11 13 C11 10.2 13.2 8 16 8 C18.8 8 21 10.2 21 13 L21 17 C21 20.3 18.3 23 15 23" stroke="#1a8c5e" stroke-width="2" stroke-linecap="round" fill="none"/>
+          <path d="M15 23 C15 23 12 23.5 11 26 C10 28.5 12 29 13 28.5" stroke="#1a8c5e" stroke-width="2" stroke-linecap="round" fill="none"/>
+          <circle cx="21" cy="24" r="3.5" fill="#1a8c5e"/>
+          <circle cx="21" cy="24" r="1.8" fill="white"/>
+        </svg>
+        <span class="topbar-title">VetClinic</span>
+      </div>
+
+      <!-- nav-scroll: скроллируемая область, sync-wrap зафиксирован снизу -->
+      <div class="sidebar-nav">
+
+      <!-- Группа: Клиника (сворачиваемая) -->
+      <div class="ss-group" id="ssg-clinic">
+        <div class="sidebar-section-label ss-label" onclick="toggleSSGroup('ssg-clinic')">
+          <span class="nav-text">Клиника</span>
+          <span class="ss-arrow">▾</span>
+        </div>
+        <ul class="nav-list ss-body">
+          <li>
+            <a class="nav-item active" data-page="dashboard" href="#dashboard" aria-current="page" title="Обзор">
+              <i data-icon="grid" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Обзор</span>
+            </a>
+          </li>
+          <li>
+            <a class="nav-item" data-page="visits" href="#visits" title="Приёмы">
+              <i data-icon="clipboard" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Приёмы</span>
+            </a>
+          </li>
+          <li>
+            <a class="nav-item" data-page="owners" href="#owners" title="Владельцы">
+              <i data-icon="users" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Владельцы</span>
+            </a>
+          </li>
+          <li>
+            <a class="nav-item" data-page="pets" href="#pets" title="Животные">
+              <i data-icon="paw" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Животные</span>
+            </a>
+          </li>
+          <li>
+            <a class="nav-item" data-page="vaccinations" href="#vaccinations" title="Вакцинации">
+              <i data-icon="syringe" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Вакцинации</span>
+            </a>
+          </li>
+          <li>
+            <a class="nav-item" data-page="chips" href="#chips" title="Чипирование">
+              <i data-icon="tag" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Чипирование</span>
+            </a>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Группа: Отчёты -->
+      <div class="ss-group" id="ssg-analytics">
+        <div class="sidebar-section-label ss-label" onclick="toggleSSGroup('ssg-analytics')">
+          <span class="nav-text">Отчёты</span>
+          <span class="ss-arrow">▾</span>
+        </div>
+        <ul class="nav-list ss-body">
+          <li>
+            <a class="nav-item" data-page="report-daily" href="#report-daily" title="Отчёт за день">
+              <i data-icon="chart" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Отчёт за день</span>
+            </a>
+          </li>
+          <li>
+            <a class="nav-item" data-page="report-revenue" href="#report-revenue" title="Выручка за период">
+              <i data-icon="cash" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Выручка за период</span>
+            </a>
+          </li>
+          <li>
+            <a class="nav-item" data-page="report-upcoming" href="#report-upcoming" title="Предстоящие приёмы">
+              <i data-icon="calendar" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Предстоящие приёмы</span>
+            </a>
+          </li>
+          <li>
+            <a class="nav-item" data-page="report-noshows" href="#report-noshows" title="Не пришли">
+              <i data-icon="alert" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Не пришли</span>
+            </a>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Группа: Справочник -->
+      <div class="ss-group" id="ssg-catalog">
+        <div class="sidebar-section-label ss-label" onclick="toggleSSGroup('ssg-catalog')">
+          <span class="nav-text">Справочник</span>
+          <span class="ss-arrow">▾</span>
+        </div>
+        <ul class="nav-list ss-body">
+          <li>
+            <a class="nav-item" data-page="items" href="#items" title="Каталог">
+              <i data-icon="box" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Каталог</span>
+            </a>
+          </li>
+          <li>
+            <a class="nav-item" data-page="staff" href="#staff" title="Персонал">
+              <i data-icon="stethoscope" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Персонал</span>
+            </a>
+          </li>
+          <li class="admin-only">
+            <a class="nav-item" data-page="users" href="#users" title="Пользователи">
+              <i data-icon="user" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Пользователи</span>
+            </a>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Настройки — всегда в низу навигации -->
+      <div class="ss-group" id="ssg-settings">
+        <ul class="nav-list ss-body" style="padding-top:0">
+          <li>
+            <a class="nav-item" data-page="settings" href="#settings" title="Настройки клиники">
+              <i data-icon="settings" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Настройки</span>
+            </a>
+          </li>
+        </ul>
+      </div>
+
+      </div><!-- /sidebar-nav -->
+
+      <!-- ── Текущий пользователь ──────────────────────────────────── -->
+      <div class="sidebar-user">
+        <div class="sidebar-user-info nav-text">
+          <span class="sidebar-user-name" id="current-user-name">—</span>
+          <span class="sidebar-user-role" id="current-user-role"></span>
+        </div>
+        <button class="btn btn-icon" id="btn-logout" title="Выйти">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></svg>
+        </button>
+      </div>
+
+      <!-- ── Кнопка синхронизации (низ сайдбара) ──────────────────── -->
+      <div class="sidebar-sync-wrap">
+        <button class="sidebar-sync-btn" id="sidebar-sync-btn"
+                data-state="offline" title="Синхронизация с сервером"
+                aria-label="Статус подключения и синхронизация">
+
+          <!-- Иконка-статус -->
+          <div class="sidebar-sync-icon" id="sidebar-sync-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+            </svg>
+          </div>
+
+          <!-- Текстовый блок (скрывается в rail-режиме) -->
+          <div class="sidebar-sync-info nav-text">
+            <span class="sidebar-sync-status" id="sidebar-sync-status">Офлайн</span>
+            <span class="sidebar-sync-time"   id="sidebar-sync-time">Синхронизаций не было</span>
+          </div>
+
+          <!-- Кнопка ручного запуска -->
+          <div class="sidebar-sync-trigger nav-text" id="sidebar-sync-trigger" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 4v6h6"/><path d="M23 20v-6h-6"/>
+              <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4-4.64 4.36A9 9 0 0 1 3.51 15"/>
+            </svg>
+          </div>
+        </button>
+
+        <div class="sidebar-version nav-text">VetClinic v2.0 · offline-first</div>
+      </div>
+    </nav>
+
+    <!-- ── Main ─────────────────────────────────────────────────────── -->
+    <main class="main" id="main" role="main">
+
+      <!-- Dashboard -->
+      <section class="page active" id="page-dashboard">
+        <div class="page-header">
+          <h1 class="page-title">Обзор</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" onclick="VetPages.init('visits');navigate('visits');setTimeout(function(){document.getElementById('btn-add-visit').click();},200)">
+              + Новый приём
+            </button>
+          </div>
+        </div>
+        <div class="page-inner">
+          <div class="stats-grid">
+            <div class="stat-card stat-card-link"
+                 onclick="if(window.VetPages)VetPages.goVisitsToday()"
+                 title="Открыть список приёмов за сегодня">
+              <div class="stat-value" id="stat-visits-today">—</div>
+              <div class="stat-label">Приёмов сегодня ↗</div>
+            </div>
+            <div class="stat-card stat-card-link"
+                 onclick="if(window.VetPages)VetPages.goOnTreatment()"
+                 title="Показать животных с активным курсом лечения">
+              <div class="stat-value" id="stat-on-treatment">—</div>
+              <div class="stat-label">На лечении ↗</div>
+            </div>
+            <div class="stat-card stat-card-link"
+                 onclick="if(window.VetPages)VetPages.goVaccThisWeek()"
+                 title="Открыть вакцинации на этой неделе">
+              <div class="stat-value" id="stat-vaccinations-due">—</div>
+              <div class="stat-label">Вакцинаций на неделе ↗</div>
+            </div>
+          </div>
+
+          <!-- Виджеты: на широких экранах в две колонки, на планшете/узких — в одну.
+               Раскладку держит .dash-grid, см. CSS. -->
+          <div class="dash-grid">
+            <div class="card">
+              <div class="card-header">
+                <span class="card-title">Последние приёмы</span>
+                <a class="btn btn-sm btn-ghost" onclick="navigate('visits')">Все приёмы →</a>
+              </div>
+              <div class="card-body">
+                <div id="recent-visits" class="recent-list"><div class="list-empty">Загрузка...</div></div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <span class="card-title">На лечении</span>
+                <a class="btn btn-sm btn-ghost" onclick="if(window.VetPages)VetPages.goOnTreatment()">Все →</a>
+              </div>
+              <div class="card-body">
+                <div id="dash-treatment" class="recent-list"><div class="list-empty">Загрузка...</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Owners -->
+      <section class="page" id="page-owners">
+        <div class="page-header">
+          <h1 class="page-title">Владельцы</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" id="btn-add-owner">+ Добавить</button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <div class="toolbar-search">
+            <i data-icon="search" data-icon-size="18" class="toolbar-search-icon"></i>
+            <input type="search" class="search-input" id="search-owners" placeholder="Поиск по имени, телефону, ИИН...">
+          </div>
+        </div>
+        <div id="owners-list" class="entity-list"></div>
+      </section>
+
+      <!-- Pets -->
+      <section class="page" id="page-pets">
+        <div class="page-header">
+          <h1 class="page-title">Животные</h1>
+          <div class="page-actions">
+            <select class="filter-select" id="filter-pet-status" aria-label="Статус">
+              <option value="active">Активные</option>
+              <option value="on-treatment">На лечении</option>
+              <option value="deceased">Умершие</option>
+              <option value="all">Все</option>
+            </select>
+            <select class="filter-select" id="filter-owner-id" style="max-width:180px;" aria-label="Владелец">
+              <option value="">Все владельцы</option>
+            </select>
+            <button class="btn btn-primary" id="btn-add-pet">+ Добавить</button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <div class="toolbar-search">
+            <i data-icon="search" data-icon-size="18" class="toolbar-search-icon"></i>
+            <input type="search" class="search-input" id="search-pets" placeholder="Поиск по кличке, породе, № чипа...">
+          </div>
+        </div>
+        <div id="pets-list" class="entity-list"></div>
+      </section>
+
+      <!-- Visits -->
+      <section class="page" id="page-visits">
+        <div class="page-header">
+          <h1 class="page-title">Приёмы</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" id="btn-add-visit">+ Новый приём</button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <div class="toolbar-search">
+            <i data-icon="search" data-icon-size="18" class="toolbar-search-icon"></i>
+            <input type="search" class="search-input" id="search-visits" placeholder="Поиск по диагнозу, пациенту...">
+          </div>
+          <div id="visit-date-filter" class="flex-gap">
+            <button class="filter-btn active" data-period="all">Все</button>
+            <button class="filter-btn" data-period="today">Сегодня</button>
+            <button class="filter-btn" data-period="week">Неделя</button>
+          </div>
+        </div>
+        <div id="visits-list" class="entity-list"></div>
+      </section>
+
+      <!-- Vaccinations -->
+      <section class="page" id="page-vaccinations">
+        <div class="page-header">
+          <h1 class="page-title">Вакцинации</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" id="btn-add-vaccination">+ Добавить</button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <div class="toolbar-search">
+            <i data-icon="search" data-icon-size="18" class="toolbar-search-icon"></i>
+            <input type="search" class="search-input" id="search-vaccinations" placeholder="Поиск по вакцине, животному...">
+          </div>
+          <select class="filter-select" id="filter-vacc-date" aria-label="Период">
+            <option value="all">Все</option>
+            <option value="week">Ближайшие 7 дней</option>
+            <option value="overdue">Просроченные</option>
+          </select>
+        </div>
+        <div id="vaccinations-list" class="entity-list"></div>
+      </section>
+
+      <!-- Report: Daily -->
+      <section class="page" id="page-report-daily">
+        <div class="page-header">
+          <h1 class="page-title">Отчёт за день</h1>
+          <div class="page-actions">
+            <button class="btn btn-ghost" id="btn-print-report" style="display:none" onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
+          </div>
+        </div>
+        <div class="page-inner">
+          <div class="report-controls">
+            <div class="form-group">
+              <label class="form-label">Дата</label>
+              <input type="date" id="report-date" class="form-input" style="width:180px;">
+            </div>
+            <button class="btn btn-primary" id="btn-generate-report">Сформировать</button>
+          </div>
+          <div id="report-content"></div>
+        </div>
+      </section>
+
+      <!-- Report: Upcoming -->
+      <!-- Отчёт: выручка за период -->
+      <section class="page" id="page-report-revenue">
+        <div class="page-header">
+          <h1 class="page-title">Выручка за период</h1>
+          <div class="page-actions">
+            <button class="btn btn-ghost" id="btn-print-revenue" style="display:none" onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
+          </div>
+        </div>
+        <div class="page-inner">
+          <div class="report-controls">
+            <div class="form-group">
+              <label class="form-label">С</label>
+              <input type="date" id="revenue-from" class="form-input" style="width:170px;">
+            </div>
+            <div class="form-group">
+              <label class="form-label">По</label>
+              <input type="date" id="revenue-to" class="form-input" style="width:170px;">
+            </div>
+            <div class="revenue-presets">
+              <button class="btn btn-sm btn-ghost" data-preset="week">Неделя</button>
+              <button class="btn btn-sm btn-ghost" data-preset="month">Месяц</button>
+              <button class="btn btn-sm btn-ghost" data-preset="prev-month">Пред. месяц</button>
+            </div>
+            <button class="btn btn-primary" id="btn-generate-revenue">Сформировать</button>
+          </div>
+          <div id="revenue-content"></div>
+        </div>
+      </section>
+
+      <section class="page" id="page-report-upcoming">
+        <div class="page-header">
+          <h1 class="page-title">Предстоящие приёмы</h1>
+          <div class="page-actions">
+            <button class="btn btn-ghost" id="btn-print-upcoming" style="display:none" onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
+          </div>
+        </div>
+        <div class="page-inner">
+          <div class="report-controls">
+            <div class="form-group">
+              <label class="form-label">Период</label>
+              <select id="upcoming-days" class="filter-select">
+                <option value="7">7 дней</option>
+                <option value="14">14 дней</option>
+                <option value="30" selected>30 дней</option>
+                <option value="60">60 дней</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" id="btn-gen-upcoming">Сформировать</button>
+          </div>
+          <div id="upcoming-content"></div>
+        </div>
+      </section>
+
+      <!-- Report: No-Shows -->
+      <section class="page" id="page-report-noshows">
+        <div class="page-header">
+          <h1 class="page-title">Не пришли на приём</h1>
+          <div class="page-actions">
+            <button class="btn btn-ghost" id="btn-print-noshows" style="display:none" onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
+          </div>
+        </div>
+        <div class="page-inner">
+          <div class="report-controls">
+            <span class="text-sm text-muted">Клиенты, у которых прошла дата следующего приёма, но они ещё не пришли</span>
+            <button class="btn btn-primary" id="btn-gen-noshows">Сформировать</button>
+          </div>
+          <div id="noshows-content"></div>
+        </div>
+      </section>
+
+      <!-- Items / Catalog -->
+      <section class="page" id="page-items">
+        <div class="page-header">
+          <h1 class="page-title">Каталог</h1>
+          <div class="page-actions">
+            <button class="btn btn-ghost" onclick="VetPages.downloadItemTemplate()" title="Скачать шаблон Excel">
+              <svg style="width:15px;height:15px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Шаблон
+            </button>
+            <label class="btn btn-ghost" style="cursor:pointer;" title="Загрузить из Excel">
+              <svg style="width:15px;height:15px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Импорт Excel
+              <input type="file" id="excel-import-input" accept=".xlsx,.xls" style="display:none" onchange="VetPages.importItemsExcel(this)">
+            </label>
+            <button class="btn btn-primary" id="btn-add-item">+ Добавить</button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <div class="toolbar-search">
+            <i data-icon="search" data-icon-size="18" class="toolbar-search-icon"></i>
+            <input type="search" class="search-input" id="search-items" placeholder="Поиск услуги или препарата...">
+          </div>
+          <div id="item-type-filter" class="flex-gap">
+            <button class="filter-btn active" data-type="all">Все</button>
+            <button class="filter-btn" data-type="service">Услуги</button>
+            <button class="filter-btn" data-type="drug">Препараты</button>
+          </div>
+        </div>
+        <div id="items-list" class="entity-list"></div>
+      </section>
+
+      <!-- Staff -->
+      <section class="page" id="page-staff">
+        <div class="page-header">
+          <h1 class="page-title">Персонал</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" id="btn-add-staff">+ Добавить</button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <div class="toolbar-search">
+            <i data-icon="search" data-icon-size="18" class="toolbar-search-icon"></i>
+            <input type="search" class="search-input" id="search-staff" placeholder="Поиск по имени, должности...">
+          </div>
+        </div>
+        <div id="staff-list" class="entity-list"></div>
+      </section>
+
+      <!-- Chips (чипирование) -->
+      <section class="page" id="page-chips">
+        <div class="page-header">
+          <h1 class="page-title">Чипирование</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" id="btn-chip-pet">+ Чипировать</button>
+          </div>
+        </div>
+        <div class="page-inner">
+          <div class="stats-grid" id="chip-stats">
+            <div class="stat-card"><div class="stat-value" id="chip-stat-total">—</div><div class="stat-label">С чипом</div></div>
+            <div class="stat-card"><div class="stat-value" id="chip-stat-none">—</div><div class="stat-label">Без чипа</div></div>
+            <div class="stat-card"><div class="stat-value" id="chip-stat-month">—</div><div class="stat-label">Чипировано за 30 дней</div></div>
+          </div>
+          <div class="toolbar" style="padding-left:0;padding-right:0;">
+            <div class="toolbar-search">
+              <i data-icon="search" data-icon-size="18" class="toolbar-search-icon"></i>
+              <input type="search" class="search-input" id="search-chips"
+                     inputmode="numeric" placeholder="Номер чипа, кличка или владелец...">
+            </div>
+          </div>
+          <div id="chips-list" class="entity-list"></div>
+        </div>
+      </section>
+
+      <!-- Users (админка) -->
+      <section class="page" id="page-users">
+        <div class="page-header">
+          <h1 class="page-title">Пользователи</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" id="btn-add-user">+ Добавить</button>
+          </div>
+        </div>
+        <div class="page-inner">
+          <div class="text-sm text-muted" style="margin-bottom:10px;">
+            Учётные записи для входа. Пользователь не обязан быть врачом:
+            связь с сотрудником — по желанию. Управление требует связи с сервером.
+          </div>
+          <div id="users-list" class="entity-list"></div>
+        </div>
+      </section>
+
+      <!-- Settings -->
+      <section class="page" id="page-settings">
+        <div class="page-header">
+          <h1 class="page-title">Настройки клиники</h1>
+        </div>
+        <div class="page-inner">
+          <div class="card" style="max-width:680px;">
+            <div class="card-header"><span class="card-title">Реквизиты для печатных форм</span></div>
+            <div class="card-body" style="padding:20px;">
+              <div class="form-grid">
+                <div class="form-group form-span-2">
+                  <label class="form-label">Название клиники</label>
+                  <input id="s-clinic-name" class="form-input" placeholder="Ветеринарная клиника VetClinic">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Телефон</label>
+                  <input id="s-clinic-phone" class="form-input" type="tel" placeholder="+7 777 000 0000">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Адрес</label>
+                  <input id="s-clinic-address" class="form-input" placeholder="г. Алматы, ул. Абая 1">
+                </div>
+                <div class="form-group form-span-2">
+                  <label class="form-label">Логотип в шапке печатной формы</label>
+                  <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+                    <div id="s-logo-wrap" style="width:90px;height:90px;border:1.5px dashed var(--border);border-radius:var(--r-lg);display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--bg-input);">
+                      <img id="s-logo-preview" style="width:100%;height:100%;object-fit:contain;display:none;" alt="Логотип">
+                      <span id="s-logo-empty" style="font-size:2rem;"><i data-icon="hospital" data-icon-size="18"></i></span>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:8px;">
+                      <label class="btn btn-ghost btn-sm" style="cursor:pointer;">
+                        <i data-icon="folder" data-icon-size="18"></i> Выбрать логотип
+                        <input type="file" id="s-logo-input" accept="image/*" style="display:none"
+                               onchange="VetPages.handleLogoUpload(this)">
+                      </label>
+                      <button class="btn btn-ghost btn-sm" id="s-logo-clear"
+                              onclick="VetPages.clearLogo()" style="display:none"><i data-icon="x" data-icon-size="18"></i> Удалить</button>
+                      <span class="text-sm text-muted">PNG, JPG, SVG — любой размер, сожмётся сам</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div style="margin-top:20px;">
+                <button class="btn btn-primary" id="btn-save-settings">Сохранить настройки</button>
+                <span id="settings-saved-msg" style="display:none;margin-left:12px;color:var(--accent);font-weight:600;font-size:.9rem;">✓ Сохранено</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Опасная зона -->
+          <div class="card" style="max-width:680px;margin-top:16px;border-color:var(--danger-dim);">
+            <div class="card-header"><span class="card-title" style="color:var(--danger);">Локальные данные</span></div>
+            <div class="card-body" style="padding:20px;">
+              <p style="font-size:.88rem;color:var(--text-2);margin-bottom:16px;">
+                Если данные на устройстве расходятся с сервером — сбросьте локальный кэш.<br>
+                Приложение загрузит актуальные данные с сервера при следующем открытии.
+              </p>
+              <button class="btn btn-danger" onclick="resetLocalData()" style="min-width:200px;">
+                <i data-icon="trash" data-icon-size="18"></i> Сбросить локальные данные
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div><!-- /layout -->
+
+</div><!-- /app -->
+
+<!-- ── Modal ─────────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <h2 class="modal-title" id="modal-title"></h2>
+      <button class="modal-close" id="modal-close-btn" aria-label="Закрыть">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-footer" id="modal-footer"></div>
+  </div>
+</div>
+
+<!-- ── Scripts ───────────────────────────────────────────────────── -->
+<!-- xlsx (SheetJS) 0.18.5 — локальная копия: офлайн-first, внешний CDN недопустим -->
+<script src="/vendor/xlsx.full.min.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/auth.js"></script>
+<script src="/js/db.js"></script>
+<script src="/js/sync.js"></script>
+<script src="/js/app.js"></script>
+<script src="/js/ui.js"></script>
+<script src="/js/pages.js"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── Sidebar toggle ─────────────────────────────────────────────────
+  var sidebar  = document.getElementById('sidebar');
+  var overlay  = document.getElementById('sidebar-overlay');
+  var toggleBtn = document.getElementById('sidebar-toggle');
+  var isMobile = function() { return window.innerWidth < 900; };
+
+  // Load saved state
+  var savedRail = localStorage.getItem('sidebar-rail');
+  if (window.innerWidth >= 900 && window.innerWidth < 1100) {
+    // Auto-rail for medium tablets
+  } else if (savedRail === '1' && window.innerWidth >= 900) {
+    sidebar.classList.add('rail');
+  }
+
+  toggleBtn.addEventListener('click', function () {
+    if (isMobile()) {
+      var isOpen = sidebar.classList.toggle('open');
+      overlay.classList.toggle('show', isOpen);
+      toggleBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    } else {
+      var isRail = sidebar.classList.toggle('rail');
+      localStorage.setItem('sidebar-rail', isRail ? '1' : '0');
+    }
+  });
+
+  overlay.addEventListener('click', function () {
+    sidebar.classList.remove('open');
+    overlay.classList.remove('show');
+  });
+
+  // ── SPA Navigation ─────────────────────────────────────────────────
+  var currentPage = 'dashboard';
+
+  function navigate(page) {
+    // Меню закрываем до проверки «та же страница»: клик по логотипу в шапке
+    // сайдбара, когда уже открыт «Обзор», иначе оставлял бы меню висеть.
+    if (isMobile()) {
+      sidebar.classList.remove('open');
+      overlay.classList.remove('show');
+    }
+    if (currentPage === page) return;
+    currentPage = page;
+    document.querySelectorAll('.page').forEach(function (p) { p.classList.remove('active'); });
+    document.querySelectorAll('.nav-item').forEach(function (n) {
+      var isCur = n.dataset.page === page;
+      n.classList.toggle('active', isCur);
+      n.setAttribute('aria-current', isCur ? 'page' : 'false');
+    });
+    var target = document.getElementById('page-' + page);
+    if (target) target.classList.add('active');
+    window.history.replaceState(null, '', '#' + page);
+
+    // Initialize page
+    if (window.VetPages) VetPages.init(page);
+
+    // Close mobile sidebar
+    if (isMobile()) {
+      sidebar.classList.remove('open');
+      overlay.classList.remove('show');
+    }
+  }
+
+  // Make navigate global
+  window.navigate = navigate;
+  window.VetNav   = { go: navigate };
+
+  document.querySelectorAll('.nav-item').forEach(function (link) {
+    link.addEventListener('click', function (e) {
+      e.preventDefault();
+      navigate(this.dataset.page);
+    });
+  });
+
+  // Modal close button
+  document.getElementById('modal-close-btn').addEventListener('click', function () {
+    if (window.VetUI) VetUI.hideModal();
+  });
+
+  // ── Hash navigation ────────────────────────────────────────────────
+  // Если запущено через иконку (start_url = "/?pwa=1") — hash пустой → dashboard
+  // Если пользователь открыл прямую ссылку с хэшем — навигируем туда
+  var validPages = ['dashboard','owners','pets','visits','vaccinations','items','staff',
+                    'chips','report-daily','report-revenue','report-upcoming','report-noshows','users','settings'];
+
+  // ── Сворачиваемые группы сайдбара ──────────────────────────────────
+  function toggleSSGroup(id) {
+    var g = document.getElementById(id);
+    if (!g) return;
+    g.classList.toggle('collapsed');
+    // Сохраняем состояние
+    var states = {};
+    try { states = JSON.parse(localStorage.getItem('ss-groups') || '{}'); } catch(e){}
+    states[id] = g.classList.contains('collapsed');
+    localStorage.setItem('ss-groups', JSON.stringify(states));
+  }
+  window.toggleSSGroup = toggleSSGroup;
+
+  // Восстанавливаем состояние групп
+  (function() {
+    var states = {};
+    try { states = JSON.parse(localStorage.getItem('ss-groups') || '{}'); } catch(e){}
+    Object.keys(states).forEach(function(id) {
+      if (states[id]) {
+        var g = document.getElementById(id);
+        if (g) g.classList.add('collapsed');
+      }
+    });
+  })();
+
+  // ── Переключение вкладок отчётов ──────────────────────────────────
+  function switchReportTab(tab) {
+    ['daily','upcoming','noshows'].forEach(function(t) {
+      var el = document.getElementById('rtab-' + t);
+      var btn = document.querySelector('[data-rtab="'+t+'"]');
+      if (el) el.style.display = t === tab ? '' : 'none';
+      if (btn) btn.classList.toggle('active', t === tab);
+    });
+    // Скрываем кнопку печати при смене вкладки
+    var pb = document.getElementById('btn-print-report');
+    if (pb) pb.style.display = 'none';
+    // Инициализируем нужный отчёт
+    if (tab === 'upcoming' && window.VetPages) VetPages.generateUpcomingReport();
+    if (tab === 'noshows'  && window.VetPages) VetPages.generateNoShowsReport();
+  }
+  window.switchReportTab = switchReportTab;
+  var initialHash = (window.location.hash || '').replace('#', '').split('?')[0];
+  if (initialHash && validPages.indexOf(initialHash) !== -1) {
+    // Delayed: ждём загрузки VetPages
+    setTimeout(function() { navigate(initialHash); }, 0);
+  }
+
+  // ── Авто-обновление текущей страницы при изменении данных ──────────
+  // Срабатывает после: pull с сервера, bootstrap, любой локальной мутации
+  var _refreshTimer = null;
+  window.addEventListener('vetdata:changed', function () {
+    fillOwnerFilter();
+    // Дебаунс 150ms чтобы не перерисовывать при rapid mutations
+    clearTimeout(_refreshTimer);
+    _refreshTimer = setTimeout(function() {
+      if (window.VetPages && currentPage) {
+        VetPages.init(currentPage);
+      }
+    }, 150);
+  });
+
+  function fillOwnerFilter() {
+    if (!window.VetDB) return;
+    VetDB.getAll('owners').then(function(owners) {
+      var sel = document.getElementById('filter-owner-id');
+      if (!sel) return;
+      var cur = sel.value;
+      var opts = owners.filter(function(o){ return !o.is_deleted; })
+                       .sort(function(a,b){ return a.fio.localeCompare(b.fio,'ru'); });
+      sel.innerHTML = '<option value="">Все владельцы</option>' + opts.map(function(o){
+        return '<option value="'+o.id+'"'+(o.id===cur?' selected':'')+'>'+o.fio+'</option>';
+      }).join('');
+    });
+  }
+
+  // ── Сброс локальных данных ─────────────────────────────────────────
+  function resetLocalData() {
+    var ok = window.confirm(
+      'Сбросить все локальные данные этого устройства?\n\n' +
+      'Данные на сервере не затронуты. После сброса приложение ' +
+      'загрузит актуальные данные с сервера.'
+    );
+    if (!ok) return;
+
+    // Удаляем IndexedDB
+    var dbName = 'VetClinicDB';
+    var req = indexedDB.deleteDatabase(dbName);
+    req.onsuccess = function() {
+      // Очищаем localStorage (last_sync и т.д.)
+      localStorage.clear();
+      // Перезагружаем страницу — bootstrap сделает полный pull
+      window.location.reload();
+    };
+    req.onerror = function() {
+      alert('Не удалось сбросить базу. Попробуйте вручную: DevTools → Application → Storage → Clear site data');
+    };
+    req.onblocked = function() {
+      alert('База занята другой вкладкой. Закройте остальные вкладки приложения и повторите.');
+    };
+  }
+
+  window.resetLocalData = resetLocalData;
+
+  // ── Init ────────────────────────────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', function () {
+    // Всегда инициализируем dashboard первым (данные могут ещё грузиться)
+    if (window.VetPages) {
+      VetPages.init('dashboard');
+    }
+    fillOwnerFilter();
+  });
+
+}());
+</script>
+</body>
+</html>

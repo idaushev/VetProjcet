@@ -1,0 +1,96 @@
+{
+  "id": "/vetclinic/",
+  "name": "VetClinic — Ветеринарная клиника",
+  "short_name": "VetClinic",
+  "description": "Offline-first система управления ветеринарной клиникой. Работает без интернета.",
+  "start_url": "/?pwa=1",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#f0f4f9",
+  "theme_color": "#1a8c5e",
+  "lang": "ru",
+  "dir": "ltr",
+  "categories": ["medical", "productivity", "business"],
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
+  "handle_links": "preferred",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192-maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Новый приём",
+      "short_name": "Приём",
+      "description": "Создать новый приём пациента",
+      "url": "/#visits",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Животные",
+      "short_name": "Животные",
+      "description": "Список животных клиники",
+      "url": "/#pets",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Владельцы",
+      "short_name": "Клиенты",
+      "description": "База клиентов клиники",
+      "url": "/#owners",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Система управления ветеринарной клиникой"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Мобильный вид"
+    }
+  ],
+  "related_applications": [],
+  "edge_side_panel": {
+    "preferred_width": 480
+  }
+}
