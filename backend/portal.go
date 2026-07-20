@@ -442,6 +442,101 @@ func (a *app) handlePortalPetPhoto(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: map[string]string{"id": petID}})
 }
 
+// ─── Запись на приём из кабинета владельца ────────────────────────────────────
+
+type portalBookPayload struct {
+	PetID  string `json:"pet_id"`
+	Date   string `json:"date"` // YYYY-MM-DD
+	Time   string `json:"time"` // HH:MM
+	Reason string `json:"reason"`
+}
+
+// handlePortalBook создаёт запись в расписании от имени владельца.
+// Запись обычная (status='scheduled', врач не назначен) — регистратура
+// видит её в расписании с пометкой «портал» и при необходимости
+// перезванивает, чтобы уточнить время или врача.
+func (a *app) handlePortalBook(w http.ResponseWriter, r *http.Request) {
+	ownerID := a.requirePortalOwner(w, r)
+	if ownerID == "" {
+		return
+	}
+	var p portalBookPayload
+	if err := decodeJSON(r, &p); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	petID := strings.TrimSpace(p.PetID)
+	if petID == "" || !a.petBelongsToOwner(ctx, petID, ownerID) {
+		writeError(w, http.StatusBadRequest, "Выберите питомца")
+		return
+	}
+
+	// Дата: сегодня … +60 дней (по времени клиники).
+	date := strings.TrimSpace(p.Date)
+	if len(date) != 10 || date < astanaDate(0) || date > astanaDate(60) {
+		writeError(w, http.StatusBadRequest, "Дата должна быть в ближайшие 60 дней")
+		return
+	}
+	// Время: HH:MM в разумных пределах рабочего дня.
+	tm := strings.TrimSpace(p.Time)
+	if len(tm) != 5 || tm[2] != ':' || tm < "07:00" || tm > "21:00" {
+		writeError(w, http.StatusBadRequest, "Укажите время с 07:00 до 21:00")
+		return
+	}
+	starts, err := parseFlexibleDate(date + "T" + tm)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Неверные дата или время")
+		return
+	}
+
+	// Защита от спама: не больше 5 активных будущих записей на владельца.
+	var active int
+	if err := a.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM appointments
+		WHERE owner_id=? AND is_deleted=0 AND status='scheduled' AND starts_at >= ?`,
+		ownerID, T(nowUTC())).Scan(&active); err == nil && active >= 5 {
+		writeError(w, http.StatusTooManyRequests,
+			"У вас уже 5 активных записей. Чтобы изменить их, позвоните в клинику.")
+		return
+	}
+
+	var fio, phone string
+	_ = a.db.QueryRowContext(ctx,
+		`SELECT fio, COALESCE(phone,'') FROM owners WHERE id=?`, ownerID).Scan(&fio, &phone)
+
+	id, err := newUUID()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Ошибка сервера")
+		return
+	}
+	reason := strings.TrimSpace(p.Reason)
+	if len([]rune(reason)) > 200 {
+		reason = string([]rune(reason)[:200])
+	}
+	now := T(nowUTC())
+	if _, err := a.db.ExecContext(ctx, `
+		INSERT INTO appointments (id, owner_id, pet_id, client_name, client_phone,
+		                          starts_at, duration_min, reason, status, notes,
+		                          created_at, updated_at, version)
+		VALUES (?, ?, ?, ?, ?, ?, 30, ?, 'scheduled', 'Запись создана владельцем через портал', ?, ?, 1)`,
+		id, ownerID, petID, nullableString(fio), nullableString(phone),
+		T(starts), nullableString(reason), now, now,
+	); err != nil {
+		a.logger.Printf("portalBook: %v", err)
+		writeError(w, http.StatusInternalServerError, "Не удалось создать запись")
+		return
+	}
+	a.logger.Printf("portal booking: owner %s, pet %s, %s %s", ownerID, petID, date, tm)
+
+	writeJSON(w, http.StatusCreated, apiResponse{Status: "ok", Data: map[string]string{
+		"id": id, "date": date, "time": tm,
+	}})
+}
+
 // ─── Выдача пароля администратором ───────────────────────────────────────────
 
 // handleIssuePortalCode выдаёт владельцу пароль для входа на портал по
@@ -451,8 +546,9 @@ func (a *app) handlePortalPetPhoto(w http.ResponseWriter, r *http.Request) {
 // прежние невостребованные коды гасятся. Отличается только срок жизни:
 // код диктуют голосом, десяти минут на это мало.
 //
-// Маршрут закрыт requireAdmin: выдача пароля — это доступ к медкартам
-// чужих животных, обычному сотруднику она не положена.
+// Маршрут закрыт requirePortalCodeAccess: админ — всегда, остальные —
+// по праву portal_codes из настроек пользователя (выдача пароля — это
+// доступ к медкартам чужих животных, право включается осознанно).
 func (a *app) handleIssuePortalCode(w http.ResponseWriter, r *http.Request) {
 	ownerID := r.PathValue("id")
 	if ownerID == "" {

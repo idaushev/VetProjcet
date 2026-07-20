@@ -2455,3 +2455,17 @@ body[data-role="reception"] #ssg-analytics { display: none; }
   border-radius: 99px;
   padding: 1px 7px;
 }
+
+/* Запись, созданная владельцем через портал: время не согласовано с клиникой */
+.appt-portal {
+  font-size: .68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  color: var(--purple);
+  background: var(--purple-dim);
+  border: 1px solid var(--purple-border);
+  border-radius: var(--r-full, 99px);
+  padding: 2px 8px;
+  white-space: nowrap;
+}

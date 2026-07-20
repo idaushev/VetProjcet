@@ -130,6 +130,10 @@ type permSet struct {
 	Tables    map[string]string `json:"tables"`
 	Sums      string            `json:"sums"`
 	SumsStaff []string          `json:"sums_staff"`
+	// PortalCodes — право выдавать владельцам пароли для входа на портал.
+	// В отличие от таблиц, по умолчанию ВЫКЛЮЧЕНО: пароль открывает доступ
+	// к медкартам чужих животных, это выдаётся осознанно.
+	PortalCodes bool `json:"portal_codes"`
 }
 
 var permLevels = map[string]int{"none": 0, "view": 1, "create": 2, "edit": 3}
@@ -308,6 +312,25 @@ func (a *app) requireAdmin(fn http.HandlerFunc) http.HandlerFunc {
 		u := userFromCtx(r.Context())
 		if u == nil || u.Role != "admin" {
 			writeError(w, http.StatusForbidden, "Доступно только администратору")
+			return
+		}
+		fn(w, r)
+	}
+}
+
+// canIssuePortalCodes — может ли пользователь выдавать пароли портала:
+// админ всегда, остальные — по явному праву portal_codes.
+func (u *User) canIssuePortalCodes() bool {
+	if u == nil {
+		return false
+	}
+	return u.Role == "admin" || u.permsParsed().PortalCodes
+}
+
+func (a *app) requirePortalCodeAccess(fn http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !userFromCtx(r.Context()).canIssuePortalCodes() {
+			writeError(w, http.StatusForbidden, "Нет права выдавать пароли владельцам — попросите администратора включить его в настройках пользователя")
 			return
 		}
 		fn(w, r)

@@ -3380,6 +3380,16 @@ ${visit.notes ? `<div class="section">
     return !!(u && u.role === 'admin');
   }
 
+  // Право выдавать пароли портала: админ всегда, остальные — по флагу
+  // portal_codes в правах (см. настройки пользователя). Сервер проверяет
+  // то же самое — кнопка лишь честно отражает доступ.
+  function _canIssuePortalCodes() {
+    var u = window.VetAuth && window.VetAuth.user && window.VetAuth.user();
+    if (!u) return false;
+    if (u.role === 'admin') return true;
+    return !!(u.permissions && u.permissions.portal_codes);
+  }
+
   // Выдать владельцу пароль для входа на портал.
   // Только онлайн и в обход локальной базы: код живёт на сервере в
   // portal_codes, положить его в offline-очередь нельзя — владелец должен
@@ -3488,8 +3498,9 @@ ${visit.notes ? `<div class="section">
       +'<span class="oc-stat"><b>'+ownerVisits.length+'</b> визитов</span>'
       +(deceasedPets.length?'<span class="oc-stat"><b>'+deceasedPets.length+'</b> умерших</span>':'')
       +'</div>'
-      // Пароль от портала выдаёт только администратор: это доступ к медкартам.
-      +(_isAdmin()
+      // Пароль от портала — админ или пользователь с правом portal_codes
+      // (это доступ к медкартам, право включается в настройках пользователя).
+      +(_canIssuePortalCodes()
          ? '<div class="oc-actions"><button class="btn btn-sm btn-ghost" '
            + 'onclick="VetPages.issuePortalCode(\''+ownerId+'\')">'
            + UI.icon('key','') + ' Пароль от портала</button></div>'
@@ -4148,6 +4159,12 @@ ${visit.notes ? `<div class="section">
       + '</select>'
       + '<div id="fu-sums-staff" class="perm-staff-list" style="'+(sums==='selected'?'':'display:none')+'">'+staffChecks+'</div>'
       + '</div>'
+      + '<div style="margin-top:12px;">'
+      + '<label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">'
+      + '<input type="checkbox" id="fu-portal-codes"'+(perms.portal_codes?' checked':'')+' style="width:18px;height:18px;">'
+      + ' Может выдавать владельцам пароли для входа в кабинет</label>'
+      + '<div class="form-hint">Пароль открывает владельцу его медкарты на портале. Обычно право дают регистратуре.</div>'
+      + '</div>'
       + '<div class="form-hint">«Нет доступа» прячет раздел из меню. Сервер не примет правки сверх этих прав, но данные на устройство синхронизируются целиком.</div>'
       + '</div>';
   }
@@ -4163,10 +4180,14 @@ ${visit.notes ? `<div class="section">
     });
     var sums = document.getElementById('fu-sums').value;
     var sumsStaff = [...block.querySelectorAll('[data-sums-staff]:checked')].map(function(c){ return c.dataset.sumsStaff; });
-    // Всё разрешено и суммы все — прав нет смысла хранить, пусто = полный доступ.
-    if (allEdit && sums === 'all') return null;
+    var portalCodes = !!(document.getElementById('fu-portal-codes') || {}).checked;
+    // Всё разрешено, суммы все и спец-прав нет — хранить нечего, пусто = полный доступ.
+    // portal_codes при этом по умолчанию ВЫКЛЮЧЕН (см. сервер), поэтому
+    // включённый чекбокс обязан попасть в JSON.
+    if (allEdit && sums === 'all' && !portalCodes) return null;
     var out = { tables: tables, sums: sums };
     if (sums === 'selected') out.sums_staff = sumsStaff;
+    if (portalCodes) out.portal_codes = true;
     return out;
   }
 
@@ -4626,7 +4647,11 @@ ${visit.notes ? `<div class="section">
       var who = (owner ? owner.fio : (a.client_name || '')) || '';
       var doc = a.staff_id && staffMap[a.staff_id] ? staffMap[a.staff_id].name.split(' ')[0] : '';
       var hm = (a.starts_at||'').slice(11,16);
+      // Запись, созданную владельцем через портал, помечаем: клиника должна
+      // видеть, что время не согласовано, и при накладке — перезвонить.
+      var fromPortal = (a.notes||'').indexOf('портал') >= 0;
       return '<div class="appt-card '+st.cls+'" onclick="VetPages.editAppt(\''+a.id+'\')">'
+        + (fromPortal ? '<span class="appt-portal" title="Запись создана владельцем через портал — время не согласовано">портал</span>' : '')
         + '<div class="appt-time">'+esc(hm)+'<span class="appt-dur"> · '+(a.duration_min||30)+' мин</span></div>'
         + '<div class="appt-body">'
         + '<div class="appt-title">'+esc(petName || 'Без клички')+(who ? ' <span class="appt-owner">· '+esc(who)+'</span>' : '')+'</div>'
