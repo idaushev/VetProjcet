@@ -58,6 +58,7 @@
     cash:     '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>',
     scale:    '<path d="M12 3v18M8 21h8"/><path d="M12 6 4 9l3 5a3.5 3.5 0 0 0 6 0zM12 6l8 3-3 5a3.5 3.5 0 0 1-6 0z"/>',
     tag:      '<path d="M20.6 13.4 12 22l-9-9V4a1 1 0 0 1 1-1h9z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
+    key:      '<circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 21 2m-4 4 3 3m-6-6 3 3"/>',
     microscope: '<path d="M6 18h12M8 18a5 5 0 1 0 9-3"/><path d="M10 15V6a2 2 0 0 1 2-2 2 2 0 0 1 2 2v1"/><path d="M9 6h4M12 15h3"/>',
     file:     '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/>',
     alert:    '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',

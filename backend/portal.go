@@ -11,6 +11,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"strings"
 	"time"
@@ -45,7 +46,7 @@ func normalizePhoneDigits(s string) string {
 
 type portalLoginPayload struct {
 	Phone string `json:"phone"`
-	Code  string `json:"code"` // одноразовый пароль от телеграм-бота
+	Code  string `json:"code"` // одноразовый пароль: от телеграм-бота или выданный администратором
 }
 
 type portalOwnerInfo struct {
@@ -123,7 +124,7 @@ func (a *app) handlePortalLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		writeError(w, http.StatusUnauthorized, "Неверный или просроченный пароль. Запросите новый у телеграм-бота.")
+		writeError(w, http.StatusUnauthorized, "Неверный или просроченный пароль. Запросите новый у телеграм-бота или в клинике.")
 		return
 	}
 
@@ -348,6 +349,52 @@ func (a *app) handlePortalPetVisits(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: visits})
 }
 
+// handlePortalAppointments — ближайшие записи владельца: «завтра в 15:00
+// к врачу X». Владелец видит свою запись — меньше забытых визитов.
+type portalAppointment struct {
+	StartsAt    string `json:"starts_at"`
+	DurationMin int    `json:"duration_min"`
+	Reason      string `json:"reason,omitempty"`
+	PetName     string `json:"pet_name,omitempty"`
+	StaffName   string `json:"staff_name,omitempty"`
+}
+
+func (a *app) handlePortalAppointments(w http.ResponseWriter, r *http.Request) {
+	ownerID := a.requirePortalOwner(w, r)
+	if ownerID == "" {
+		return
+	}
+	rows, err := a.db.QueryContext(r.Context(), `
+		SELECT ap.starts_at, COALESCE(ap.duration_min,30), COALESCE(ap.reason,''),
+		       COALESCE(p.name, ap.pet_name, ''), COALESCE(s.name,'')
+		FROM appointments ap
+		LEFT JOIN pets p         ON p.id = ap.pet_id
+		LEFT JOIN clinic_staff s ON s.id = ap.staff_id
+		WHERE ap.owner_id=? AND ap.is_deleted=0 AND ap.status='scheduled' AND ap.starts_at >= ?
+		ORDER BY ap.starts_at LIMIT 5`,
+		ownerID, T(nowUTC().Add(-2*time.Hour)))
+	if err != nil {
+		a.logger.Printf("portalAppointments: %v", err)
+		writeError(w, http.StatusInternalServerError, "Ошибка сервера")
+		return
+	}
+	defer rows.Close()
+
+	appts := make([]portalAppointment, 0)
+	for rows.Next() {
+		var ap portalAppointment
+		var starts timeScanner
+		if err := rows.Scan(&starts, &ap.DurationMin, &ap.Reason, &ap.PetName, &ap.StaffName); err != nil {
+			continue
+		}
+		if starts.t != nil {
+			ap.StartsAt = starts.t.Format("2006-01-02T15:04")
+		}
+		appts = append(appts, ap)
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: appts})
+}
+
 // ─── Фото питомца — единственное действие владельца ──────────────────────────
 
 type portalPhotoPayload struct {
@@ -393,4 +440,66 @@ func (a *app) handlePortalPetPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: map[string]string{"id": petID}})
+}
+
+// ─── Выдача пароля администратором ───────────────────────────────────────────
+
+// handleIssuePortalCode выдаёт владельцу пароль для входа на портал по
+// требованию администратора: владельцу без телеграма (или с неработающим
+// ботом) иначе никак не попасть в кабинет. Пароль тот же одноразовый
+// 6-значный код, что шлёт бот, — общий механизм, общая таблица portal_codes,
+// прежние невостребованные коды гасятся. Отличается только срок жизни:
+// код диктуют голосом, десяти минут на это мало.
+//
+// Маршрут закрыт requireAdmin: выдача пароля — это доступ к медкартам
+// чужих животных, обычному сотруднику она не положена.
+func (a *app) handleIssuePortalCode(w http.ResponseWriter, r *http.Request) {
+	ownerID := r.PathValue("id")
+	if ownerID == "" {
+		writeError(w, http.StatusBadRequest, "Не указан владелец")
+		return
+	}
+	ctx := r.Context()
+
+	var fio, phone string
+	err := a.db.QueryRowContext(ctx,
+		`SELECT fio, COALESCE(phone,'') FROM owners WHERE id=? AND is_deleted=0`,
+		ownerID).Scan(&fio, &phone)
+	if err == sql.ErrNoRows {
+		writeError(w, http.StatusNotFound, "Владелец не найден")
+		return
+	}
+	if err != nil {
+		a.logger.Printf("issuePortalCode owner: %v", err)
+		writeError(w, http.StatusInternalServerError, "Не удалось найти владельца")
+		return
+	}
+	// Вход на портал идёт по телефону: без номера код бесполезен.
+	if normalizePhoneDigits(phone) == "" {
+		writeError(w, http.StatusBadRequest,
+			"У владельца не указан телефон — вход на портал по номеру, сначала заполните его в карточке")
+		return
+	}
+
+	code, err := a.issuePortalCode(ctx, ownerID, portalAdminCodeTTL)
+	if err != nil {
+		a.logger.Printf("issuePortalCode: %v", err)
+		writeError(w, http.StatusInternalServerError, "Не удалось создать пароль")
+		return
+	}
+
+	// Аудит: кто и кому выдал доступ. Сам код в лог не пишем.
+	issuer := "?"
+	if u := userFromCtx(ctx); u != nil {
+		issuer = u.Login
+	}
+	a.logger.Printf("portal code issued by %s for owner %s", issuer, ownerID)
+
+	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: map[string]interface{}{
+		"code":        code,
+		"fio":         fio,
+		"phone":       phone,
+		"expires_at":  nowUTC().Add(portalAdminCodeTTL).Format(time.RFC3339),
+		"ttl_minutes": int(portalAdminCodeTTL / time.Minute),
+	}})
 }

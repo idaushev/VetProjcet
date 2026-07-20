@@ -330,6 +330,16 @@
           <div class="dash-grid">
             <div class="card">
               <div class="card-header">
+                <span class="card-title">Записи на сегодня</span>
+                <a class="btn btn-sm btn-ghost" onclick="navigate('schedule')">Расписание →</a>
+              </div>
+              <div class="card-body">
+                <div id="dash-appts" class="recent-list"><div class="list-empty">Загрузка...</div></div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
                 <span class="card-title">Последние приёмы</span>
                 <a class="btn btn-sm btn-ghost" onclick="navigate('visits')">Все приёмы →</a>
               </div>
@@ -691,6 +701,16 @@
                       <span class="text-sm text-muted">PNG, JPG, SVG — любой размер, сожмётся сам</span>
                     </div>
                   </div>
+                </div>
+              </div>
+              <div class="form-grid" style="margin-top:8px;">
+                <div class="form-group">
+                  <label class="form-label">Расписание: начало дня</label>
+                  <select id="s-sched-start" class="form-select"></select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Расписание: конец дня</label>
+                  <select id="s-sched-end" class="form-select"></select>
                 </div>
               </div>
               <div style="margin-top:20px;">

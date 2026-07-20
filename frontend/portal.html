@@ -61,10 +61,10 @@
   <!-- Вход -->
   <div class="card" id="scr-login" style="display:none;">
     <div class="h1">Вход</div>
-    <div class="muted">Введите номер телефона, который вы оставляли в клинике, и пароль из телеграм-бота.</div>
+    <div class="muted">Введите номер телефона, который вы оставляли в клинике, и одноразовый пароль — его пришлёт телеграм-бот или подскажут в клинике.</div>
     <label>Номер телефона</label>
     <input type="tel" id="phone" placeholder="+7 707 123-45-67" autocomplete="tel">
-    <label>Пароль из телеграм-бота</label>
+    <label>Одноразовый пароль</label>
     <input type="text" id="code" placeholder="6 цифр" inputmode="numeric" maxlength="6" autocomplete="one-time-code" style="width:100%;padding:13px 14px;font-size:1.05rem;border:1.5px solid var(--border);border-radius:10px;outline:none;letter-spacing:4px;">
     <div class="err" id="login-err"></div>
     <button class="btn" id="btn-login">Войти</button>
@@ -73,6 +73,10 @@
 
   <!-- Питомцы -->
   <div id="scr-pets" style="display:none;">
+    <div class="card" id="appts-card" style="display:none;">
+      <div class="h1" style="font-size:1rem;">Ближайшая запись</div>
+      <div id="appts-list"></div>
+    </div>
     <div class="card">
       <div class="h1" id="hello"></div>
       <div class="muted">Ваши питомцы. Нажмите, чтобы посмотреть приёмы и назначения.</div>
@@ -205,8 +209,28 @@
 
   function petIcon(p) { return SPECIES[(p.type || '').toLowerCase()] || '🐾'; }
 
+  function loadAppointments() {
+    api('GET', '/portal/appointments').then(function (appts) {
+      var card = $('appts-card');
+      if (!appts || !appts.length) { card.style.display = 'none'; return; }
+      var DAYS = ['вс','пн','вт','ср','чт','пт','сб'];
+      $('appts-list').innerHTML = appts.map(function (a) {
+        var d = new Date(a.starts_at);
+        var when = fmtDate(a.starts_at) + ' (' + DAYS[d.getDay()] + ') в ' + a.starts_at.slice(11, 16);
+        return '<div class="next-box" style="margin-top:10px;">'
+          + '📅 ' + esc(when)
+          + (a.pet_name ? ' · ' + esc(a.pet_name) : '')
+          + (a.staff_name ? '<div style="font-weight:400;margin-top:2px;">Врач: ' + esc(a.staff_name) + '</div>' : '')
+          + (a.reason ? '<div style="font-weight:400;margin-top:2px;">' + esc(a.reason) + '</div>' : '')
+          + '</div>';
+      }).join('');
+      card.style.display = '';
+    }).catch(function () {});
+  }
+
   function openPets() {
     show('scr-pets');
+    loadAppointments();
     $('hello').textContent = state.owner ? 'Здравствуйте, ' + state.owner.fio.split(' ')[0] + (state.owner.fio.split(' ')[1] ? ' ' + state.owner.fio.split(' ')[1] : '') + '!' : 'Мои питомцы';
     var list = $('pets-list');
     list.innerHTML = '<div class="loader">Загрузка…</div>';
