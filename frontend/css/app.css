@@ -728,7 +728,18 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
   align-items: start;
 }
 @media (min-width: 1100px) {
-  .dash-grid { grid-template-columns: 1fr 1fr; }
+  /* stretch, а не start: высоту строки грида всё равно задаёт самая высокая
+     панель, и при align-items:start под короткой оставалась дыра (замер:
+     250px между «Записи на сегодня» и «На лечении»). Со stretch панели
+     строки равны по высоте, сетка регулярная. Высота ограничена сверху
+     тем, что списки рендерят DASH_ROWS строк — иначе одна длинная панель
+     растянула бы всю строку. */
+  .dash-grid { grid-template-columns: 1fr 1fr; align-items: stretch; }
+  /* Карточка — колонка: шапка своей высоты, тело забирает остаток.
+     Без этого растянутая карточка оставляет пустую полосу под телом
+     вместо того, чтобы отдать её содержимому. */
+  .dash-grid > .card { display: flex; flex-direction: column; }
+  .dash-grid > .card > .card-body { flex: 1; }
 }
 @media (min-width: 1500px) {
   /* На большом мониторе лента приёмов шире виджета сбоку — так удобнее читать */

@@ -106,6 +106,13 @@
   // ═══════════════════════════════════════════════════════════════════════
   // DASHBOARD
   // ═══════════════════════════════════════════════════════════════════════
+
+  // Сколько строк показывает панель дашборда. Одно число на все три списка:
+  // высота панели должна быть предсказуемой, иначе строка грида растягивается
+  // по самой длинной панели и под короткой зияет дыра (было 250px при 5 и 2
+  // строках). Полные списки — по ссылке «Все →» в шапке панели.
+  var DASH_ROWS = 5;
+
   async function initDashboard() {
     try {
       var d = await loadAll();
@@ -169,7 +176,7 @@
       if (apptsEl) {
         var todayAppts = allAppts.filter(function(a) {
           return !a.is_deleted && (a.starts_at||'').slice(0,10) === today && a.status === 'scheduled';
-        }).sort(function(a,b){ return (a.starts_at||'') < (b.starts_at||'') ? -1 : 1; }).slice(0, 8);
+        }).sort(function(a,b){ return (a.starts_at||'') < (b.starts_at||'') ? -1 : 1; }).slice(0, DASH_ROWS);
         apptsEl.innerHTML = todayAppts.length
           ? todayAppts.map(function(a) {
               var pet = a.pet_id ? petsMap[a.pet_id] : null;
@@ -188,7 +195,7 @@
       }
       var recentVisits = d.visits.filter(function(v){ return !v.is_deleted; }).sort(function(a,b){
         return new Date(b.date) - new Date(a.date);
-      }).slice(0, 8);
+      }).slice(0, DASH_ROWS);
 
       var recentEl = document.getElementById('recent-visits');
       if (!recentEl) return;
@@ -217,7 +224,7 @@
           var until = v.treatment_until.slice(0,10);
           var daysLeft = Math.round((new Date(until) - new Date(today)) / 86400000) + 1;
           return { pet: pet, until: until, daysLeft: daysLeft };
-        }).sort(function(a,b){ return a.until < b.until ? -1 : 1; }).slice(0, 8);
+        }).sort(function(a,b){ return a.until < b.until ? -1 : 1; }).slice(0, DASH_ROWS);
 
         treatEl.innerHTML = courses.length
           ? courses.map(function(c){
