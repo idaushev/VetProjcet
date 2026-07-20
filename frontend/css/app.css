@@ -86,6 +86,13 @@
   --sidebar-w: 240px;
   --rail-w:    70px;
   --touch:     52px;     /* минимальный touch-target по WCAG и HIG */
+
+  /* Горизонтальная врезка содержимого карточки. Одна переменная на шапку
+     и на строки списка: раньше каждая задавала отступ сама и на разных
+     брейкпоинтах расходилась (на широком экране .erow 22px против
+     .card-header 20px), из-за чего заголовок и текст под ним стояли
+     на разных вертикалях. Меняется в медиазапросах — правится в одном месте. */
+  --card-pad-x: 20px;
   --touch-lg:  60px;     /* крупные кнопки действий */
 
   /* Переходы */
@@ -537,16 +544,34 @@ h4 { font-size: .9rem;   font-weight: 600; }
   margin-top: 12px;
 }
 
+/* ВНИМАНИЕ: правило было объявлено дважды (здесь и ниже по файлу),
+   с разными padding/gap — работал второй экземпляр, первый только
+   сбивал с толку. Оставлен один блок. */
 .list-empty {
   display: flex; flex-direction: column; align-items: center;
   justify-content: center; padding: 56px 24px; gap: 12px;
   color: var(--text-3); font-size: .9rem;
 }
 .list-empty-icon { width: 48px; height: 48px; opacity: .25; }
+.list-empty svg { color: var(--text-3); opacity: .3; }
+.list-empty span {
+  font-size: .9rem; color: var(--text-3);
+  font-weight: 500; letter-spacing: .1px;
+}
+
+/* В панелях дашборда пустое состояние компактнее: там оно не занимает
+   отдельный экран, а делит сетку с соседями. С полным падингом пустая
+   панель вырастала почти до 300px, и на свободный день главная
+   выглядела развалившейся. */
+.dash-grid .list-empty { padding: 28px 24px; gap: 10px; }
+.dash-grid .list-empty-icon { width: 36px; height: 36px; }
 
 .erow {
   display: flex; align-items: center; gap: 14px;
-  padding: 14px 18px;
+  /* Врезка из общей переменной — та же, что у .card-header: строка списка
+     и заголовок панели над ней стоят на одной вертикали. Было 18px в базе
+     и 22px на широком экране против 20px у шапки — край «дрожал». */
+  padding: 14px var(--card-pad-x);
   border-bottom: 1px solid var(--border);
   transition: background var(--t), box-shadow var(--t);
   cursor: pointer;
@@ -790,7 +815,7 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 
 .card-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 20px;
+  padding: 16px var(--card-pad-x);
   border-bottom: 1px solid var(--border);
   background: var(--bg);
 }
@@ -923,6 +948,10 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
   width: 100%;
 }
 
+/* 46px — намеренно ниже кнопки (--touch, 52px): поля почти нигде не стоят
+   вплотную к полноразмерной кнопке, а в длинных формах каждые лишние 6px
+   на поле дают заметную прокрутку. Рваность в панелях фильтров создают
+   не поля, а .filter-* и .btn-sm — см. задачу в TASKS.md. */
 .form-input, .form-select { height: 46px; padding: 0 14px; }
 
 .form-textarea {
@@ -1240,17 +1269,6 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 }
 
 /* ── Empty state: улучшенный ────────────────────────────────────── */
-.list-empty {
-  display: flex; flex-direction: column; align-items: center;
-  justify-content: center; padding: 64px 24px; gap: 14px;
-  color: var(--text-3);
-}
-.list-empty svg { color: var(--text-3); opacity: .3; }
-.list-empty span {
-  font-size: .9rem; color: var(--text-3);
-  font-weight: 500; letter-spacing: .1px;
-}
-
 /* ── Page: breathing room after toolbar ─────────────────────────── */
 .toolbar + .entity-list { margin-top: 0; }
 
@@ -1305,7 +1323,11 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 }
 
 /* ── Кнопка добавить: иконка + текст ────────────────────────────── */
-.btn-primary svg { width: 15px; height: 15px; flex-shrink: 0; }
+/* Размер иконки наследуется от .btn (16px): у главной и обычной кнопки,
+   стоящих рядом, оптический вес иконки должен совпадать. Отдельные 15px
+   давали заметный на глаз скачок. flex-shrink нужен: без него иконка
+   сжимается, когда подпись кнопки длинная. */
+.btn-primary svg { flex-shrink: 0; }
 
 /* ── Список животных: статус-индикатор ──────────────────────────── */
 .erow .badge { align-self: flex-start; margin-top: 2px; }
@@ -1344,6 +1366,8 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 
 /* ── Responsive ─────────────────────────────────────────────────── */
 @media (max-width: 899px) {
+  /* Врезка карточек на узких экранах — сразу и для шапки, и для строк */
+  :root { --card-pad-x: 16px; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
   .page-inner { padding: 16px 16px 28px; }
   .page-header { padding: 16px 16px 0; }
@@ -1369,7 +1393,7 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
   .filter-btn, .filter-select { height: 44px; }
   .search-input { height: 46px; }
   /* Строки списка просторнее */
-  .erow { min-height: 74px; padding: 16px 16px; }
+  .erow { min-height: 74px; padding: 16px var(--card-pad-x); }
   .erow-actions { gap: 4px; }
   /* Скрываем edit/delete на узких, оставляем open/print */
   .erow .btn-icon:not(.btn-open):not(.btn-print):not(.danger) { display: none; }
@@ -1404,13 +1428,15 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 
 /* Xiaomi Pad 7 landscape (≈1280×800 CSS) */
 @media (min-width: 1200px) {
+  /* Просторнее — но одинаково для шапки карточки и строк списка */
+  :root { --card-pad-x: 22px; }
   .page-inner { padding: 28px 36px 40px; }
   .page-header { padding: 24px 36px 0; }
   .toolbar { padding: 16px 36px; }
   .page > .entity-list { margin: 4px 36px 36px; }
   .stat-card { padding: 26px 24px 20px; }
   .stat-value { font-size: 2.5rem; }
-  .erow { min-height: 72px; padding: 16px 22px; }
+  .erow { min-height: 72px; padding: 16px var(--card-pad-x); }
 }
 
 /* ══════════════════════════════════════════════════════════════════
