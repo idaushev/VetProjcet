@@ -61,12 +61,14 @@
   <!-- Вход -->
   <div class="card" id="scr-login" style="display:none;">
     <div class="h1">Вход</div>
-    <div class="muted">Введите номер телефона, который вы оставляли в клинике.</div>
+    <div class="muted">Введите номер телефона, который вы оставляли в клинике, и пароль из телеграм-бота.</div>
     <label>Номер телефона</label>
     <input type="tel" id="phone" placeholder="+7 707 123-45-67" autocomplete="tel">
+    <label>Пароль из телеграм-бота</label>
+    <input type="text" id="code" placeholder="6 цифр" inputmode="numeric" maxlength="6" autocomplete="one-time-code" style="width:100%;padding:13px 14px;font-size:1.05rem;border:1.5px solid var(--border);border-radius:10px;outline:none;letter-spacing:4px;">
     <div class="err" id="login-err"></div>
     <button class="btn" id="btn-login">Войти</button>
-    <div class="small" style="margin-top:12px;">Вход пока без пароля. Позже доступ можно будет получить и через телеграм-бот клиники.</div>
+    <div class="small" style="margin-top:12px;" id="bot-hint">Пароль выдаёт телеграм-бот клиники: напишите ему «пароль» — он пришлёт код, действующий 10 минут.</div>
   </div>
 
   <!-- Питомцы -->
@@ -153,7 +155,7 @@
   function login() {
     var err = $('login-err'); err.style.display = 'none';
     var btn = $('btn-login'); btn.disabled = true;
-    api('POST', '/portal/login', { phone: $('phone').value })
+    api('POST', '/portal/login', { phone: $('phone').value, code: $('code').value.trim() })
       .then(function (d) {
         localStorage.setItem(TOKEN_KEY, d.token);
         state.owner = d.owner;
@@ -163,7 +165,17 @@
       .then(function () { btn.disabled = false; });
   }
   $('btn-login').onclick = login;
-  $('phone').addEventListener('keydown', function (e) { if (e.key === 'Enter') login(); });
+  $('phone').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('code').focus(); });
+  $('code').addEventListener('keydown', function (e) { if (e.key === 'Enter') login(); });
+
+  // Если у сервера настроено имя бота — превращаем подсказку в ссылку t.me
+  api('GET', '/portal/bot-info').then(function (d) {
+    if (d && d.bot) {
+      $('bot-hint').innerHTML = 'Пароль выдаёт телеграм-бот клиники: '
+        + '<a href="https://t.me/' + esc(d.bot) + '" target="_blank" rel="noopener">@' + esc(d.bot) + '</a>'
+        + ' — напишите ему «пароль», код действует 10 минут.';
+    }
+  }).catch(function () {});
 
   $('btn-logout').onclick = function () {
     localStorage.removeItem(TOKEN_KEY);

@@ -17,6 +17,11 @@ type Config struct {
 	// Токен телеграм-бота (@BotFather). Пусто — бот выключен,
 	// уведомления копятся в outbox (таблица notifications).
 	TelegramToken string
+	// Имя бота без @ (для ссылки t.me/<имя> на странице входа портала).
+	TelegramBotName string
+	// Публичный адрес портала (https://<хост>:8443/portal) — бот добавляет
+	// его к сообщению с паролем. Пусто — ссылка не показывается.
+	PortalPublicURL string
 }
 
 func LoadConfig() Config {
@@ -28,6 +33,8 @@ func LoadConfig() Config {
 		TLSCert:     getEnv("TLS_CERT", ""),
 		TLSKey:      getEnv("TLS_KEY", ""),
 		TelegramToken: getEnv("TELEGRAM_BOT_TOKEN", ""),
+		TelegramBotName: getEnv("TELEGRAM_BOT_NAME", ""),
+		PortalPublicURL: getEnv("PORTAL_URL", ""),
 	}
 }
 

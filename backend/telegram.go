@@ -22,10 +22,15 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -77,13 +82,225 @@ func (a *app) startTelegramNotifier() {
 		a.logger.Println("Телеграм-бот выключен (TELEGRAM_BOT_TOKEN не задан); outbox копится")
 		return
 	}
-	a.logger.Println("Телеграм-бот: отправитель уведомлений запущен")
+	a.logger.Println("Телеграм-бот: отправитель уведомлений и приём сообщений запущены")
 	go func() {
 		for {
 			a.deliverPendingNotifications()
 			time.Sleep(30 * time.Second)
 		}
 	}()
+	go a.telegramPollUpdates()
+}
+
+// ─── Одноразовый пароль портала ──────────────────────────────────────────────
+
+const portalCodeTTL = 10 * time.Minute
+
+// issuePortalCode выдаёт владельцу свежий 6-значный пароль для входа
+// на портал. Прежние невостребованные коды гасятся: действует только
+// последний — иначе перехваченный старый код жил бы до истечения TTL.
+func (a *app) issuePortalCode(ctx context.Context, ownerID string) (string, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	code := strconv.FormatUint(binary.BigEndian.Uint64(b[:])%900000+100000, 10)
+
+	if _, err := a.db.ExecContext(ctx,
+		`UPDATE portal_codes SET used_at=? WHERE owner_id=? AND used_at IS NULL`,
+		T(nowUTC()), ownerID); err != nil {
+		return "", err
+	}
+	if _, err := a.db.ExecContext(ctx,
+		`INSERT INTO portal_codes (owner_id, code, expires_at) VALUES (?, ?, ?)`,
+		ownerID, code, T(nowUTC().Add(portalCodeTTL))); err != nil {
+		return "", err
+	}
+	return code, nil
+}
+
+// ─── Приём входящих сообщений (getUpdates long-poll) ─────────────────────────
+
+type tgUpdate struct {
+	UpdateID int64 `json:"update_id"`
+	Message  *struct {
+		Chat struct {
+			ID int64 `json:"id"`
+		} `json:"chat"`
+		From struct {
+			Username string `json:"username"`
+		} `json:"from"`
+		Text    string `json:"text"`
+		Contact *struct {
+			PhoneNumber string `json:"phone_number"`
+		} `json:"contact"`
+	} `json:"message"`
+}
+
+func (a *app) tgStateGet(key string) string {
+	var v string
+	_ = a.db.QueryRow(`SELECT value FROM telegram_state WHERE key=?`, key).Scan(&v)
+	return v
+}
+
+func (a *app) tgStateSet(key, value string) {
+	a.db.Exec(`INSERT INTO telegram_state (key, value) VALUES (?, ?)
+	           ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value)
+}
+
+func (a *app) telegramPollUpdates() {
+	offset, _ := strconv.ParseInt(a.tgStateGet("update_offset"), 10, 64)
+	for {
+		updates, err := a.telegramGetUpdates(offset)
+		if err != nil {
+			a.logger.Printf("telegram getUpdates: %v", err)
+			time.Sleep(15 * time.Second)
+			continue
+		}
+		for _, u := range updates {
+			if u.UpdateID >= offset {
+				offset = u.UpdateID + 1
+			}
+			a.handleTelegramUpdate(u)
+		}
+		if len(updates) > 0 {
+			a.tgStateSet("update_offset", strconv.FormatInt(offset, 10))
+		}
+	}
+}
+
+func (a *app) telegramGetUpdates(offset int64) ([]tgUpdate, error) {
+	// timeout=25 — long-poll: Telegram держит соединение до 25 секунд,
+	// поэтому цикл не молотит API впустую.
+	url := fmt.Sprintf("%s%s/getUpdates?timeout=25&offset=%d",
+		telegramAPIBase, a.config.TelegramToken, offset)
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, err
+	}
+	var parsed struct {
+		OK     bool       `json:"ok"`
+		Result []tgUpdate `json:"result"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, err
+	}
+	if !parsed.OK {
+		return nil, fmt.Errorf("telegram api: not ok")
+	}
+	return parsed.Result, nil
+}
+
+// handleTelegramUpdate — вся логика диалога с владельцем:
+//   /start            → просим номер (кнопка «поделиться контактом»)
+//   контакт или номер → ищем владельца, привязываем чат, шлём пароль
+//   «пароль»/другое   → привязан: новый пароль; не привязан: просим номер
+func (a *app) handleTelegramUpdate(u tgUpdate) {
+	if u.Message == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	chatID := u.Message.Chat.ID
+	text := strings.TrimSpace(u.Message.Text)
+
+	// Кнопка «поделиться контактом» — самый надёжный источник номера.
+	phone := ""
+	if u.Message.Contact != nil {
+		phone = normalizePhoneDigits(u.Message.Contact.PhoneNumber)
+	} else if d := normalizePhoneDigits(text); len(d) >= 10 && !strings.HasPrefix(text, "/") {
+		phone = d
+	}
+
+	if phone != "" {
+		owner, err := a.findOwnerByPhone(ctx, phone)
+		if err != nil || owner.ID == "" {
+			a.telegramReply(ctx, chatID,
+				"Этот номер не найден в базе клиники. Проверьте номер или обратитесь в регистратуру.", nil)
+			return
+		}
+		if err := a.linkOwnerChat(ctx, owner.ID, chatID, u.Message.From.Username); err != nil {
+			a.logger.Printf("telegram link: %v", err)
+			return
+		}
+		a.sendPortalCode(ctx, chatID, owner.ID, owner.Fio)
+		return
+	}
+
+	// Чат уже привязан? Любой запрос («пароль», «код», что угодно) — новый пароль.
+	var ownerID string
+	_ = a.db.QueryRowContext(ctx,
+		`SELECT owner_id FROM owner_telegram WHERE chat_id=?`, chatID).Scan(&ownerID)
+	if ownerID != "" && text != "/start" {
+		a.sendPortalCode(ctx, chatID, ownerID, "")
+		return
+	}
+
+	// Не привязан (или /start): просим номер.
+	a.telegramReply(ctx, chatID,
+		"Здравствуйте! Это бот ветклиники.\n\n"+
+			"Чтобы получать пароль для входа в кабинет владельца, отправьте свой номер телефона — "+
+			"кнопкой ниже или просто сообщением (например, +7 707 123-45-67).",
+		map[string]interface{}{
+			"keyboard": [][]map[string]interface{}{
+				{{"text": "📱 Отправить мой номер", "request_contact": true}},
+			},
+			"resize_keyboard":   true,
+			"one_time_keyboard": true,
+		})
+}
+
+func (a *app) sendPortalCode(ctx context.Context, chatID int64, ownerID, fio string) {
+	code, err := a.issuePortalCode(ctx, ownerID)
+	if err != nil {
+		a.logger.Printf("telegram issue code: %v", err)
+		a.telegramReply(ctx, chatID, "Не получилось создать пароль, попробуйте ещё раз чуть позже.", nil)
+		return
+	}
+	hello := ""
+	if fio != "" {
+		hello = fio + ", номер привязан!\n\n"
+	}
+	msg := hello + "Ваш пароль для входа в кабинет: " + code +
+		"\n\nОн действует 10 минут и подходит один раз. Нужен новый — просто напишите «пароль»."
+	if a.config.PortalPublicURL != "" {
+		msg += "\n\nКабинет: " + a.config.PortalPublicURL
+	}
+	a.telegramReply(ctx, chatID, msg, map[string]interface{}{"remove_keyboard": true})
+}
+
+// telegramReply — отправка вне outbox: ответы в диалоге должны уходить
+// сразу, а не ждать 30-секундный цикл отправителя.
+func (a *app) telegramReply(ctx context.Context, chatID int64, text string, replyMarkup interface{}) {
+	payload := map[string]interface{}{"chat_id": chatID, "text": text}
+	if replyMarkup != nil {
+		payload["reply_markup"] = replyMarkup
+	}
+	body, _ := json.Marshal(payload)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		telegramAPIBase+a.config.TelegramToken+"/sendMessage", bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		a.logger.Printf("telegram reply: %v", err)
+		return
+	}
+	resp.Body.Close()
 }
 
 func (a *app) deliverPendingNotifications() {

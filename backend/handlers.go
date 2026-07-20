@@ -112,6 +112,7 @@ func (a *app) routes() http.Handler {
 
 	// Портал владельцев: своя авторизация (X-Portal-Token), см. portal.go
 	mux.HandleFunc("POST /portal/login",           a.handlePortalLogin)
+	mux.HandleFunc("GET /portal/bot-info",         a.handlePortalBotInfo)
 	mux.HandleFunc("GET /portal/me",               a.handlePortalMe)
 	mux.HandleFunc("GET /portal/pets",             a.handlePortalPets)
 	mux.HandleFunc("GET /portal/pets/{id}/visits", a.handlePortalPetVisits)

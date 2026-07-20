@@ -45,12 +45,40 @@ func normalizePhoneDigits(s string) string {
 
 type portalLoginPayload struct {
 	Phone string `json:"phone"`
+	Code  string `json:"code"` // одноразовый пароль от телеграм-бота
 }
 
 type portalOwnerInfo struct {
 	ID    string `json:"id"`
 	Fio   string `json:"fio"`
 	Phone string `json:"phone"`
+}
+
+// findOwnerByPhone ищет владельца по нормализованному номеру.
+// Телефоны в базе хранятся в разном виде («+7 777 ...», «8777...») —
+// сравниваем цифры. Владельцев немного, полный проход дешев.
+// Возвращает пустой ID, если не найден.
+func (a *app) findOwnerByPhone(ctx context.Context, phoneDigits string) (portalOwnerInfo, error) {
+	rows, err := a.db.QueryContext(ctx,
+		`SELECT id, fio, COALESCE(phone,'') FROM owners WHERE is_deleted=0`)
+	if err != nil {
+		return portalOwnerInfo{}, err
+	}
+	var owner portalOwnerInfo
+	for rows.Next() {
+		var id, fio, ph string
+		if err := rows.Scan(&id, &fio, &ph); err != nil {
+			continue
+		}
+		if normalizePhoneDigits(ph) == phoneDigits {
+			owner = portalOwnerInfo{ID: id, Fio: fio, Phone: ph}
+			break
+		}
+	}
+	// Закрываем ДО последующих записей: незакрытый курсор держит
+	// read-транзакцию, и INSERT ждал бы её до таймаута.
+	rows.Close()
+	return owner, nil
 }
 
 func (a *app) handlePortalLogin(w http.ResponseWriter, r *http.Request) {
@@ -64,37 +92,38 @@ func (a *app) handlePortalLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Введите номер телефона полностью")
 		return
 	}
+	code := strings.TrimSpace(p.Code)
+	if code == "" {
+		writeError(w, http.StatusBadRequest, "Введите пароль из телеграм-бота")
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	// Телефоны в базе хранятся в разном виде («+7 777 ...», «8777...») —
-	// сравниваем нормализованные цифры. Владельцев немного, полный проход дешев.
-	rows, err := a.db.QueryContext(ctx,
-		`SELECT id, fio, COALESCE(phone,'') FROM owners WHERE is_deleted=0`)
+	owner, err := a.findOwnerByPhone(ctx, phone)
 	if err != nil {
 		a.logger.Printf("portalLogin: %v", err)
 		writeError(w, http.StatusInternalServerError, "Ошибка сервера")
 		return
 	}
-
-	var owner portalOwnerInfo
-	for rows.Next() {
-		var id, fio, ph string
-		if err := rows.Scan(&id, &fio, &ph); err != nil {
-			continue
-		}
-		if normalizePhoneDigits(ph) == phone {
-			owner = portalOwnerInfo{ID: id, Fio: fio, Phone: ph}
-			break
-		}
-	}
-	// Закрываем ДО insert: незакрытый курсор держит read-транзакцию,
-	// и запись в owner_sessions ждала бы её до таймаута.
-	rows.Close()
-
 	if owner.ID == "" {
 		writeError(w, http.StatusNotFound, "Номер не найден. Проверьте номер или обратитесь в клинику.")
+		return
+	}
+
+	// Пароль одноразовый: сверяем и тут же гасим. Просроченные не подходят.
+	res, err := a.db.ExecContext(ctx,
+		`UPDATE portal_codes SET used_at=?
+		 WHERE owner_id=? AND code=? AND used_at IS NULL AND expires_at > ?`,
+		T(nowUTC()), owner.ID, code, T(nowUTC()))
+	if err != nil {
+		a.logger.Printf("portalLogin code: %v", err)
+		writeError(w, http.StatusInternalServerError, "Ошибка сервера")
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		writeError(w, http.StatusUnauthorized, "Неверный или просроченный пароль. Запросите новый у телеграм-бота.")
 		return
 	}
 
@@ -116,6 +145,14 @@ func (a *app) handlePortalLogin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: map[string]interface{}{
 		"token": token,
 		"owner": owner,
+	}})
+}
+
+// handlePortalBotInfo — публичная справка для страницы входа: имя бота,
+// чтобы показать ссылку «получить пароль». Токен наружу не отдаём.
+func (a *app) handlePortalBotInfo(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: map[string]string{
+		"bot": a.config.TelegramBotName,
 	}})
 }
 

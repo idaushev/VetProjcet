@@ -498,6 +498,23 @@ var migrations = []string{
 	    sent_at    DATETIME
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_notifications_status ON notifications(status)`,
+
+	// Одноразовые пароли входа на портал. Выдаёт телеграм-бот по запросу
+	// владельца; действуют 10 минут, сгорают после первого входа.
+	`CREATE TABLE IF NOT EXISTS portal_codes (
+	    owner_id   TEXT NOT NULL,
+	    code       TEXT NOT NULL,
+	    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	    expires_at DATETIME NOT NULL,
+	    used_at    DATETIME
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_portal_codes_owner ON portal_codes(owner_id)`,
+
+	// Служебное состояние бота (offset длинного опроса getUpdates и т.п.)
+	`CREATE TABLE IF NOT EXISTS telegram_state (
+	    key   TEXT PRIMARY KEY,
+	    value TEXT NOT NULL
+	)`,
 }
 
 // ─── openDB ──────────────────────────────────────────────────────────────────
