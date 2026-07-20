@@ -2435,3 +2435,23 @@ body[data-role="reception"] #ssg-analytics { display: none; }
   /* Тосты и плавающие кнопки поднимаем над панелью. */
   .toast-container { bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
 }
+
+/* Линия текущего времени в расписании */
+.sched-now-line {
+  position: relative;
+  height: 0;
+  border-top: 2px solid var(--danger);
+  margin: -1px 0 -1px 64px;
+  z-index: 2;
+}
+.sched-now-line span {
+  position: absolute;
+  left: -58px;
+  top: -9px;
+  font-size: .7rem;
+  font-weight: 800;
+  color: #fff;
+  background: var(--danger);
+  border-radius: 99px;
+  padding: 1px 7px;
+}
