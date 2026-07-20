@@ -22,7 +22,12 @@
   /* Текст */
   --text:       #1a2434;
   --text-2:     #526070;
-  --text-3:     #93a5b6;
+  /* --text-3 — подписи, даты, подсказки. Значение подобрано под WCAG AA
+     (4.5:1) на ВСЕХ фонах, где встречается: худший из них --bg-active
+     (#e8f4ee) даёт 4.59:1, на карточке — 5.31:1. Прежний #93a5b6 давал
+     2.3–2.5:1: на планшете при бликах подписи просто пропадали.
+     Осторожно при осветлении: светлее #5d6f81 — уже ниже нормы. */
+  --text-3:     #5d6f81;
   --text-inv:   #ffffff;
 
   /* Акцент — глубокий медицинский зелёный */
@@ -61,6 +66,10 @@
   --shadow-xl: 0 16px 56px rgba(12,30,60,.15), 0 6px 18px rgba(12,30,60,.09);
 
   /* Радиусы */
+  /* --r-xs — инлайновые мелочи: фокус-кольцо, подсветка поиска.
+     Отдельная ступень, а не --r-sm: 6px на строчном элементе
+     с отступом 2px выглядит раздутым. */
+  --r-xs:  4px;
   --r-sm:  6px;
   --r:     10px;
   --r-lg:  16px;
@@ -825,6 +834,7 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 }
 
 .modal.modal-lg   { max-width: 800px; }
+.modal.modal-sm   { max-width: 380px; }
 .modal.modal-xl   { max-width: 1060px; }
 .modal.modal-full { max-width: min(96vw, 1200px); max-height: 96dvh; }
 
@@ -1489,7 +1499,7 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
-  border-radius: 4px;
+  border-radius: var(--r-xs);
 }
 
 /* ── Utils ──────────────────────────────────────────────────────── */
@@ -1507,7 +1517,7 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 /* ── Search highlight ────────────────────────────────────────────── */
 mark {
   background: rgba(26,140,94,.14);
-  border-radius: 3px; color: inherit; padding: 0 2px;
+  border-radius: var(--r-xs); color: inherit; padding: 0 2px;
 }
 
 /* ── Sidebar sync button ─────────────────────────────────────────── */
@@ -2234,7 +2244,7 @@ body[data-role="reception"] #ssg-analytics { display: none; }
   padding: 0 12px 0 36px;
   font-size: .88rem;
   border: 1.5px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--r);
   background: var(--bg-s, #f6f8fa);
   outline: none;
   transition: border-color .15s, background .15s;
@@ -2300,7 +2310,7 @@ body[data-role="reception"] #ssg-analytics { display: none; }
   align-items: center;
   gap: 12px;
   padding: 8px 12px;
-  border-radius: 10px;
+  border-radius: var(--r);
   border: 1.5px solid var(--accent-border);
   background: var(--accent-dim);
   cursor: pointer;
@@ -2315,7 +2325,7 @@ body[data-role="reception"] #ssg-analytics { display: none; }
 .appt-reason { font-size: .78rem; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .appt-doc {
   font-size: .75rem; color: var(--blue);
-  background: var(--blue-dim); border-radius: 99px; padding: 2px 9px; white-space: nowrap;
+  background: var(--blue-dim); border-radius: var(--r-full); padding: 2px 9px; white-space: nowrap;
 }
 .appt-status { font-size: .72rem; font-weight: 700; white-space: nowrap; }
 
