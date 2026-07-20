@@ -4,6 +4,23 @@
 (function () {
   'use strict';
 
+  // ── Высота видимой области при открытой клавиатуре ────────────────────
+  // Основное решение — interactive-widget=resizes-content в <meta viewport>:
+  // там, где оно работает (Chrome/Android — наш планшет), dvh сам сжимается
+  // под клавиатуру. Это запасной путь для браузеров, которые его игнорируют
+  // (Safari/iOS): держим в --vvh высоту visual viewport, а модалка берёт
+  // min() от неё и от dvh. Без этого футер с «Сохранить» прячется под
+  // клавиатурой — форма приёма длинная, врач печатает и не видит кнопку.
+  function trackViewportHeight() {
+    var vv = window.visualViewport;
+    if (!vv) return;
+    var apply = function () {
+      document.documentElement.style.setProperty('--vvh', Math.round(vv.height) + 'px');
+    };
+    vv.addEventListener('resize', apply);
+    apply();
+  }
+
   // ── Иконки ────────────────────────────────────────────────────────────
   // Единственный источник иконок — VetIcons (js/icons.js). Здесь только
   // тонкая обёртка: старый код звал icon(name, cls), сигнатуру сохраняем.
@@ -1350,6 +1367,8 @@
       });
     }).catch(function() { dd.style.display = 'none'; });
   }
+
+  trackViewportHeight();
 
   window.VetUI = {
     icon:icon, esc:esc, avatar:avatar,

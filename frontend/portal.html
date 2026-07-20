@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Мои питомцы — VetClinic</title>
 <style>
   :root {
@@ -61,10 +61,10 @@
   <!-- Вход -->
   <div class="card" id="scr-login" style="display:none;">
     <div class="h1">Вход</div>
-    <div class="muted">Введите номер телефона, который вы оставляли в клинике, и пароль из телеграм-бота.</div>
+    <div class="muted">Введите номер телефона, который вы оставляли в клинике, и одноразовый пароль — его пришлёт телеграм-бот или подскажут в клинике.</div>
     <label>Номер телефона</label>
     <input type="tel" id="phone" placeholder="+7 707 123-45-67" autocomplete="tel">
-    <label>Пароль из телеграм-бота</label>
+    <label>Одноразовый пароль</label>
     <input type="text" id="code" placeholder="6 цифр" inputmode="numeric" maxlength="6" autocomplete="one-time-code" style="width:100%;padding:13px 14px;font-size:1.05rem;border:1.5px solid var(--border);border-radius:10px;outline:none;letter-spacing:4px;">
     <div class="err" id="login-err"></div>
     <button class="btn" id="btn-login">Войти</button>
@@ -73,6 +73,11 @@
 
   <!-- Питомцы -->
   <div id="scr-pets" style="display:none;">
+    <div class="card" id="appts-card" style="display:none;">
+      <div class="h1" style="font-size:1rem;">Ближайшая запись</div>
+      <div id="appts-list"></div>
+    </div>
+    <button class="btn" id="btn-book" style="margin-bottom:14px;">📅 Записаться на приём</button>
     <div class="card">
       <div class="h1" id="hello"></div>
       <div class="muted">Ваши питомцы. Нажмите, чтобы посмотреть приёмы и назначения.</div>
@@ -82,6 +87,26 @@
   </div>
 
   <!-- Питомец: приёмы -->
+  <!-- Запись на приём -->
+  <div id="scr-book" style="display:none;">
+    <button class="back" id="btn-book-back">← Мои питомцы</button>
+    <div class="card">
+      <div class="h1">Запись на приём</div>
+      <div class="muted">Выберите удобное время — если оно окажется занято, клиника перезвонит и предложит другое.</div>
+      <label>Питомец</label>
+      <select id="bk-pet" style="width:100%;padding:13px 14px;font-size:1rem;border:1.5px solid var(--border);border-radius:10px;background:#fff;"></select>
+      <label>Дата</label>
+      <input type="date" id="bk-date" style="width:100%;padding:12px 14px;font-size:1rem;border:1.5px solid var(--border);border-radius:10px;">
+      <label>Время</label>
+      <select id="bk-time" style="width:100%;padding:13px 14px;font-size:1rem;border:1.5px solid var(--border);border-radius:10px;background:#fff;"></select>
+      <label>Что беспокоит / причина визита</label>
+      <input type="text" id="bk-reason" maxlength="200" placeholder="Вакцинация, осмотр, хромает..."
+             style="width:100%;padding:13px 14px;font-size:1rem;border:1.5px solid var(--border);border-radius:10px;">
+      <div class="err" id="bk-err"></div>
+      <button class="btn" id="btn-book-send">Записаться</button>
+    </div>
+  </div>
+
   <div id="scr-pet" style="display:none;">
     <button class="back" id="btn-back">← Мои питомцы</button>
     <div class="card">
@@ -123,7 +148,7 @@
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
     return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; }); }
   function show(id) {
-    ['scr-login','scr-pets','scr-pet'].forEach(function (s) { $(s).style.display = s === id ? '' : 'none'; });
+    ['scr-login','scr-pets','scr-pet','scr-book'].forEach(function (s) { $(s).style.display = s === id ? '' : 'none'; });
   }
 
   function api(method, path, body) {
@@ -205,13 +230,34 @@
 
   function petIcon(p) { return SPECIES[(p.type || '').toLowerCase()] || '🐾'; }
 
+  function loadAppointments() {
+    api('GET', '/portal/appointments').then(function (appts) {
+      var card = $('appts-card');
+      if (!appts || !appts.length) { card.style.display = 'none'; return; }
+      var DAYS = ['вс','пн','вт','ср','чт','пт','сб'];
+      $('appts-list').innerHTML = appts.map(function (a) {
+        var d = new Date(a.starts_at);
+        var when = fmtDate(a.starts_at) + ' (' + DAYS[d.getDay()] + ') в ' + a.starts_at.slice(11, 16);
+        return '<div class="next-box" style="margin-top:10px;">'
+          + '📅 ' + esc(when)
+          + (a.pet_name ? ' · ' + esc(a.pet_name) : '')
+          + (a.staff_name ? '<div style="font-weight:400;margin-top:2px;">Врач: ' + esc(a.staff_name) + '</div>' : '')
+          + (a.reason ? '<div style="font-weight:400;margin-top:2px;">' + esc(a.reason) + '</div>' : '')
+          + '</div>';
+      }).join('');
+      card.style.display = '';
+    }).catch(function () {});
+  }
+
   function openPets() {
     show('scr-pets');
+    loadAppointments();
     $('hello').textContent = state.owner ? 'Здравствуйте, ' + state.owner.fio.split(' ')[0] + (state.owner.fio.split(' ')[1] ? ' ' + state.owner.fio.split(' ')[1] : '') + '!' : 'Мои питомцы';
     var list = $('pets-list');
     list.innerHTML = '<div class="loader">Загрузка…</div>';
     api('GET', '/portal/pets').then(function (pets) {
       state.pets = pets || [];
+      $('btn-book').style.display = state.pets.some(function (p) { return p.status !== 'deceased'; }) ? '' : 'none';
       if (!state.pets.length) { list.innerHTML = '<div class="loader">Питомцев пока нет</div>'; return; }
       list.innerHTML = state.pets.map(function (p, i) {
         var media = p.photo
@@ -299,6 +345,53 @@
   }
 
   $('btn-back').onclick = openPets;
+
+  // ── Запись на приём ──────────────────────────────────────────────────
+  function openBooking() {
+    var alive = state.pets.filter(function (p) { return p.status !== 'deceased'; });
+    if (!alive.length) return;
+    $('bk-pet').innerHTML = alive.map(function (p) {
+      return '<option value="' + esc(p.id) + '">' + esc(p.name) + ' (' + esc(p.type || '') + ')</option>';
+    }).join('');
+    // Дата: с завтрашнего дня, максимум +60; время — слоты по 30 минут
+    var t = new Date(Date.now() + 86400000);
+    var max = new Date(Date.now() + 60 * 86400000);
+    function ds(d) { return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+    var di = $('bk-date');
+    di.min = ds(new Date()); di.max = ds(max);
+    if (!di.value) di.value = ds(t);
+    if (!$('bk-time').options.length) {
+      var opts = '';
+      for (var h = 9; h < 19; h++) {
+        ['00','30'].forEach(function (mm) {
+          var v = String(h).padStart(2,'0') + ':' + mm;
+          opts += '<option value="' + v + '"' + (v === '11:00' ? ' selected' : '') + '>' + v + '</option>';
+        });
+      }
+      $('bk-time').innerHTML = opts;
+    }
+    $('bk-err').style.display = 'none';
+    show('scr-book');
+  }
+  $('btn-book').onclick = openBooking;
+  $('btn-book-back').onclick = openPets;
+
+  $('btn-book-send').onclick = function () {
+    var err = $('bk-err'); err.style.display = 'none';
+    var btn = $('btn-book-send'); btn.disabled = true;
+    api('POST', '/portal/book', {
+      pet_id: $('bk-pet').value,
+      date:   $('bk-date').value,
+      time:   $('bk-time').value,
+      reason: $('bk-reason').value.trim()
+    }).then(function (d) {
+      $('bk-reason').value = '';
+      openPets(); // блок «Ближайшая запись» обновится и покажет новую
+      alert('Вы записаны на ' + $('bk-date').value.split('-').reverse().join('.') + ' в ' + d.time + '.\nЕсли время окажется занято, мы вам перезвоним.');
+    }).catch(function (e) {
+      err.textContent = e.message; err.style.display = 'block';
+    }).then(function () { btn.disabled = false; });
+  };
 
   // ── Замена фото ──────────────────────────────────────────────────────
   $('btn-photo').onclick = function () { $('photo-file').click(); };

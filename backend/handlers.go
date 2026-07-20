@@ -103,6 +103,9 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("PUT /users/{id}",    a.requireAdmin(a.handleUserByID))
 	mux.HandleFunc("DELETE /users/{id}", a.requireAdmin(a.handleUserByID))
 
+	// Выдача владельцу пароля от портала вручную — только администратор
+	mux.HandleFunc("POST /owners/{id}/portal-code", a.requirePortalCodeAccess(a.handleIssuePortalCode))
+
 	// Вложения (сканы УЗИ, рентген, анализы).
 	// Метод указываем явно, как и во всех маршрутах выше: без него шаблон
 	// конфликтует с catch-all "GET /" и роутер падает при старте.
@@ -123,6 +126,8 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /portal/pets",             a.handlePortalPets)
 	mux.HandleFunc("GET /portal/pets/{id}/visits", a.handlePortalPetVisits)
 	mux.HandleFunc("GET /portal/pets/{id}/vaccinations", a.handlePortalPetVaccinations)
+	mux.HandleFunc("GET /portal/appointments",     a.handlePortalAppointments)
+	mux.HandleFunc("POST /portal/book",            a.handlePortalBook)
 	mux.HandleFunc("PUT /portal/pets/{id}/photo",  a.handlePortalPetPhoto)
 	mux.HandleFunc("GET /portal", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, filepath.Join(a.frontend, "portal.html"))

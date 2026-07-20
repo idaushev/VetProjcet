@@ -2,7 +2,10 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <!-- interactive-widget=resizes-content: экранная клавиатура должна сжимать
+       layout-viewport, иначе dvh остаётся во весь экран и футер модалки
+       (кнопка «Сохранить») уезжает под клавиатуру на планшете. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#ffffff">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -317,9 +320,10 @@
               <div class="stat-label">Вакцинаций на неделе ↗</div>
             </div>
             <!-- Четвёртая карточка зависит от роли: врач видит свои приёмы,
-                 админ — выручку дня. Наполняется в initDashboard. -->
-            <div class="stat-card stat-card-link" id="stat-card-role" style="display:none;"
-                 onclick="if(window.VetPages)VetPages.goVisitsToday()">
+                 остальные — загрузку на завтра. Сумм на дашборде нет: планшет
+                 стоит на виду у клиентов. Обработчик клика ставит
+                 initDashboard — он зависит от того, что показано. -->
+            <div class="stat-card stat-card-link" id="stat-card-role" style="display:none;">
               <div class="stat-value" id="stat-role-value">—</div>
               <div class="stat-label" id="stat-role-label"></div>
             </div>
@@ -328,6 +332,16 @@
           <!-- Виджеты: на широких экранах в две колонки, на планшете/узких — в одну.
                Раскладку держит .dash-grid, см. CSS. -->
           <div class="dash-grid">
+            <div class="card">
+              <div class="card-header">
+                <span class="card-title">Записи на сегодня</span>
+                <a class="btn btn-sm btn-ghost" onclick="navigate('schedule')">Расписание →</a>
+              </div>
+              <div class="card-body">
+                <div id="dash-appts" class="recent-list"><div class="list-empty">Загрузка...</div></div>
+              </div>
+            </div>
+
             <div class="card">
               <div class="card-header">
                 <span class="card-title">Последние приёмы</span>
@@ -693,6 +707,16 @@
                   </div>
                 </div>
               </div>
+              <div class="form-grid" style="margin-top:8px;">
+                <div class="form-group">
+                  <label class="form-label">Расписание: начало дня</label>
+                  <select id="s-sched-start" class="form-select"></select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Расписание: конец дня</label>
+                  <select id="s-sched-end" class="form-select"></select>
+                </div>
+              </div>
               <div style="margin-top:20px;">
                 <button class="btn btn-primary" id="btn-save-settings">Сохранить настройки</button>
                 <span id="settings-saved-msg" style="display:none;margin-left:12px;color:var(--accent);font-weight:600;font-size:.9rem;">✓ Сохранено</span>
@@ -718,6 +742,30 @@
 
     </main>
   </div><!-- /layout -->
+
+  <!-- ── Нижняя панель (планшет/телефон) ───────────────────────────────
+       Показывается там же, где сайдбар прячется в выдвижное меню
+       (max-width: 899px). Частые переходы стоили двух касаний:
+       гамбургер → пункт. Пункты помечены .nav-item[data-page], поэтому
+       клик, активное состояние и скрытие по правам работают тем же
+       кодом, что и для сайдбара. -->
+  <nav class="bottom-nav" id="bottom-nav" role="navigation" aria-label="Основные разделы">
+    <a class="bn-item nav-item" data-page="dashboard" href="#dashboard">
+      <i data-icon="grid" data-icon-size="22"></i><span>Обзор</span>
+    </a>
+    <a class="bn-item nav-item" data-page="schedule" href="#schedule">
+      <i data-icon="calendar" data-icon-size="22"></i><span>Расписание</span>
+    </a>
+    <a class="bn-item nav-item" data-page="visits" href="#visits">
+      <i data-icon="clipboard" data-icon-size="22"></i><span>Приёмы</span>
+    </a>
+    <button class="bn-item" type="button" id="bn-search" aria-label="Поиск">
+      <i data-icon="search" data-icon-size="22"></i><span>Поиск</span>
+    </button>
+    <button class="bn-item" type="button" id="bn-more" aria-label="Ещё разделы">
+      <i data-icon="menu" data-icon-size="22"></i><span>Ещё</span>
+    </button>
+  </nav>
 
 </div><!-- /app -->
 
@@ -821,6 +869,23 @@
     });
   });
 
+  // ── Нижняя панель: «Поиск» и «Ещё» ────────────────────────────────
+  // Разделы (Обзор/Расписание/Приёмы) обрабатывает общий обработчик
+  // .nav-item выше — здесь только две кнопки без data-page.
+  var bnSearch = document.getElementById('bn-search');
+  if (bnSearch) bnSearch.addEventListener('click', function () {
+    var input = document.getElementById('global-search');
+    if (!input) return;
+    input.focus();
+    input.scrollIntoView({ block: 'nearest' });
+  });
+
+  var bnMore = document.getElementById('bn-more');
+  if (bnMore) bnMore.addEventListener('click', function () {
+    sidebar.classList.add('open');
+    overlay.classList.add('show');
+  });
+
   // Modal close button — через guard: спросит про несохранённые данные
   document.getElementById('modal-close-btn').addEventListener('click', function () {
     if (!window.VetUI) return;
@@ -830,7 +895,7 @@
   // ── Hash navigation ────────────────────────────────────────────────
   // Если запущено через иконку (start_url = "/?pwa=1") — hash пустой → dashboard
   // Если пользователь открыл прямую ссылку с хэшем — навигируем туда
-  var validPages = ['dashboard','owners','pets','visits','vaccinations','items','staff',
+  var validPages = ['dashboard','schedule','owners','pets','visits','vaccinations','items','staff',
                     'chips','report-daily','report-revenue','report-upcoming','report-noshows','users','settings'];
 
   // ── Сворачиваемые группы сайдбара ──────────────────────────────────

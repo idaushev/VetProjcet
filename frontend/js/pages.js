@@ -69,12 +69,15 @@
   }
 
   // ── Empty state ───────────────────────────────────────────────────────
-  function emptyState(text) {
+  // Пустое состояние — не тупик: если передан ctaLabel/ctaOnclick,
+  // показываем кнопку следующего шага («Записать», «Новый приём»...).
+  function emptyState(text, ctaLabel, ctaOnclick) {
     return `<div class="list-empty">
       <svg class="list-empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
         <circle cx="12" cy="12" r="10"/><path d="M8 15h8M8 9h2m4 0h2"/>
       </svg>
       <span>${esc(text)}</span>
+      ${ctaLabel ? '<button class="btn btn-ghost btn-sm" style="margin-top:10px;" onclick="'+esc(ctaOnclick||'')+'">'+esc(ctaLabel)+'</button>' : ''}
     </div>`;
   }
 
@@ -103,6 +106,13 @@
   // ═══════════════════════════════════════════════════════════════════════
   // DASHBOARD
   // ═══════════════════════════════════════════════════════════════════════
+
+  // Сколько строк показывает панель дашборда. Одно число на все три списка:
+  // высота панели должна быть предсказуемой, иначе строка грида растягивается
+  // по самой длинной панели и под короткой зияет дыра (было 250px при 5 и 2
+  // строках). Полные списки — по ссылке «Все →» в шапке панели.
+  var DASH_ROWS = 5;
+
   async function initDashboard() {
     try {
       var d = await loadAll();
@@ -124,7 +134,14 @@
       setText('stat-on-treatment',     onTreatmentPets.length);
       setText('stat-vaccinations-due', dueVacc.length);
 
-      // Четвёртая карточка — под роль: врач видит СВОЁ, админ — деньги дня.
+      // Записи нужны и четвёртой карточке, и виджету ниже — грузим один раз.
+      var allAppts = [];
+      try { allAppts = await window.VetDB.getAll('appointments'); } catch(e) {}
+
+      // Четвёртая карточка — под роль: врач видит свои приёмы, остальные —
+      // загрузку на завтра. Денег на дашборде нет намеренно: планшет стоит
+      // на виду, и сумма дневного дохода читается любым клиентом у стойки.
+      // Выручка живёт в «Отчётах», куда нужно зайти осознанно.
       var roleCard = document.getElementById('stat-card-role');
       if (roleCard) {
         var u = window.VetAuth ? VetAuth.user() : null;
@@ -132,11 +149,17 @@
           var mine = todayVisits.filter(function(v){ return v.staff_id === u.staff_id; });
           setText('stat-role-value', mine.length);
           setText('stat-role-label', 'Мои приёмы сегодня ↗');
+          roleCard.onclick = function(){ goVisitsToday(); };
           roleCard.style.display = '';
-        } else if (u && window.VetAuth && VetAuth.sumsScope().mode === 'all') {
-          var revenue = todayVisits.reduce(function(s,v){ return s + (v.total_amount||0); }, 0);
-          setText('stat-role-value', revenue.toLocaleString('ru-RU', {maximumFractionDigits:0}) + ' ₸');
-          setText('stat-role-label', 'Выручка сегодня ↗');
+        } else if (u) {
+          var tomorrow = toAstanaStr(new Date(Date.now() + 86400000));
+          var tomorrowAppts = allAppts.filter(function(a){
+            return !a.is_deleted && a.status === 'scheduled'
+              && (a.starts_at||'').slice(0,10) === tomorrow;
+          });
+          setText('stat-role-value', tomorrowAppts.length);
+          setText('stat-role-label', 'Записей на завтра ↗');
+          roleCard.onclick = function(){ navigate('schedule'); };
           roleCard.style.display = '';
         } else {
           roleCard.style.display = 'none';
@@ -146,13 +169,37 @@
       // Recent visits
       var petsMap  = buildMap(d.pets);
       var ownersMap = buildMap(d.owners);
+      var staffMapD = buildMap(d.staff);
+
+      // Виджет «Записи на сегодня» — расписание видно прямо с обзора
+      var apptsEl = document.getElementById('dash-appts');
+      if (apptsEl) {
+        var todayAppts = allAppts.filter(function(a) {
+          return !a.is_deleted && (a.starts_at||'').slice(0,10) === today && a.status === 'scheduled';
+        }).sort(function(a,b){ return (a.starts_at||'') < (b.starts_at||'') ? -1 : 1; }).slice(0, DASH_ROWS);
+        apptsEl.innerHTML = todayAppts.length
+          ? todayAppts.map(function(a) {
+              var pet = a.pet_id ? petsMap[a.pet_id] : null;
+              var owner = a.owner_id ? ownersMap[a.owner_id] : (pet ? ownersMap[pet.owner_id] : null);
+              var petName = pet ? pet.name : (a.pet_name || 'Без клички');
+              var who = owner ? owner.fio : (a.client_name || '');
+              var doc = a.staff_id && staffMapD[a.staff_id] ? staffMapD[a.staff_id].name.split(' ')[0] : '';
+              return '<div class="erow" onclick="navigate(\'schedule\')">'
+                + '<span class="dash-appt-time">' + esc((a.starts_at||'').slice(11,16)) + '</span>'
+                + '<div class="erow-body"><div class="erow-title">' + esc(petName) + '</div>'
+                + '<div class="erow-sub">' + esc(who) + (a.reason ? ' · ' + esc(a.reason) : '') + '</div></div>'
+                + (doc ? '<div class="erow-right"><span class="badge badge-course">' + esc(doc) + '</span></div>' : '')
+                + '</div>';
+            }).join('')
+          : emptyState('Записей нет — день свободен', 'Записать клиента', "navigate('schedule')");
+      }
       var recentVisits = d.visits.filter(function(v){ return !v.is_deleted; }).sort(function(a,b){
         return new Date(b.date) - new Date(a.date);
-      }).slice(0, 8);
+      }).slice(0, DASH_ROWS);
 
       var recentEl = document.getElementById('recent-visits');
       if (!recentEl) return;
-      if (!recentVisits.length) { recentEl.innerHTML = emptyState('Приёмов ещё нет'); return; }
+      if (!recentVisits.length) { recentEl.innerHTML = emptyState('Приёмов ещё нет', '+ Новый приём', 'VetPages.newVisit()'); return; }
       recentEl.innerHTML = recentVisits.map(function(v) {
         var pet = petsMap[v.pet_id] || {};
         var owner = ownersMap[pet.owner_id] || {};
@@ -161,8 +208,10 @@
           +UI.avatar(pet.name||'?',pet.type)
           +'<div class="erow-body"><div class="erow-title">'+esc(pet.name||'Неизвестно')+visitTypeBadge+'</div>'
           +'<div class="erow-sub">'+esc(owner.fio||'')+' · '+esc(v.diagnosis||v.anamnesis||'Без диагноза')+'</div></div>'
+          // Суммы на главной не показываем: планшет стоит на виду, и клиент
+          // у стойки видел бы, сколько заплатил предыдущий. В списке приёмов
+          // и в отчётах суммы на месте — туда заходят осознанно.
           +'<div class="erow-right"><span class="erow-date">'+fmtDate(v.date)+'</span>'
-          +(v.total_amount?(window.VetAuth&&!VetAuth.canSeeSum(v.staff_id)?'<span class="erow-amount" title="Сумма скрыта настройками прав">···</span>':'<span class="erow-amount">'+Number(v.total_amount).toFixed(0)+' ₸</span>'):'')
           +'</div></div>';
       }).join('');
 
@@ -175,7 +224,7 @@
           var until = v.treatment_until.slice(0,10);
           var daysLeft = Math.round((new Date(until) - new Date(today)) / 86400000) + 1;
           return { pet: pet, until: until, daysLeft: daysLeft };
-        }).sort(function(a,b){ return a.until < b.until ? -1 : 1; }).slice(0, 8);
+        }).sort(function(a,b){ return a.until < b.until ? -1 : 1; }).slice(0, DASH_ROWS);
 
         treatEl.innerHTML = courses.length
           ? courses.map(function(c){
@@ -198,15 +247,19 @@
   // OWNERS
   // ═══════════════════════════════════════════════════════════════════════
   var _owners = [], _petsMap = {};
+  var _ownersLimit = 60; // порция рендера — база растёт, весь архив на страницу не льём
 
   async function initOwners() {
     var [owners, pets] = await Promise.all([api('GET','/owners'), api('GET','/pets?status=all')]);
     _owners = owners || [];
     _petsMap = buildMap(pets || []);
+    _ownersLimit = 60;
     renderOwnerList(_owners, '');
-    setupSearch('search-owners', function(q){ renderOwnerList(_owners, q); });
+    setupSearch('search-owners', function(q){ _ownersLimit = 60; renderOwnerList(_owners, q); });
     document.getElementById('btn-add-owner').onclick = addOwner;
   }
+
+  function _ownersShowMore() { _ownersLimit += 60; renderOwnerList(); }
 
   function renderOwnerList(owners, q) {
     owners = owners || _owners;
@@ -216,7 +269,13 @@
     owners.sort(function(a,b){ return a.fio.localeCompare(b.fio, 'ru'); });
     var el = document.getElementById('owners-list');
     if (!el) return;
-    if (!owners.length) { el.innerHTML = emptyState(q ? 'Ничего не найдено' : 'Владельцев ещё нет'); return; }
+    if (!owners.length) {
+      el.innerHTML = q ? emptyState('Ничего не найдено') : emptyState('Владельцев ещё нет', '+ Добавить', 'VetPages.addOwner()');
+      return;
+    }
+    var ownersTotal = owners.length;
+    var ownersMore = ownersTotal > _ownersLimit;
+    if (ownersMore) owners = owners.slice(0, _ownersLimit);
     var petCountMap = {};
     Object.values(_petsMap).forEach(function(p){ if(!p.is_deleted && p.status==='active') petCountMap[p.owner_id] = (petCountMap[p.owner_id]||0)+1; });
     el.innerHTML = owners.map(function(o) {
@@ -237,7 +296,10 @@
         + '<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editOwner(\''+o.id+'\')" title="Редактировать">'+UI.icon('edit','')+'</button>'
         + '<button class="btn btn-icon danger" onclick="event.stopPropagation();VetPages.deleteOwner(\''+o.id+'\',\''+esc(o.fio)+'\')" title="Удалить">'+UI.icon('trash','')+'</button>'
         + '</div></div></div>';
-    }).join('');
+    }).join('')
+    + (ownersMore
+        ? '<div style="text-align:center;padding:14px;"><button class="btn btn-ghost" onclick="VetPages._ownersShowMore()">Показать ещё (' + (ownersTotal - _ownersLimit) + ')</button></div>'
+        : '');
   }
 
   async function addOwner() {
@@ -330,15 +392,19 @@
     _ownersMap = buildMap(owners || []);
     _coursesByPet = buildCourses(visits);
     renderPetList();
-    setupSearch('search-pets', function(q){ renderPetList(); });
+    _petsLimit = 60;
+    setupSearch('search-pets', function(q){ _petsLimit = 60; renderPetList(); });
 
-    document.getElementById('filter-pet-status').onchange = function() { _petStatusFilter = this.value; renderPetList(); };
+    document.getElementById('filter-pet-status').onchange = function() { _petStatusFilter = this.value; _petsLimit = 60; renderPetList(); };
     document.getElementById('btn-add-pet').onclick = addPet;
 
     // Owner filter
     var ownerFilter = document.getElementById('filter-owner-id');
     if (ownerFilter) ownerFilter.onchange = renderPetList;
   }
+
+  var _petsLimit = 60;
+  function _petsShowMore() { _petsLimit += 60; renderPetList(); }
 
   function renderPetList() {
     var q = (document.getElementById('search-pets')||{}).value || '';
@@ -370,7 +436,13 @@
 
     var el = document.getElementById('pets-list');
     if (!el) return;
-    if (!pets.length) { el.innerHTML = emptyState(q ? 'Ничего не найдено' : 'Животных нет'); return; }
+    if (!pets.length) {
+      el.innerHTML = q ? emptyState('Ничего не найдено') : emptyState('Животных нет', '+ Добавить', 'VetPages.addPet()');
+      return;
+    }
+    var petsTotal = pets.length;
+    var petsMore = petsTotal > _petsLimit;
+    if (petsMore) pets = pets.slice(0, _petsLimit);
 
     el.innerHTML = pets.map(function(p) {
       var owner = _ownersMap[p.owner_id] || {};
@@ -403,7 +475,10 @@
         +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editPet(\''+p.id+'\')" title="Редактировать">'+UI.icon('edit','')+'</button>'
         +'<button class="btn btn-icon danger" onclick="event.stopPropagation();VetPages.deletePet(\''+p.id+'\',\''+esc(p.name)+'\')" title="Удалить">'+UI.icon('trash','')+'</button>'
         +'</div></div></div>';
-    }).join('');
+    }).join('')
+    + (petsMore
+        ? '<div style="text-align:center;padding:14px;"><button class="btn btn-ghost" onclick="VetPages._petsShowMore()">Показать ещё (' + (petsTotal - _petsLimit) + ')</button></div>'
+        : '');
   }
 
   async function addPet() {
@@ -560,7 +635,11 @@
 
     var el = document.getElementById('visits-list');
     if (!el) return;
-    if (!visits.length) { el.innerHTML = emptyState(q ? 'Ничего не найдено' : 'Приёмов нет'); return; }
+    if (!visits.length) {
+      el.innerHTML = q ? emptyState('Ничего не найдено')
+                       : emptyState('Приёмов нет', '+ Новый приём', 'VetPages.newVisit()');
+      return;
+    }
 
     var totalCount = visits.length;
     var showMore = totalCount > _visitRenderLimit;
@@ -710,6 +789,7 @@
           UI.hideModal();
           await initVisits();
           initDashboard();
+          maybeOfferAppointment(vs, finalPet, finalOwner);
         } catch(e) { UI.toast(e.message, 'err'); }
       }
     });
@@ -910,6 +990,7 @@
           if (!failedDeletes) UI.toast('Приём обновлён', 'ok');
           UI.hideModal();
           await initVisits();
+          maybeOfferAppointment(vs, finalPet, finalOwner);
         } catch(e) { UI.toast(e.message, 'err'); }
       }
     });
@@ -1950,15 +2031,18 @@
       var byDoctor = {}, byItem = {};
       var daysSet = {};
 
+      var grandDiscount = 0;
       visits.forEach(function(v){
         daysSet[toLocalDateStr(v.date)] = true;
         grandCard += Number(v.payment_card) || 0;
+        grandDiscount += Number(v.discount) || 0;
         var dk = v.staff_id || '(без врача)';
         if (!byDoctor[dk]) byDoctor[dk] = {
           name: v.staff_id && staffMap[v.staff_id] ? staffMap[v.staff_id].name : 'Врач не указан',
-          visits: 0, total: 0, cash: 0
+          visits: 0, total: 0, cash: 0, discount: 0
         };
         byDoctor[dk].visits += 1;
+        byDoctor[dk].discount += Number(v.discount) || 0;
         (itemsByVisit[v.id] || []).forEach(function(vi){
           var qty = Number(vi.quantity) || 1;
           var line = Number(vi.total) || (qty * (Number(vi.price)||0));
@@ -1975,12 +2059,28 @@
         });
       });
 
-      var doctorShare = Math.max(0, grandTotal - grandCash);
-      var grandCashPaid = grandTotal - grandCard;
+      // Скидки уменьшают заработок врачей и наличные (см. отчёт за день)
+      var grandNet = Math.max(0, grandTotal - grandDiscount);
+      var doctorShare = Math.max(0, grandTotal - grandCash - grandDiscount);
+      var grandCashPaid = Math.max(0, grandNet - grandCard);
       var daysCount = Object.keys(daysSet).length;
 
+      // Цена неявок: записи со статусом «не пришли» за период × средний чек.
+      // Базовая линия для оценки эффекта будущих напоминаний бота.
+      var noShowCount = 0;
+      try {
+        var allAppts = await window.VetDB.getAll('appointments');
+        noShowCount = allAppts.filter(function(a) {
+          if (a.is_deleted || a.status !== 'no_show') return false;
+          var ad = (a.starts_at||'').slice(0,10);
+          return ad >= fromStr && ad <= toStr;
+        }).length;
+      } catch(e) {}
+      var avgCheck = visits.length ? Math.round(grandNet / visits.length) : 0;
+      var noShowLost = noShowCount * avgCheck;
+
       var doctorRows = Object.keys(byDoctor).map(function(k){
-        var x = byDoctor[k]; x.share = Math.max(0, x.total - x.cash); return x;
+        var x = byDoctor[k]; x.share = Math.max(0, x.total - x.cash - x.discount); return x;
       }).sort(function(a,b){ return b.share - a.share; });
 
       var topItems = Object.keys(byItem).map(function(k){ return byItem[k]; })
@@ -1993,12 +2093,14 @@
 
         // Крупные показатели
         + '<div class="revenue-tiles">'
-        +   revenueTile('Выручка', fmtMoney(grandTotal), 'accent')
-        +   revenueTile('Средний чек', fmtMoney(Math.round(grandTotal/visits.length)), '')
+        +   revenueTile('Получено', fmtMoney(grandNet), 'accent')
+        +   revenueTile('Средний чек', fmtMoney(avgCheck), '')
         +   revenueTile(I('card')+' Картой', fmtMoney(grandCard), 'blue')
         +   revenueTile(I('cash')+' Наличными', fmtMoney(grandCashPaid), '')
         +   revenueTile(I('hospital')+' Касса клиники', fmtMoney(grandCash), '')
         +   revenueTile(I('stethoscope')+' Заработок врачей', fmtMoney(doctorShare), 'accent')
+        +   (grandDiscount ? revenueTile('Скидки', '−' + fmtMoney(grandDiscount), '') : '')
+        +   (noShowCount ? revenueTile('Неявки по записи', noShowCount + ' ≈ −' + fmtMoney(noShowLost), '') : '')
         + '</div>'
 
         // По врачам
@@ -2187,8 +2289,20 @@
       var drugs    = rows.filter(function(r){ return r.type === 'drug'; })
                          .sort(function(a,b){ return a.name.localeCompare(b.name,'ru'); });
 
+      // Скидки за день: контроль без сводки не работает — админ должен
+      // видеть, кто, сколько и почему.
+      var discountRows = dayVisits.filter(function(v){ return (v.discount||0) > 0; }).map(function(v) {
+        var pet = petsMap[v.pet_id] || {};
+        return {
+          doctor: v.staff_id && staffMap[v.staff_id] ? staffMap[v.staff_id].name : 'Врач не указан',
+          pet:    pet.name || '—',
+          sum:    v.discount || 0,
+          reason: v.discount_reason || '—',
+        };
+      });
+
       el.innerHTML = buildReportHTML(dateStr, services, drugs, dayVisits, petsMap, ownersMap, staffMap, dayVisitItems, catalogMap, filterName,
-        { count: noItemVisits.length, sum: noItemsSum });
+        { count: noItemVisits.length, sum: noItemsSum }, discountRows);
 
       var printBtn = document.getElementById('btn-print-report');
       if (printBtn) printBtn.style.display = '';
@@ -2201,7 +2315,7 @@
 
   // dayVisitItems и catalogMap нужны для разбивки по врачам: заработок считается
   // из кассовой стоимости позиций, а она живёт в каталоге, не в приёме.
-  function buildReportHTML(dateStr, services, drugs, dayVisits, petsMap, ownersMap, staffMap, dayVisitItems, catalogMap, filterName, noItems) {
+  function buildReportHTML(dateStr, services, drugs, dayVisits, petsMap, ownersMap, staffMap, dayVisitItems, catalogMap, filterName, noItems, discountRows) {
 
     function rowsHTML(rows) {
       return rows.map(function(r) {
@@ -2248,10 +2362,17 @@
     var grandCash  = allRows.reduce(function(s,r){ return s + r.cashTotal; }, 0);
     var grandDiff  = grandTotal - grandCash;
 
+    // Скидки: позиции их не знают (выручка по позициям — до скидки),
+    // а получено денег — после. Итоговый блок обязан это показать,
+    // иначе «наличные» в отчёте завышены на сумму скидок.
+    var grandDiscount = dayVisits.reduce(function(s,v){ return s + (v.discount||0); }, 0);
+    var grandNet = Math.max(0, grandTotal - grandDiscount); // реально получено
+
     // Суммы по приёмам
     var grandCard   = dayVisits.reduce(function(s,v){ return s + (v.payment_card||0); }, 0);
-    var grandCashPaid = grandTotal - grandCard; // наличные = выручка − карта
-    var doctorShare = Math.max(0, grandTotal - grandCash); // заработок врачей
+    var grandCashPaid = Math.max(0, grandNet - grandCard); // наличные = получено − карта
+    // Скидку даёт врач — она уменьшает его долю, касса клиники неизменна.
+    var doctorShare = Math.max(0, grandTotal - grandCash - grandDiscount);
 
     // ── Разбивка по врачам ────────────────────────────────────────────
     // Заработок врача = выручка по его приёмам − кассовая стоимость позиций.
@@ -2269,11 +2390,12 @@
       if (!byDoctor[key]) {
         byDoctor[key] = {
           name: v.staff_id && staffMap[v.staff_id] ? staffMap[v.staff_id].name : 'Врач не указан',
-          visits: 0, total: 0, cash: 0
+          visits: 0, total: 0, cash: 0, discount: 0
         };
       }
       var row = byDoctor[key];
       row.visits += 1;
+      row.discount += v.discount || 0;
       // Выручку берём из позиций, а не из visit.total_amount: итог дня выше
       // считается именно по позициям, и эти числа расходятся (в базе есть приёмы,
       // где total_amount не равен сумме позиций). Иначе таблица по врачам
@@ -2287,7 +2409,7 @@
     });
     var doctorRows = Object.keys(byDoctor).map(function(k) {
       var d = byDoctor[k];
-      d.share = Math.max(0, d.total - d.cash);
+      d.share = Math.max(0, d.total - d.cash - d.discount);
       return d;
     }).sort(function(a, b) { return b.share - a.share; });
 
@@ -2346,17 +2468,32 @@
       + '</tr></tfoot>'
       + '</table></div>';
 
-    // Итог расчёта: из заработка (сумма − касса) вычитаем оплату картой.
+    // Итог расчёта: заработок (уже за вычетом скидок) минус безнал.
     // Наличные собирает врач, карта уходит клинике напрямую — итог показывает,
     // сколько наличных остаётся врачу после сдачи кассы (минус = врач доплачивает
     // клинике / клиника должна врачу с безнала).
-    var settleTotal = (grandTotal - grandCash) - grandCard;
+    var settleTotal = (grandTotal - grandCash - grandDiscount) - grandCard;
 
     var noItemsWarn = (noItems && noItems.count)
       ? '<div style="background:#fff8e6;border:1px solid #f0d48a;border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:.88rem;color:#8a6d1a;">'
         + '⚠ Приёмов без позиций: <b>' + noItems.count + '</b> на <b>' + fmtMoney(noItems.sum) + '</b> — '
         + 'эти суммы не входят в выручку и разбивку по врачам. Откройте приёмы и добавьте услуги.'
         + '</div>'
+      : '';
+
+    // Сводка скидок дня
+    discountRows = discountRows || [];
+    var discountSum = discountRows.reduce(function(s,r){ return s + r.sum; }, 0);
+    var discountsHTML = discountRows.length
+      ? '<div class="report-group" style="margin-bottom:20px;">'
+        + '<div class="report-group-title">' + I('cash') + ' Скидки <span style="font-weight:400;color:var(--text-3)">(' + discountRows.length + ' на ' + fmtMoney(discountSum) + ')</span></div>'
+        + '<table class="report-table"><thead><tr><th>Врач</th><th>Животное</th><th class="num">Скидка</th><th>Причина</th></tr></thead><tbody>'
+        + discountRows.map(function(r) {
+            return '<tr><td>' + esc(r.doctor) + '</td><td>' + esc(r.pet) + '</td>'
+              + '<td class="num" style="color:var(--warn);font-weight:700;">−' + fmtMoney(r.sum) + '</td>'
+              + '<td style="font-size:.82rem;">' + esc(r.reason) + '</td></tr>';
+          }).join('')
+        + '</tbody></table></div>'
       : '';
 
     return '<div class="report-wrap">'
@@ -2367,10 +2504,13 @@
       + noItemsWarn
       + visitListHTML
       + doctorsHTML
+      + discountsHTML
       + groupHTML('Услуги', services)
       + groupHTML('Препараты', drugs)
       + '<div class="report-grand">'
-      + '<div class="report-grand-row" style="font-size:1rem;"><span>'+I('cash')+' Выручка за день</span><span style="font-weight:900;">' + fmtMoney(grandTotal) + '</span></div>'
+      + '<div class="report-grand-row"><span>'+I('cash')+' Выручка по позициям</span><span>' + fmtMoney(grandTotal) + '</span></div>'
+      + (grandDiscount ? '<div class="report-grand-row" style="color:var(--warn);"><span>Скидки</span><span>−' + fmtMoney(grandDiscount) + '</span></div>' : '')
+      + '<div class="report-grand-row" style="font-size:1rem;"><span><b>Получено за день</b></span><span style="font-weight:900;">' + fmtMoney(grandNet) + '</span></div>'
       + '<div class="report-grand-row" style="color:var(--blue);"><span>'+I('card')+' Оплата картой (безнал)</span><span>' + fmtMoney(grandCard) + '</span></div>'
       + '<div class="report-grand-row"><span>'+I('cash')+' Наличные</span><span>' + fmtMoney(grandCashPaid) + '</span></div>'
       + '<div class="report-grand-row" style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;"><span>'+I('hospital')+' Доля клиники (касса)</span><span>' + fmtMoney(grandCash) + '</span></div>'
@@ -2404,6 +2544,19 @@
     if (el('s-clinic-phone'))   el('s-clinic-phone').value   = settings.phone   || '';
     if (el('s-clinic-address')) el('s-clinic-address').value = settings.address || '';
 
+    // Рабочие часы расписания (по умолчанию 08–20)
+    ['s-sched-start','s-sched-end'].forEach(function(id, idx) {
+      var sel = el(id);
+      if (!sel || sel.options.length) return;
+      var cur = idx === 0 ? (settings.sched_start != null ? settings.sched_start : 8)
+                          : (settings.sched_end   != null ? settings.sched_end   : 20);
+      var opts = '';
+      for (var h = 0; h <= 23; h++) {
+        opts += '<option value="'+h+'"'+(h===Number(cur)?' selected':'')+'>'+String(h).padStart(2,'0')+':00</option>';
+      }
+      sel.innerHTML = opts;
+    });
+
     if (settings.logo && el('s-logo-preview')) {
       el('s-logo-preview').src     = settings.logo;
       el('s-logo-preview').style.display = '';
@@ -2413,11 +2566,16 @@
 
     var saveBtn = el('btn-save-settings');
     if (saveBtn) saveBtn.onclick = async function() {
+      var schedStart = el('s-sched-start') ? parseInt(el('s-sched-start').value, 10) : 8;
+      var schedEnd   = el('s-sched-end')   ? parseInt(el('s-sched-end').value, 10)   : 20;
+      if (schedEnd <= schedStart) { UI.toast('Конец рабочего дня должен быть позже начала', 'err'); return; }
       await saveClinicSettings({
         name:    (el('s-clinic-name')    ? el('s-clinic-name').value.trim()    : ''),
         phone:   (el('s-clinic-phone')   ? el('s-clinic-phone').value.trim()   : ''),
         address: (el('s-clinic-address') ? el('s-clinic-address').value.trim() : ''),
         logo:    _pendingLogo !== undefined ? _pendingLogo : settings.logo,
+        sched_start: schedStart,
+        sched_end:   schedEnd,
       });
       var msg = el('settings-saved-msg');
       if (msg) { msg.style.display=''; setTimeout(function(){ msg.style.display='none'; },2500); }
@@ -2548,7 +2706,7 @@
   .clinic-name { font-size:16pt; font-weight:900; color:#1a8c5e; letter-spacing:.5px; }
   .clinic-info { font-size:10pt; color:#526070; margin-top:2px; }
   .doc-title { font-size:11pt; color:#526070; margin-top:4px; }
-  .visit-date { font-size:10pt; color:#93a5b6; margin-top:2px; }
+  .visit-date { font-size:10pt; color:#5d6f81; margin-top:2px; }
   .repeat-badge { display:inline-block; background:#fff2f3; color:#dc3545; border:1.5px solid rgba(220,53,69,.3);
                   padding:3px 12px; border-radius:999px; font-size:10pt; font-weight:700;
                   margin-top:4px; }
@@ -2594,7 +2752,7 @@
     border-top:1px solid #e0e8f2;
   }
   .sign-field { flex:1; }
-  .sign-label { font-size:9pt; color:#93a5b6; margin-bottom:20px; }
+  .sign-label { font-size:9pt; color:#5d6f81; margin-bottom:20px; }
   .sign-line  { border-bottom:1px solid #1a2434; height:1px; }
   .no-print   { background:#1a2434; color:#fff; border:none; padding:12px 24px;
                 font-size:12pt; font-weight:700; border-radius:8px; cursor:pointer;
@@ -2842,17 +3000,58 @@ ${visit.notes ? `<div class="section">
         }
       });
 
-      if (!noShows.length) {
+      // Второй источник: записи расписания со статусом «не пришли»
+      // (последние 60 дней). Это ДРУГАЯ проблема: не явились по записи —
+      // лечится напоминаниями; не вернулись на повторный — обзвоном.
+      var apptNoShows = [];
+      try {
+        var allAppts = await window.VetDB.getAll('appointments');
+        var since = localDateStr(new Date(Date.now() - 60*86400000));
+        var staffNS = buildMap(await window.VetDB.getAll('staff'));
+        apptNoShows = allAppts.filter(function(a) {
+          return !a.is_deleted && a.status === 'no_show' && (a.starts_at||'').slice(0,10) >= since;
+        }).sort(function(a,b){ return (a.starts_at||'') < (b.starts_at||'') ? 1 : -1; })
+          .map(function(a) {
+            var pet = a.pet_id ? petsMap[a.pet_id] : null;
+            var owner = a.owner_id ? ownersMap[a.owner_id] : (pet ? ownersMap[pet.owner_id] : null);
+            return {
+              when:  fmtDate(a.starts_at) + ' ' + (a.starts_at||'').slice(11,16),
+              who:   owner ? owner.fio : (a.client_name || '—'),
+              phone: owner ? (owner.phone||'') : (a.client_phone || ''),
+              pet:   pet ? pet.name : (a.pet_name || '—'),
+              doc:   a.staff_id && staffNS[a.staff_id] ? staffNS[a.staff_id].name.split(' ')[0] : '—',
+              reason: a.reason || '',
+            };
+          });
+      } catch(e) {}
+
+      if (!noShows.length && !apptNoShows.length) {
         el.innerHTML = '<div class="report-empty">Нет пропущенных приёмов — все клиенты пришли вовремя 👍</div>';
         return;
       }
 
       noShows.sort(function(a,b){ return b.overdueDays - a.overdueDays; });
 
+      var apptNoShowsHTML = apptNoShows.length
+        ? '<div class="report-group" style="margin-bottom:20px;">'
+          + '<div class="report-group-title">Не явились по записи <span style="font-weight:400;color:var(--text-3)">(' + apptNoShows.length + ' за 60 дней)</span></div>'
+          + '<table class="history-table"><thead><tr>'
+          + '<th>Когда</th><th>Клиент</th><th>Телефон</th><th>Животное</th><th>Врач</th><th>Причина визита</th>'
+          + '</tr></thead><tbody>'
+          + apptNoShows.map(function(r) {
+              return '<tr><td>' + esc(r.when) + '</td><td>' + esc(r.who) + '</td>'
+                + '<td>' + (r.phone ? '<a href="tel:' + esc(r.phone) + '">' + esc(r.phone) + '</a>' : '—') + '</td>'
+                + '<td>' + esc(r.pet) + '</td><td>' + esc(r.doc) + '</td>'
+                + '<td style="font-size:.82rem;">' + esc(r.reason) + '</td></tr>';
+            }).join('')
+          + '</tbody></table></div>'
+        : '';
+
       var html = '<div class="report-wrap">'
         + '<div class="report-header"><h2>Не пришли на приём</h2>'
-        + '<span class="text-muted text-sm">Всего: ' + noShows.length + ' клиентов</span></div>'
-        + '<div class="report-group"><div class="report-group-title">Список пропустивших</div>'
+        + '<span class="text-muted text-sm">По записи: ' + apptNoShows.length + ' · не вернулись на повторный: ' + noShows.length + '</span></div>'
+        + apptNoShowsHTML
+        + '<div class="report-group"><div class="report-group-title">Не вернулись на повторный приём</div>'
         + '<table class="history-table"><thead><tr>'
         + '<th>Владелец</th><th>Телефон</th><th>Животное</th>'
         + '<th>Последний визит</th><th>Дата след. приёма</th><th>Просрочено</th>'
@@ -2871,6 +3070,9 @@ ${visit.notes ? `<div class="section">
           + '<td class="noshow-overdue">+' + item.overdueDays + ' дн.</td>'
           + '</tr>';
       });
+      if (!noShows.length) {
+        html += '<tr><td colspan="6" style="color:var(--text-3);text-align:center;">— все вернулись вовремя —</td></tr>';
+      }
       html += '</tbody></table></div></div>';
       el.innerHTML = html;
       document.getElementById('btn-print-report').style.display = '';
@@ -3080,8 +3282,8 @@ ${visit.notes ? `<div class="section">
       +(petVisits.length
         ?'<div class="section-title">История визитов ('+petVisits.length+')</div>'
          +'<table><thead><tr><th>Дата</th><th>Тип</th><th>Диагноз</th><th>Назначения</th><th>Сумма</th></tr></thead><tbody>'+visitsRows+'</tbody></table>'
-         +(petVisits.length>8?'<div style="font-size:9pt;color:#93a5b6;margin-top:6px;text-align:right">Показаны последние 8 из '+petVisits.length+'</div>':'')
-        :'<div style="color:#93a5b6;margin:10px 0;">Визитов нет</div>')
+         +(petVisits.length>8?'<div style="font-size:9pt;color:#5d6f81;margin-top:6px;text-align:right">Показаны последние 8 из '+petVisits.length+'</div>':'')
+        :'<div style="color:#5d6f81;margin:10px 0;">Визитов нет</div>')
       // Вакцинации
       +(petVaccs.length
         ?'<div class="section-title">Вакцинации ('+petVaccs.length+')</div>'
@@ -3134,7 +3336,7 @@ ${visit.notes ? `<div class="section">
       +'.next-label{font-size:9pt;font-weight:700;text-transform:uppercase;letter-spacing:.5px;opacity:.85}'
       +'.next-date{font-size:16pt;font-weight:900}'
       +'.signature-row{display:flex;gap:40px;margin-top:30px;padding-top:16px;border-top:1px solid #e0e8f2}'
-      +'.sign-label{font-size:9pt;color:#93a5b6;margin-bottom:22px}'
+      +'.sign-label{font-size:9pt;color:#5d6f81;margin-bottom:22px}'
       +'.sign-line{border-bottom:1px solid #1a2434;height:1px}'
       +'.no-print{background:#1a2434;color:#fff;border:none;padding:10px 22px;font-size:11pt;font-weight:700;border-radius:8px;cursor:pointer;display:block;margin:20px auto 0}'
       +'@media print{body{padding:0;max-width:100%}.no-print{display:none!important}}'
@@ -3172,6 +3374,85 @@ ${visit.notes ? `<div class="section">
   // ═══════════════════════════════════════════════════════════════════════
   // OWNER CARD — профиль клиента
   // ═══════════════════════════════════════════════════════════════════════
+
+  function _isAdmin() {
+    var u = window.VetAuth && window.VetAuth.user && window.VetAuth.user();
+    return !!(u && u.role === 'admin');
+  }
+
+  // Право выдавать пароли портала: админ всегда, остальные — по флагу
+  // portal_codes в правах (см. настройки пользователя). Сервер проверяет
+  // то же самое — кнопка лишь честно отражает доступ.
+  function _canIssuePortalCodes() {
+    var u = window.VetAuth && window.VetAuth.user && window.VetAuth.user();
+    if (!u) return false;
+    if (u.role === 'admin') return true;
+    return !!(u.permissions && u.permissions.portal_codes);
+  }
+
+  // Выдать владельцу пароль для входа на портал.
+  // Только онлайн и в обход локальной базы: код живёт на сервере в
+  // portal_codes, положить его в offline-очередь нельзя — владелец должен
+  // войти прямо сейчас, а очередь уедет неизвестно когда.
+  async function issuePortalCode(ownerId) {
+    if (!navigator.onLine) {
+      UI.toast('Пароль выдаётся только онлайн — нужна связь с сервером', 'err');
+      return;
+    }
+    var base = (window.VetAppConfig && window.VetAppConfig.apiBase) || '';
+    var nfetch = window.__nativeFetch || window.fetch.bind(window);
+    try {
+      var res = await nfetch(base + '/owners/' + ownerId + '/portal-code', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Bypass-Local': '1',
+          'X-Auth-Token': (window.VetAuth && window.VetAuth.token && window.VetAuth.token()) || ''
+        }
+      });
+      // Разбираем ответ вручную: res.json() на 404 (сервер отдаёт текст,
+      // а не JSON) бросает исключение, и в общем catch это выглядело бы
+      // как «нет связи» — хотя связь есть, а проблема в другом.
+      var raw = await res.text();
+      var body = null;
+      try { body = JSON.parse(raw); } catch(_) {}
+
+      if (!body) {
+        UI.toast(res.status === 404
+          ? 'Сервер не знает этой команды — обновите версию на сервере'
+          : 'Сервер ответил непонятно (HTTP ' + res.status + ')', 'err');
+        return;
+      }
+      if (!res.ok || body.status !== 'ok') {
+        UI.toast(body.message || 'Не удалось создать пароль (HTTP ' + res.status + ')', 'err');
+        return;
+      }
+      var d = body.data;
+      UI.showModal({
+        title: 'Пароль от портала',
+        size: 'sm',
+        bodyHTML:
+            '<div style="text-align:center;padding:6px 2px;">'
+          + '<div style="font-size:.82rem;color:var(--text-3);">'+esc(d.fio)+'</div>'
+          + '<div style="font-size:2.1rem;font-weight:700;letter-spacing:.18em;'
+          + 'margin:14px 0;font-variant-numeric:tabular-nums;">'+esc(d.code)+'</div>'
+          + '<div style="font-size:.8rem;color:var(--text-2);line-height:1.5;">'
+          + 'Вход на портале по номеру <b>'+esc(d.phone)+'</b> и этому паролю.<br>'
+          + 'Действует '+esc(String(d.ttl_minutes))+' мин, срабатывает один раз.'
+          + '</div>'
+          + '<div style="font-size:.74rem;color:var(--text-3);margin-top:10px;">'
+          + 'Прежний пароль владельца больше не действует.'
+          + '</div></div>',
+        saveLabel: 'Готово',
+        cancelLabel: 'Закрыть',
+        onSave: function() { UI.hideModal(); }
+      });
+    } catch(e) {
+      // Сюда попадаем только при реальном сетевом сбое: разбор ответа
+      // и коды ошибок обработаны выше.
+      UI.toast('Нет связи с сервером: ' + (e && e.message ? e.message : 'запрос не дошёл'), 'err');
+    }
+  }
 
   async function showOwnerCard(ownerId) {
     var allOwners  = await window.VetDB.getAll('owners');
@@ -3217,6 +3498,13 @@ ${visit.notes ? `<div class="section">
       +'<span class="oc-stat"><b>'+ownerVisits.length+'</b> визитов</span>'
       +(deceasedPets.length?'<span class="oc-stat"><b>'+deceasedPets.length+'</b> умерших</span>':'')
       +'</div>'
+      // Пароль от портала — админ или пользователь с правом portal_codes
+      // (это доступ к медкартам, право включается в настройках пользователя).
+      +(_canIssuePortalCodes()
+         ? '<div class="oc-actions"><button class="btn btn-sm btn-ghost" '
+           + 'onclick="VetPages.issuePortalCode(\''+ownerId+'\')">'
+           + UI.icon('key','') + ' Пароль от портала</button></div>'
+         : '')
       +'</div></div>';
 
     // ── Питомцы ───────────────────────────────────────────────────
@@ -3871,6 +4159,12 @@ ${visit.notes ? `<div class="section">
       + '</select>'
       + '<div id="fu-sums-staff" class="perm-staff-list" style="'+(sums==='selected'?'':'display:none')+'">'+staffChecks+'</div>'
       + '</div>'
+      + '<div style="margin-top:12px;">'
+      + '<label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">'
+      + '<input type="checkbox" id="fu-portal-codes"'+(perms.portal_codes?' checked':'')+' style="width:18px;height:18px;">'
+      + ' Может выдавать владельцам пароли для входа в кабинет</label>'
+      + '<div class="form-hint">Пароль открывает владельцу его медкарты на портале. Обычно право дают регистратуре.</div>'
+      + '</div>'
       + '<div class="form-hint">«Нет доступа» прячет раздел из меню. Сервер не примет правки сверх этих прав, но данные на устройство синхронизируются целиком.</div>'
       + '</div>';
   }
@@ -3886,10 +4180,14 @@ ${visit.notes ? `<div class="section">
     });
     var sums = document.getElementById('fu-sums').value;
     var sumsStaff = [...block.querySelectorAll('[data-sums-staff]:checked')].map(function(c){ return c.dataset.sumsStaff; });
-    // Всё разрешено и суммы все — прав нет смысла хранить, пусто = полный доступ.
-    if (allEdit && sums === 'all') return null;
+    var portalCodes = !!(document.getElementById('fu-portal-codes') || {}).checked;
+    // Всё разрешено, суммы все и спец-прав нет — хранить нечего, пусто = полный доступ.
+    // portal_codes при этом по умолчанию ВЫКЛЮЧЕН (см. сервер), поэтому
+    // включённый чекбокс обязан попасть в JSON.
+    if (allEdit && sums === 'all' && !portalCodes) return null;
     var out = { tables: tables, sums: sums };
     if (sums === 'selected') out.sums_staff = sumsStaff;
+    if (portalCodes) out.portal_codes = true;
     return out;
   }
 
@@ -4214,7 +4512,7 @@ ${visit.notes ? `<div class="section">
       + 'table{width:100%;border-collapse:collapse;font-size:11pt;} td{padding:7px 4px;border-bottom:1px solid #e0e8f2;}'
       + 'td:first-child{color:#526070;width:42%;}'
       + '.sign{display:flex;justify-content:space-between;margin-top:36px;font-size:10pt;color:#526070;}'
-      + '.sign div{border-top:1px solid #93a5b6;padding-top:6px;width:40%;text-align:center;}'
+      + '.sign div{border-top:1px solid #5d6f81;padding-top:6px;width:40%;text-align:center;}'
       + '@media print{.no-print{display:none}}'
       + '</style></head><body>'
       + '<div class="head">'
@@ -4265,6 +4563,13 @@ ${visit.notes ? `<div class="section">
 
   async function initSchedule() {
     if (!_schedDate) _schedDate = astanaTodayStr();
+    // Рабочие часы — из настроек клиники (по умолчанию 08–20)
+    try {
+      var s = await loadClinicSettings();
+      if (s.sched_start != null) SCHED_START_H = Number(s.sched_start);
+      if (s.sched_end   != null) SCHED_END_H   = Number(s.sched_end);
+      if (SCHED_END_H <= SCHED_START_H) { SCHED_START_H = 8; SCHED_END_H = 20; }
+    } catch(e) {}
     var dateInp = document.getElementById('sched-date');
     if (dateInp) {
       dateInp.value = _schedDate;
@@ -4316,7 +4621,9 @@ ${visit.notes ? `<div class="section">
     var cnt = document.getElementById('sched-count');
     if (cnt) {
       var active = _schedAppts.filter(function(a){ return a.status === 'scheduled'; }).length;
-      cnt.textContent = _schedAppts.length ? ('Записей: ' + _schedAppts.length + (active !== _schedAppts.length ? ' (активных ' + active + ')' : '')) : '';
+      cnt.textContent = _schedAppts.length
+        ? ('Записей: ' + _schedAppts.length + (active !== _schedAppts.length ? ' (активных ' + active + ')' : ''))
+        : 'День свободен — нажмите на слот, чтобы записать';
     }
 
     var staffMap = buildMap(_schedStaff);
@@ -4340,7 +4647,11 @@ ${visit.notes ? `<div class="section">
       var who = (owner ? owner.fio : (a.client_name || '')) || '';
       var doc = a.staff_id && staffMap[a.staff_id] ? staffMap[a.staff_id].name.split(' ')[0] : '';
       var hm = (a.starts_at||'').slice(11,16);
+      // Запись, созданную владельцем через портал, помечаем: клиника должна
+      // видеть, что время не согласовано, и при накладке — перезвонить.
+      var fromPortal = (a.notes||'').indexOf('портал') >= 0;
       return '<div class="appt-card '+st.cls+'" onclick="VetPages.editAppt(\''+a.id+'\')">'
+        + (fromPortal ? '<span class="appt-portal" title="Запись создана владельцем через портал — время не согласовано">портал</span>' : '')
         + '<div class="appt-time">'+esc(hm)+'<span class="appt-dur"> · '+(a.duration_min||30)+' мин</span></div>'
         + '<div class="appt-body">'
         + '<div class="appt-title">'+esc(petName || 'Без клички')+(who ? ' <span class="appt-owner">· '+esc(who)+'</span>' : '')+'</div>'
@@ -4351,11 +4662,23 @@ ${visit.notes ? `<div class="section">
         + '</div>';
     }
 
+    // Линия «сейчас»: только на сегодняшнем дне. Врач сканирует сетку
+    // глазами десятки раз в день — линия сразу показывает, где он во времени.
+    var nowHM = '';
+    if (_schedDate === astanaTodayStr()) {
+      nowHM = new Date(Date.now() + 5*3600000).toISOString().slice(11,16);
+    }
+    var nowLinePlaced = !nowHM;
+
     var html = '';
     if (bySlot.before) html += '<div class="sched-slot"><div class="sched-time">до ' + String(SCHED_START_H).padStart(2,'0') + ':00</div><div class="sched-cell">' + bySlot.before.map(apptCard).join('') + '</div></div>';
     for (var h = SCHED_START_H; h < SCHED_END_H; h++) {
       ['00','30'].forEach(function(mm) {
         var t = String(h).padStart(2,'0') + ':' + mm;
+        if (!nowLinePlaced && t > nowHM) {
+          html += '<div class="sched-now-line"><span>' + nowHM + '</span></div>';
+          nowLinePlaced = true;
+        }
         var appts = bySlot[t] || [];
         html += '<div class="sched-slot' + (appts.length ? ' has-appts' : '') + '">'
           + '<div class="sched-time">' + t + '</div>'
@@ -4364,6 +4687,7 @@ ${visit.notes ? `<div class="section">
           + '</div></div>';
       });
     }
+    if (!nowLinePlaced) html += '<div class="sched-now-line"><span>' + nowHM + '</span></div>';
     if (bySlot.after) html += '<div class="sched-slot"><div class="sched-time">после ' + SCHED_END_H + ':00</div><div class="sched-cell">' + bySlot.after.map(apptCard).join('') + '</div></div>';
     grid.innerHTML = html;
   }
@@ -4374,9 +4698,47 @@ ${visit.notes ? `<div class="section">
     if (a) openApptForm(a, null);
   }
 
+  // Форму записи открывают и вне страницы расписания (из формы приёма) —
+  // справочники могли быть ещё не загружены.
+  async function ensureSchedData() {
+    if (_schedStaff.length && _schedOwners.length) return;
+    var data = await loadAll();
+    _schedStaff  = (data.staff||[]).filter(function(s){ return !s.is_deleted && s.is_active !== false; })
+                     .sort(function(a,b){ return (a.name||'').localeCompare(b.name||'','ru'); });
+    _schedOwners = data.owners || [];
+    _schedPets   = data.pets || [];
+  }
+
+  // Приём с назначенной датой следующего визита → предложение сразу
+  // создать запись в расписании. Закрывает главный шов: врач назначил
+  // повторный визит, а регистратура его в расписании не видела.
+  async function maybeOfferAppointment(vs, pet, owner) {
+    if (!vs || !vs.next_visit_date || !pet) return;
+    try {
+      var appts = await window.VetDB.getAll('appointments');
+      var exists = appts.some(function(a) {
+        return !a.is_deleted && a.pet_id === pet.id && a.status === 'scheduled'
+          && (a.starts_at||'').slice(0,10) === vs.next_visit_date;
+      });
+      if (exists) return; // уже записан на эту дату
+    } catch(e) {}
+    var ok = await UI.confirm('Записать в расписание?',
+      'Назначен следующий приём на ' + fmtDate(vs.next_visit_date) + '. Создать запись в расписании?',
+      { yes: 'Создать запись', no: 'Не сейчас' });
+    if (!ok) return;
+    openApptForm({
+      owner_id: owner ? owner.id : (pet.owner_id || ''),
+      pet_id:   pet.id,
+      staff_id: vs.staff_id || '',
+      starts_at: vs.next_visit_date + 'T10:00:00.000Z',
+      reason:   'Повторный приём' + (vs.diagnosis ? ': ' + vs.diagnosis : ''),
+    }, null);
+  }
+
   // ── Форма записи ────────────────────────────────────────────────────
-  function openApptForm(appt, defaultTime) {
-    var isEdit = !!appt;
+  async function openApptForm(appt, defaultTime) {
+    await ensureSchedData();
+    var isEdit = !!(appt && appt.id);
     appt = appt || {};
     var st = appt.status || 'scheduled';
     var hm = appt.starts_at ? appt.starts_at.slice(11,16) : (defaultTime || '10:00');
@@ -4692,9 +5054,12 @@ ${visit.notes ? `<div class="section">
     printVisitCard:     printVisitCard,
     newVisitForPet:     newVisitForPet,
     addOwner:           addOwner,
+    _ownersShowMore:    _ownersShowMore,
+    _petsShowMore:      _petsShowMore,
     editOwner:          editOwner,
     deleteOwner:        deleteOwner,
     showOwnerCard:      showOwnerCard,
+    issuePortalCode:    issuePortalCode,
     printOwnerCard:     printOwnerCard,
     addPet:             addPet,
     editPet:            editPet,

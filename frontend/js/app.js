@@ -767,7 +767,7 @@
     banner.innerHTML = '<div style="width:44px;height:44px;border-radius:12px;background:#eaf5ee;border:1.5px solid rgba(26,140,94,.2);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:22px;">🏥</div>'
       + '<div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:.9rem;color:#1a2434;">Установить VetClinic</div><div style="font-size:.78rem;color:#526070;margin-top:2px;">Работает без интернета</div></div>'
       + '<button id="pwa-install-btn" style="background:#1a8c5e;color:#fff;border:none;height:40px;padding:0 18px;border-radius:10px;font-weight:700;font-size:.85rem;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0;">Установить</button>'
-      + '<button id="pwa-install-close" style="background:none;border:none;color:#93a5b6;cursor:pointer;font-size:1.3rem;padding:4px;flex-shrink:0;line-height:1;">&times;</button>';
+      + '<button id="pwa-install-close" style="background:none;border:none;color:var(--text-3);cursor:pointer;font-size:1.3rem;padding:4px;flex-shrink:0;line-height:1;">&times;</button>';
     document.body.appendChild(banner);
 
     document.getElementById("pwa-install-btn").onclick = function () {

@@ -495,10 +495,12 @@ var migrations = []string{
 	    message    TEXT NOT NULL,
 	    status     TEXT NOT NULL DEFAULT 'pending',  -- pending | sent | error
 	    error      TEXT,
+	    ref_id     TEXT,                      -- id записи/вакцинации: дедупликация напоминаний
 	    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 	    sent_at    DATETIME
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_notifications_status ON notifications(status)`,
+	`ALTER TABLE notifications ADD COLUMN ref_id TEXT`,
 
 	// ─── Расписание: запись на приём ──────────────────────────────────────
 	// Владелец/питомец могут быть и не из базы (позвонил новый клиент) —

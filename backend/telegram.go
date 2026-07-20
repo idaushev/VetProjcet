@@ -90,16 +90,140 @@ func (a *app) startTelegramNotifier() {
 		}
 	}()
 	go a.telegramPollUpdates()
+	// Планировщик напоминаний: раз в час ищет записи на завтра и подходящие
+	// вакцинации, кладёт в outbox. Дедупликация — по ref_id, поэтому свип
+	// можно гонять сколько угодно раз, дублей не будет.
+	go func() {
+		for {
+			a.reminderSweep()
+			time.Sleep(time.Hour)
+		}
+	}()
+}
+
+// ─── Напоминания ─────────────────────────────────────────────────────────────
+
+// astanaDate возвращает YYYY-MM-DD в часовом поясе клиники (UTC+5) со сдвигом дней.
+func astanaDate(daysAhead int) string {
+	return nowUTC().Add(5 * time.Hour).AddDate(0, 0, daysAhead).Format("2006-01-02")
+}
+
+func (a *app) reminderSweep() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// 1. Записи на завтра: владелец привязан к боту, напоминание ещё не ставили.
+	tomorrow := astanaDate(1)
+	rows, err := a.db.QueryContext(ctx, `
+		SELECT ap.id, ap.owner_id, t.chat_id, ap.starts_at,
+		       COALESCE(p.name, ap.pet_name, ''), COALESCE(s.name, '')
+		FROM appointments ap
+		JOIN owner_telegram t    ON t.owner_id = ap.owner_id
+		LEFT JOIN pets p         ON p.id = ap.pet_id
+		LEFT JOIN clinic_staff s ON s.id = ap.staff_id
+		WHERE ap.is_deleted=0 AND ap.status='scheduled'
+		  AND substr(ap.starts_at,1,10) = ?
+		  AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.ref_id = ap.id AND n.kind = ?)`,
+		tomorrow, notifyVisitReminder)
+	if err != nil {
+		a.logger.Printf("reminderSweep appointments: %v", err)
+		return
+	}
+	type apptRow struct {
+		id, ownerID, petName, staffName string
+		chatID                          int64
+		startsAt                        string
+	}
+	var appts []apptRow
+	for rows.Next() {
+		var r apptRow
+		var starts timeScanner
+		if err := rows.Scan(&r.id, &r.ownerID, &r.chatID, &starts, &r.petName, &r.staffName); err == nil {
+			if starts.t != nil {
+				r.startsAt = starts.t.Format("15:04")
+			}
+			appts = append(appts, r)
+		}
+	}
+	rows.Close() // до INSERT — незакрытый курсор блокирует запись
+
+	for _, r := range appts {
+		msg := "Напоминаем: завтра"
+		if r.startsAt != "" {
+			msg += " в " + r.startsAt
+		}
+		msg += " вы записаны в клинику"
+		if r.petName != "" {
+			msg += " (" + r.petName + ")"
+		}
+		if r.staffName != "" {
+			msg += ", врач: " + r.staffName
+		}
+		msg += ".\nЕсли планы изменились — пожалуйста, позвоните нам."
+		if _, err := a.db.ExecContext(ctx,
+			`INSERT INTO notifications (owner_id, chat_id, kind, message, ref_id) VALUES (?, ?, ?, ?, ?)`,
+			r.ownerID, r.chatID, notifyVisitReminder, msg, r.id); err != nil {
+			a.logger.Printf("reminderSweep enqueue: %v", err)
+		}
+	}
+	if len(appts) > 0 {
+		a.logger.Printf("Напоминания: поставлено %d о записях на %s", len(appts), tomorrow)
+	}
+
+	// 2. Вакцинации: срок через 3 дня.
+	dueDay := astanaDate(3)
+	vrows, err := a.db.QueryContext(ctx, `
+		SELECT v.id, p.owner_id, t.chat_id, v.vaccine_name, p.name
+		FROM vaccinations v
+		JOIN pets p           ON p.id = v.pet_id AND p.is_deleted=0
+		JOIN owner_telegram t ON t.owner_id = p.owner_id
+		WHERE v.is_deleted=0 AND substr(COALESCE(v.next_due_at,''),1,10) = ?
+		  AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.ref_id = v.id AND n.kind = ?)`,
+		dueDay, notifyVaccinationDue)
+	if err != nil {
+		a.logger.Printf("reminderSweep vaccinations: %v", err)
+		return
+	}
+	type vaccRow struct {
+		id, ownerID, vaccine, petName string
+		chatID                        int64
+	}
+	var vaccs []vaccRow
+	for vrows.Next() {
+		var r vaccRow
+		if err := vrows.Scan(&r.id, &r.ownerID, &r.chatID, &r.vaccine, &r.petName); err == nil {
+			vaccs = append(vaccs, r)
+		}
+	}
+	vrows.Close()
+
+	for _, r := range vaccs {
+		msg := "Через 3 дня у питомца " + r.petName + " подходит срок вакцинации (" + r.vaccine + ").\n" +
+			"Позвоните нам, чтобы выбрать удобное время."
+		if _, err := a.db.ExecContext(ctx,
+			`INSERT INTO notifications (owner_id, chat_id, kind, message, ref_id) VALUES (?, ?, ?, ?, ?)`,
+			r.ownerID, r.chatID, notifyVaccinationDue, msg, r.id); err != nil {
+			a.logger.Printf("reminderSweep enqueue vacc: %v", err)
+		}
+	}
+	if len(vaccs) > 0 {
+		a.logger.Printf("Напоминания: поставлено %d о вакцинациях на %s", len(vaccs), dueDay)
+	}
 }
 
 // ─── Одноразовый пароль портала ──────────────────────────────────────────────
 
 const portalCodeTTL = 10 * time.Minute
 
+// portalAdminCodeTTL — срок пароля, выданного администратором вручную.
+// Больше ботовского: код диктуют владельцу голосом по телефону или на
+// стойке, ему нужно успеть дойти до устройства и ввести номер.
+const portalAdminCodeTTL = time.Hour
+
 // issuePortalCode выдаёт владельцу свежий 6-значный пароль для входа
 // на портал. Прежние невостребованные коды гасятся: действует только
 // последний — иначе перехваченный старый код жил бы до истечения TTL.
-func (a *app) issuePortalCode(ctx context.Context, ownerID string) (string, error) {
+func (a *app) issuePortalCode(ctx context.Context, ownerID string, ttl time.Duration) (string, error) {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", err
@@ -113,7 +237,7 @@ func (a *app) issuePortalCode(ctx context.Context, ownerID string) (string, erro
 	}
 	if _, err := a.db.ExecContext(ctx,
 		`INSERT INTO portal_codes (owner_id, code, expires_at) VALUES (?, ?, ?)`,
-		ownerID, code, T(nowUTC().Add(portalCodeTTL))); err != nil {
+		ownerID, code, T(nowUTC().Add(ttl))); err != nil {
 		return "", err
 	}
 	return code, nil
@@ -263,7 +387,7 @@ func (a *app) handleTelegramUpdate(u tgUpdate) {
 }
 
 func (a *app) sendPortalCode(ctx context.Context, chatID int64, ownerID, fio string) {
-	code, err := a.issuePortalCode(ctx, ownerID)
+	code, err := a.issuePortalCode(ctx, ownerID, portalCodeTTL)
 	if err != nil {
 		a.logger.Printf("telegram issue code: %v", err)
 		a.telegramReply(ctx, chatID, "Не получилось создать пароль, попробуйте ещё раз чуть позже.", nil)
