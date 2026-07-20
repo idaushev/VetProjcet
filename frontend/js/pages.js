@@ -3380,9 +3380,21 @@ ${visit.notes ? `<div class="section">
           'X-Auth-Token': (window.VetAuth && window.VetAuth.token && window.VetAuth.token()) || ''
         }
       });
-      var body = await res.json();
+      // Разбираем ответ вручную: res.json() на 404 (сервер отдаёт текст,
+      // а не JSON) бросает исключение, и в общем catch это выглядело бы
+      // как «нет связи» — хотя связь есть, а проблема в другом.
+      var raw = await res.text();
+      var body = null;
+      try { body = JSON.parse(raw); } catch(_) {}
+
+      if (!body) {
+        UI.toast(res.status === 404
+          ? 'Сервер не знает этой команды — обновите версию на сервере'
+          : 'Сервер ответил непонятно (HTTP ' + res.status + ')', 'err');
+        return;
+      }
       if (!res.ok || body.status !== 'ok') {
-        UI.toast(body.message || 'Не удалось создать пароль', 'err');
+        UI.toast(body.message || 'Не удалось создать пароль (HTTP ' + res.status + ')', 'err');
         return;
       }
       var d = body.data;
@@ -3406,7 +3418,9 @@ ${visit.notes ? `<div class="section">
         onSave: function() { UI.hideModal(); }
       });
     } catch(e) {
-      UI.toast('Нет связи с сервером', 'err');
+      // Сюда попадаем только при реальном сетевом сбое: разбор ответа
+      // и коды ошибок обработаны выше.
+      UI.toast('Нет связи с сервером: ' + (e && e.message ? e.message : 'запрос не дошёл'), 'err');
     }
   }
 
