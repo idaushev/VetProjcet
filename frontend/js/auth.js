@@ -176,7 +176,7 @@
     // Разделы без доступа (none) убираем из меню целиком —
     // «если нет доступа, категории не отображать».
     var pageTable = {
-      visits: "visits", owners: "owners", pets: "pets",
+      visits: "visits", schedule: "visits", owners: "owners", pets: "pets",
       vaccinations: "vaccinations", items: "items", staff: "staff",
       chips: "pets",
       "report-daily": "visits", "report-revenue": "visits",

@@ -175,6 +175,23 @@ func (a *app) handleSyncPush(w http.ResponseWriter, r *http.Request) {
 			result.Skipped++
 		}
 	}
+	// Записи расписания — под правами приёмов: кто ведёт приёмы, тот и записывает.
+	if len(payload.Appointments) > 0 && !canPush("visits") {
+		result.Skipped += len(payload.Appointments)
+		a.logger.Printf("syncPush appointments: отклонено, у %s нет права записи", pushUserID)
+		payload.Appointments = nil
+	}
+	for _, rec := range payload.Appointments {
+		if ok, err := pushAppointment(ctx, a.db, rec); ok {
+			a.stampAuthor(ctx, "appointments", rec.ID, pushUserID)
+			result.Accepted++
+		} else {
+			if err != nil {
+				a.logger.Printf("syncPush appointment %s: %v", rec.ID, err)
+			}
+			result.Skipped++
+		}
+	}
 
 	a.logger.Printf("syncPush: accepted=%d skipped=%d", result.Accepted, result.Skipped)
 	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: result})
@@ -247,6 +264,11 @@ func (a *app) handleSyncPull(w http.ResponseWriter, r *http.Request) {
 		a.logger.Printf("syncPull staff: %v", err)
 	} else {
 		data.Staff = staff
+	}
+	if appts, err := pullAppointments(ctx, a.db, since); err != nil {
+		a.logger.Printf("syncPull appointments: %v", err)
+	} else {
+		data.Appointments = appts
 	}
 	if att, err := pullAttachments(ctx, a.db, since); err != nil {
 		a.logger.Printf("syncPull attachments: %v", err)

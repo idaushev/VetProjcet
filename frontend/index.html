@@ -126,6 +126,12 @@
             </a>
           </li>
           <li>
+            <a class="nav-item" data-page="schedule" href="#schedule" title="Расписание">
+              <i data-icon="calendar" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Расписание</span>
+            </a>
+          </li>
+          <li>
             <a class="nav-item" data-page="visits" href="#visits" title="Приёмы">
               <i data-icon="clipboard" data-icon-size="22" class="nav-icon"></i>
               <span class="nav-text">Приёмы</span>
@@ -386,6 +392,31 @@
           </div>
         </div>
         <div id="pets-list" class="entity-list"></div>
+      </section>
+
+      <!-- Schedule (расписание — запись на приём) -->
+      <section class="page" id="page-schedule">
+        <div class="page-header">
+          <h1 class="page-title">Расписание</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" id="btn-add-appt">+ Запись</button>
+          </div>
+        </div>
+        <div class="toolbar" style="flex-wrap:wrap;gap:10px;">
+          <div class="flex-gap" style="align-items:center;">
+            <button class="btn btn-ghost btn-sm" id="sched-prev" title="Предыдущий день">←</button>
+            <input type="date" id="sched-date" class="form-input" style="width:170px;">
+            <button class="btn btn-ghost btn-sm" id="sched-next" title="Следующий день">→</button>
+            <button class="btn btn-ghost btn-sm" id="sched-today">Сегодня</button>
+          </div>
+          <select class="filter-select" id="sched-doctor" aria-label="Врач" style="max-width:200px;">
+            <option value="">Все врачи</option>
+          </select>
+          <span class="text-muted text-sm" id="sched-count"></span>
+        </div>
+        <div class="page-inner">
+          <div id="schedule-grid"></div>
+        </div>
       </section>
 
       <!-- Visits -->

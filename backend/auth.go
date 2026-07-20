@@ -241,7 +241,10 @@ func pathTable(p string) string {
 		return "owners"
 	case strings.HasPrefix(p, "/pets"):
 		return "pets"
-	case strings.HasPrefix(p, "/visits"), strings.HasPrefix(p, "/visit-items"), strings.HasPrefix(p, "/attachments"):
+	// Записи расписания живут под правами приёмов: отдельная настройка
+	// не нужна — кто ведёт приёмы, тот и управляет записью.
+	case strings.HasPrefix(p, "/visits"), strings.HasPrefix(p, "/visit-items"),
+		strings.HasPrefix(p, "/attachments"), strings.HasPrefix(p, "/appointments"):
 		return "visits"
 	case strings.HasPrefix(p, "/vaccinations"):
 		return "vaccinations"

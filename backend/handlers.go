@@ -77,6 +77,12 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("PUT /vaccinations/{id}",    a.handleVaccinationByID)
 	mux.HandleFunc("DELETE /vaccinations/{id}", a.handleVaccinationByID)
 
+	// Appointments (расписание — запись на приём)
+	mux.HandleFunc("GET /appointments",         a.handleAppointments)
+	mux.HandleFunc("POST /appointments",        a.handleAppointments)
+	mux.HandleFunc("PUT /appointments/{id}",    a.handleAppointmentByID)
+	mux.HandleFunc("DELETE /appointments/{id}", a.handleAppointmentByID)
+
 	// Staff (персонал)
 	mux.HandleFunc("GET /staff",         a.handleStaff)
 	mux.HandleFunc("POST /staff",        a.handleStaff)

@@ -47,8 +47,10 @@
 - [ ] Кнопка «Привязать телеграм» в карточке владельца (deep-link
       `t.me/<бот>?start=<код>` из `telegram_link_codes` + QR) — для тех,
       у кого номер в телеграме не совпадает с номером в базе клиники.
-- [ ] Планировщик напоминаний: ежедневный проход по `visits.next_visit_date`
+- [ ] Планировщик напоминаний: ежедневный проход по `appointments`
+      (записи на завтра со status='scheduled' и owner_id), `visits.next_visit_date`
       и `vaccinations.next_due_at` → enqueue `visit_reminder` / `vaccination_due`.
+      Таблица расписания уже есть (v2.29.0) — источник данных готов.
 
 ## Запуск
 

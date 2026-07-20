@@ -35,7 +35,7 @@
   "use strict";
 
   const STORE_ORDER = [
-    "owners", "pets", "items", "visits", "visit_items", "vaccinations", "staff",
+    "owners", "pets", "items", "visits", "visit_items", "vaccinations", "staff", "appointments",
     // attachments — метаданные вложений. Едут только с сервера (pull):
     // само вложение создаётся загрузкой файла через POST /attachments,
     // а не push-ом записи. Push для них не нужен.
@@ -145,7 +145,8 @@
   ]);
   const REST_PATH = {
     owners:"/owners", pets:"/pets", items:"/items", visits:"/visits",
-    visit_items:"/visit-items", vaccinations:"/vaccinations", staff:"/staff"
+    visit_items:"/visit-items", vaccinations:"/vaccinations", staff:"/staff",
+    appointments:"/appointments"
   };
 
   async function _legacyPush(store, record) {

@@ -17,7 +17,8 @@
     "/visits":       "visits",
     "/visit-items":  "visit_items",
     "/vaccinations": "vaccinations",
-    "/staff":        "staff"
+    "/staff":        "staff",
+    "/appointments": "appointments"
   };
 
   // ─── In-memory кэш (сбрасывается после sync) ──────────────────────────────
@@ -404,6 +405,15 @@
       return rows.sort(function (a, b) { return b.administered_at > a.administered_at ? 1 : -1; });
     }
 
+    if (storeName === "appointments") {
+      if (sp.get("date")) {
+        var d = sp.get("date");
+        rows = rows.filter(function (r) { return (r.starts_at||"").slice(0,10) === d; });
+      }
+      if (sp.get("staff_id")) rows = rows.filter(function (r) { return r.staff_id === sp.get("staff_id"); });
+      return rows.sort(function (a, b) { return (a.starts_at||"") < (b.starts_at||"") ? -1 : 1; });
+    }
+
     if (storeName === "staff") {
       if (sp.get("active") === "true") rows = rows.filter(function (r) { return r.is_active !== false; });
       if (sp.get("role")) rows = rows.filter(function (r) { return r.role === sp.get("role"); });
@@ -487,6 +497,9 @@
 
   async function createEntity(storeName, body) {
     if (storeName === "pets") await guardPetChip(body, null);
+    // Сервер ставит status='active' при создании; локальный слой обязан
+    // делать то же, иначе питомец невидим в списках до первой синхронизации.
+    if (storeName === "pets" && !body.status) body.status = "active";
     var record = await window.VetDB.save(storeName, Object.assign({ id: window.VetDB.uuid() }, body));
     await refreshStore(storeName);
     emitChange(storeName);

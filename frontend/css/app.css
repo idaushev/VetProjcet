@@ -2264,3 +2264,75 @@ body[data-role="reception"] #ssg-analytics { display: none; }
 /* ── Кнопки в строках списков: планшетный палец, удаление в стороне ── */
 .erow-actions .btn-icon { width: 36px; height: 36px; }
 .erow-actions .btn-icon.danger { margin-left: 12px; }
+
+/* ── Расписание: сетка дня ────────────────────────────────────── */
+.sched-slot {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+  min-height: 44px;
+}
+.sched-slot:nth-child(odd) { background: rgba(0,0,0,.012); }
+.sched-time {
+  flex: 0 0 64px;
+  padding: 10px 10px 0 4px;
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--text-3);
+  text-align: right;
+}
+.sched-cell {
+  flex: 1;
+  padding: 5px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  cursor: pointer;
+  transition: background .12s;
+}
+.sched-cell:hover { background: var(--accent-dim); }
+.sched-slot.has-appts .sched-cell { cursor: default; }
+.sched-slot.has-appts .sched-cell:hover { background: none; }
+
+/* Карточка записи */
+.appt-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1.5px solid var(--accent-border);
+  background: var(--accent-dim);
+  cursor: pointer;
+  transition: transform .1s, box-shadow .1s;
+}
+.appt-card:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.appt-time { font-weight: 800; font-size: .88rem; white-space: nowrap; }
+.appt-dur  { font-weight: 400; font-size: .75rem; color: var(--text-3); }
+.appt-body { flex: 1; min-width: 0; }
+.appt-title { font-weight: 700; font-size: .88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.appt-owner { font-weight: 400; color: var(--text-2); }
+.appt-reason { font-size: .78rem; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.appt-doc {
+  font-size: .75rem; color: var(--blue);
+  background: var(--blue-dim); border-radius: 99px; padding: 2px 9px; white-space: nowrap;
+}
+.appt-status { font-size: .72rem; font-weight: 700; white-space: nowrap; }
+
+.appt-card.appt-scheduled .appt-status { color: var(--accent); }
+.appt-card.appt-done       { border-color: var(--border); background: var(--bg-s, #f6f8fa); }
+.appt-card.appt-done .appt-status { color: var(--text-3); }
+.appt-card.appt-cancelled,
+.appt-card.appt-noshow     { border-color: var(--border); background: none; opacity: .6; }
+.appt-card.appt-cancelled .appt-title,
+.appt-card.appt-cancelled .appt-time { text-decoration: line-through; }
+.appt-card.appt-cancelled .appt-status { color: var(--text-3); }
+.appt-card.appt-noshow .appt-status { color: var(--danger); }
+
+/* Кнопки статусов в форме записи */
+.appt-actions-row {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  margin-top: 16px; padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.appt-actions-row .danger-text { color: var(--danger); margin-left: auto; }

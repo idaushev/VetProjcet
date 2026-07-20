@@ -500,6 +500,38 @@ var migrations = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_notifications_status ON notifications(status)`,
 
+	// ─── Расписание: запись на приём ──────────────────────────────────────
+	// Владелец/питомец могут быть и не из базы (позвонил новый клиент) —
+	// тогда заполняются текстовые client_name/client_phone/pet_name.
+	// visit_id проставляется, когда запись превратилась в состоявшийся приём.
+	`CREATE TABLE IF NOT EXISTS appointments (
+	    id            TEXT PRIMARY KEY,
+	    owner_id      TEXT,
+	    pet_id        TEXT,
+	    staff_id      TEXT,
+	    client_name   TEXT,
+	    client_phone  TEXT,
+	    pet_name      TEXT,
+	    starts_at     DATETIME NOT NULL,
+	    duration_min  INTEGER NOT NULL DEFAULT 30,
+	    reason        TEXT,
+	    status        TEXT NOT NULL DEFAULT 'scheduled',  -- scheduled|done|cancelled|no_show
+	    visit_id      TEXT,
+	    notes         TEXT,
+	    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+	    updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+	    deleted_at    DATETIME,
+	    is_deleted    INTEGER NOT NULL DEFAULT 0,
+	    device_id     TEXT,
+	    version       INTEGER NOT NULL DEFAULT 1,
+	    client_updated_at DATETIME,
+	    created_by    TEXT,
+	    updated_by    TEXT
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_appts_starts  ON appointments(starts_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_appts_updated ON appointments(updated_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_appts_deleted ON appointments(is_deleted)`,
+
 	// Одноразовые пароли входа на портал. Выдаёт телеграм-бот по запросу
 	// владельца; действуют 10 минут, сгорают после первого входа.
 	`CREATE TABLE IF NOT EXISTS portal_codes (

@@ -4240,6 +4240,316 @@ ${visit.notes ? `<div class="section">
   }
 
   // ═══════════════════════════════════════════════════════════════════════
+  // РАСПИСАНИЕ: запись на приём (день, слоты по 30 минут)
+  // ═══════════════════════════════════════════════════════════════════════
+  //
+  // Запись ≠ приём: она может ссылаться на питомца из базы, а может держать
+  // только имя/телефон текстом (позвонил новый клиент). «Начать приём»
+  // открывает форму приёма и помечает запись выполненной.
+
+  var _schedDate   = null;  // YYYY-MM-DD
+  var _schedDoctor = '';
+  var _schedAppts  = [];
+  var _schedStaff  = [];
+  var _schedOwners = [];
+  var _schedPets   = [];
+
+  var SCHED_START_H = 8, SCHED_END_H = 20; // рабочий день клиники
+
+  var APPT_STATUS = {
+    scheduled: { label: 'Запись',    cls: 'appt-scheduled' },
+    done:      { label: 'Приём был', cls: 'appt-done' },
+    cancelled: { label: 'Отменена',  cls: 'appt-cancelled' },
+    no_show:   { label: 'Не пришли', cls: 'appt-noshow' },
+  };
+
+  async function initSchedule() {
+    if (!_schedDate) _schedDate = astanaTodayStr();
+    var dateInp = document.getElementById('sched-date');
+    if (dateInp) {
+      dateInp.value = _schedDate;
+      dateInp.onchange = function() { _schedDate = dateInp.value || astanaTodayStr(); renderSchedule(); };
+    }
+    function shiftDay(delta) {
+      var d = new Date(_schedDate + 'T12:00:00');
+      d.setDate(d.getDate() + delta);
+      _schedDate = localDateStr(d);
+      if (dateInp) dateInp.value = _schedDate;
+      renderSchedule();
+    }
+    var prev = document.getElementById('sched-prev');   if (prev) prev.onclick = function(){ shiftDay(-1); };
+    var next = document.getElementById('sched-next');   if (next) next.onclick = function(){ shiftDay(1); };
+    var tdy  = document.getElementById('sched-today');  if (tdy)  tdy.onclick  = function(){ _schedDate = astanaTodayStr(); if (dateInp) dateInp.value = _schedDate; renderSchedule(); };
+
+    var data = await loadAll();
+    _schedStaff  = (data.staff||[]).filter(function(s){ return !s.is_deleted && s.is_active !== false; })
+                     .sort(function(a,b){ return (a.name||'').localeCompare(b.name||'','ru'); });
+    _schedOwners = data.owners || [];
+    _schedPets   = data.pets || [];
+
+    var docSel = document.getElementById('sched-doctor');
+    if (docSel) {
+      docSel.innerHTML = '<option value="">Все врачи</option>'
+        + _schedStaff.map(function(s){ return '<option value="'+esc(s.id)+'"'+(s.id===_schedDoctor?' selected':'')+'>'+esc(s.name)+'</option>'; }).join('');
+      docSel.onchange = function() { _schedDoctor = docSel.value; renderSchedule(); };
+    }
+    var addBtn = document.getElementById('btn-add-appt');
+    if (addBtn) addBtn.onclick = function() { openApptForm(null, null); };
+
+    await renderSchedule();
+  }
+
+  async function renderSchedule() {
+    var grid = document.getElementById('schedule-grid');
+    if (!grid) return;
+    grid.innerHTML = '<div class="report-empty">Загрузка…</div>';
+
+    var all = [];
+    try { all = await window.VetDB.getAll('appointments'); } catch(e) {}
+    _schedAppts = all.filter(function(a) {
+      if (a.is_deleted) return false;
+      if ((a.starts_at||'').slice(0,10) !== _schedDate) return false;
+      if (_schedDoctor && a.staff_id !== _schedDoctor) return false;
+      return true;
+    }).sort(function(a,b){ return (a.starts_at||'') < (b.starts_at||'') ? -1 : 1; });
+
+    var cnt = document.getElementById('sched-count');
+    if (cnt) {
+      var active = _schedAppts.filter(function(a){ return a.status === 'scheduled'; }).length;
+      cnt.textContent = _schedAppts.length ? ('Записей: ' + _schedAppts.length + (active !== _schedAppts.length ? ' (активных ' + active + ')' : '')) : '';
+    }
+
+    var staffMap = buildMap(_schedStaff);
+    var petsMap  = buildMap(_schedPets);
+    var ownersMap = buildMap(_schedOwners);
+
+    // Слоты по 30 минут. Запись попадает в слот по времени начала.
+    var bySlot = {};
+    _schedAppts.forEach(function(a) {
+      var hm = (a.starts_at||'').slice(11,16);
+      var h = parseInt(hm.slice(0,2),10), m = parseInt(hm.slice(3,5),10);
+      var key = (h < SCHED_START_H) ? 'before' : (h >= SCHED_END_H ? 'after' : (String(h).padStart(2,'0') + ':' + (m < 30 ? '00' : '30')));
+      (bySlot[key] = bySlot[key] || []).push(a);
+    });
+
+    function apptCard(a) {
+      var st = APPT_STATUS[a.status] || APPT_STATUS.scheduled;
+      var pet = a.pet_id ? petsMap[a.pet_id] : null;
+      var owner = a.owner_id ? ownersMap[a.owner_id] : (pet ? ownersMap[pet.owner_id] : null);
+      var petName = pet ? pet.name : (a.pet_name || '');
+      var who = (owner ? owner.fio : (a.client_name || '')) || '';
+      var doc = a.staff_id && staffMap[a.staff_id] ? staffMap[a.staff_id].name.split(' ')[0] : '';
+      var hm = (a.starts_at||'').slice(11,16);
+      return '<div class="appt-card '+st.cls+'" onclick="VetPages.editAppt(\''+a.id+'\')">'
+        + '<div class="appt-time">'+esc(hm)+'<span class="appt-dur"> · '+(a.duration_min||30)+' мин</span></div>'
+        + '<div class="appt-body">'
+        + '<div class="appt-title">'+esc(petName || 'Без клички')+(who ? ' <span class="appt-owner">· '+esc(who)+'</span>' : '')+'</div>'
+        + (a.reason ? '<div class="appt-reason">'+esc(a.reason)+'</div>' : '')
+        + '</div>'
+        + (doc ? '<span class="appt-doc">'+esc(doc)+'</span>' : '')
+        + '<span class="appt-status">'+st.label+'</span>'
+        + '</div>';
+    }
+
+    var html = '';
+    if (bySlot.before) html += '<div class="sched-slot"><div class="sched-time">до ' + String(SCHED_START_H).padStart(2,'0') + ':00</div><div class="sched-cell">' + bySlot.before.map(apptCard).join('') + '</div></div>';
+    for (var h = SCHED_START_H; h < SCHED_END_H; h++) {
+      ['00','30'].forEach(function(mm) {
+        var t = String(h).padStart(2,'0') + ':' + mm;
+        var appts = bySlot[t] || [];
+        html += '<div class="sched-slot' + (appts.length ? ' has-appts' : '') + '">'
+          + '<div class="sched-time">' + t + '</div>'
+          + '<div class="sched-cell" onclick="if(event.target===this)VetPages.newApptAt(\'' + t + '\')" title="Нажмите, чтобы записать на ' + t + '">'
+          + appts.map(apptCard).join('')
+          + '</div></div>';
+      });
+    }
+    if (bySlot.after) html += '<div class="sched-slot"><div class="sched-time">после ' + SCHED_END_H + ':00</div><div class="sched-cell">' + bySlot.after.map(apptCard).join('') + '</div></div>';
+    grid.innerHTML = html;
+  }
+
+  function newApptAt(time) { openApptForm(null, time); }
+  function editAppt(id) {
+    var a = _schedAppts.find(function(x){ return x.id === id; });
+    if (a) openApptForm(a, null);
+  }
+
+  // ── Форма записи ────────────────────────────────────────────────────
+  function openApptForm(appt, defaultTime) {
+    var isEdit = !!appt;
+    appt = appt || {};
+    var st = appt.status || 'scheduled';
+    var hm = appt.starts_at ? appt.starts_at.slice(11,16) : (defaultTime || '10:00');
+    var dateVal = appt.starts_at ? appt.starts_at.slice(0,10) : _schedDate;
+    var curStaff = appt.staff_id || (window.VetAuth && VetAuth.user() ? (VetAuth.user().staff_id||'') : '');
+
+    var durOpts = [15,30,45,60,90,120].map(function(m){
+      return '<option value="'+m+'"'+(m===(appt.duration_min||30)?' selected':'')+'>'+m+' мин</option>';
+    }).join('');
+    var staffOpts = '<option value="">— не указан —</option>'
+      + _schedStaff.map(function(s){ return '<option value="'+esc(s.id)+'"'+(s.id===curStaff?' selected':'')+'>'+esc(s.name)+'</option>'; }).join('');
+
+    var bodyHTML = '<div class="form-grid">'
+      + '<div class="form-group"><label class="form-label">Дата</label><input id="ap-date" class="form-input" type="date" value="'+esc(dateVal)+'"></div>'
+      + '<div class="form-group"><label class="form-label">Время</label><input id="ap-time" class="form-input" type="time" step="900" value="'+esc(hm)+'"></div>'
+      + '<div class="form-group"><label class="form-label">Длительность</label><select id="ap-dur" class="form-select">'+durOpts+'</select></div>'
+      + '<div class="form-group"><label class="form-label">Врач</label><select id="ap-staff" class="form-select">'+staffOpts+'</select></div>'
+      // Владелец из базы: автокомплит; выбор подтягивает телефон и питомцев
+      + '<div class="form-group form-span-2"><label class="form-label">Владелец из базы</label>'
+      + '<div class="autocomplete" style="width:100%;"><input id="ap-owner-search" class="form-input" placeholder="Поиск по имени или телефону..." autocomplete="off" value="">'
+      + '<div class="autocomplete-dropdown" id="ap-owner-dd"></div></div>'
+      + '<input type="hidden" id="ap-owner-id" value="'+esc(appt.owner_id||'')+'">'
+      + '<div class="form-hint" id="ap-owner-hint"></div></div>'
+      + '<div class="form-group form-span-2" id="ap-pet-wrap" style="display:none;"><label class="form-label">Питомец</label>'
+      + '<select id="ap-pet" class="form-select"></select></div>'
+      + '<div class="form-group"><label class="form-label">Имя клиента</label><input id="ap-client-name" class="form-input" value="'+esc(appt.client_name||'')+'" placeholder="Если не из базы"></div>'
+      + '<div class="form-group"><label class="form-label">Телефон</label><input id="ap-client-phone" class="form-input" type="tel" value="'+esc(appt.client_phone||'')+'" placeholder="+7 ..."></div>'
+      + '<div class="form-group form-span-2"><label class="form-label">Кличка (если не из базы)</label><input id="ap-pet-name" class="form-input" value="'+esc(appt.pet_name||'')+'" placeholder="Барсик"></div>'
+      + '<div class="form-group form-span-2"><label class="form-label">Причина визита</label><input id="ap-reason" class="form-input" value="'+esc(appt.reason||'')+'" placeholder="Вакцинация, осмотр, хромает..."></div>'
+      + '<div class="form-group form-span-2"><label class="form-label">Заметки</label><textarea id="ap-notes" class="form-textarea" rows="2">'+esc(appt.notes||'')+'</textarea></div>'
+      + '</div>'
+      // Статусные действия — только у существующей записи
+      + (isEdit ? '<div class="appt-actions-row">'
+          + (st !== 'done' && appt.pet_id ? '<button class="btn btn-primary btn-sm" onclick="VetPages.apptStartVisit(\''+esc(appt.id)+'\')">▶ Начать приём</button>' : '')
+          + (st === 'scheduled' ? '<button class="btn btn-ghost btn-sm" onclick="VetPages.apptSetStatus(\''+esc(appt.id)+'\',\'no_show\')">Не пришли</button>' : '')
+          + (st === 'scheduled' ? '<button class="btn btn-ghost btn-sm" onclick="VetPages.apptSetStatus(\''+esc(appt.id)+'\',\'cancelled\')">Отменить запись</button>' : '')
+          + (st === 'cancelled' || st === 'no_show' ? '<button class="btn btn-ghost btn-sm" onclick="VetPages.apptSetStatus(\''+esc(appt.id)+'\',\'scheduled\')">Вернуть в запись</button>' : '')
+          + '<button class="btn btn-ghost btn-sm danger-text" onclick="VetPages.apptDelete(\''+esc(appt.id)+'\')">Удалить</button>'
+          + '</div>' : '');
+
+    UI.showModal({
+      title: isEdit ? 'Запись' : 'Новая запись',
+      bodyHTML: bodyHTML,
+      saveLabel: isEdit ? 'Сохранить' : 'Записать',
+      afterOpen: function() {
+        // ── Автокомплит владельца ──
+        var inp = document.getElementById('ap-owner-search');
+        var dd  = document.getElementById('ap-owner-dd');
+        var hint = document.getElementById('ap-owner-hint');
+
+        function fillPets(ownerId, selectedPetId) {
+          var wrap = document.getElementById('ap-pet-wrap');
+          var sel  = document.getElementById('ap-pet');
+          var pets = _schedPets.filter(function(p){ return p.owner_id === ownerId && !p.is_deleted && p.status === 'active'; });
+          if (!pets.length) { wrap.style.display = 'none'; sel.innerHTML = ''; return; }
+          sel.innerHTML = pets.map(function(p){ return '<option value="'+esc(p.id)+'"'+(p.id===selectedPetId?' selected':'')+'>'+esc(p.name)+' ('+esc(p.type||'')+')</option>'; }).join('');
+          wrap.style.display = '';
+        }
+        function pickOwner(o, petId) {
+          document.getElementById('ap-owner-id').value = o.id;
+          inp.value = o.fio;
+          hint.textContent = '';
+          var cn = document.getElementById('ap-client-name');
+          var cp = document.getElementById('ap-client-phone');
+          if (cn && !cn.value) cn.value = o.fio;
+          if (cp && !cp.value) cp.value = o.phone || '';
+          fillPets(o.id, petId || '');
+        }
+        // Предзаполнение при правке
+        if (appt.owner_id) {
+          var ow = _schedOwners.find(function(o){ return o.id === appt.owner_id; });
+          if (ow) pickOwner(ow, appt.pet_id || '');
+        } else if (appt.pet_id) {
+          var pp = _schedPets.find(function(p){ return p.id === appt.pet_id; });
+          var ow2 = pp ? _schedOwners.find(function(o){ return o.id === pp.owner_id; }) : null;
+          if (ow2) pickOwner(ow2, appt.pet_id);
+        }
+
+        inp.addEventListener('input', function() {
+          document.getElementById('ap-owner-id').value = '';
+          document.getElementById('ap-pet-wrap').style.display = 'none';
+          var q = inp.value.trim().toLowerCase();
+          if (q.length < 2) { dd.classList.remove('show'); return; }
+          var qd = q.replace(/\D/g,'');
+          var matches = _schedOwners.filter(function(o) {
+            if (o.is_deleted) return false;
+            if ((o.fio||'').toLowerCase().includes(q)) return true;
+            if (qd.length >= 5 && String(o.phone||'').replace(/\D/g,'').includes(qd)) return true;
+            return false;
+          }).slice(0, 6);
+          dd.innerHTML = matches.map(function(o) {
+            return '<div class="ac-item" data-id="'+o.id+'"><div class="ac-item-title">'+esc(o.fio)+'</div><div class="ac-item-sub">'+esc(o.phone||'')+'</div></div>';
+          }).join('');
+          dd.classList.toggle('show', matches.length > 0);
+          dd.querySelectorAll('.ac-item').forEach(function(el) {
+            el.onmousedown = function(e) {
+              e.preventDefault();
+              var o = _schedOwners.find(function(x){ return x.id === el.dataset.id; });
+              if (o) pickOwner(o);
+              dd.classList.remove('show');
+            };
+          });
+        });
+        inp.addEventListener('blur', function(){ setTimeout(function(){ dd.classList.remove('show'); }, 200); });
+      },
+      onSave: async function() {
+        var g = function(id){ var el = document.getElementById(id); return el ? el.value.trim() : ''; };
+        var date = g('ap-date'), time = g('ap-time');
+        if (!date || !time) { UI.toast('Укажите дату и время', 'err'); return; }
+        var ownerId = g('ap-owner-id');
+        var petWrap = document.getElementById('ap-pet-wrap');
+        var petId = (ownerId && petWrap && petWrap.style.display !== 'none') ? g('ap-pet') : '';
+        var body = {
+          owner_id:     ownerId,
+          pet_id:       petId,
+          staff_id:     g('ap-staff'),
+          client_name:  g('ap-client-name'),
+          client_phone: g('ap-client-phone'),
+          pet_name:     g('ap-pet-name'),
+          starts_at:    date + 'T' + time + ':00.000Z',
+          duration_min: parseInt(g('ap-dur'), 10) || 30,
+          reason:       g('ap-reason'),
+          notes:        g('ap-notes'),
+          status:       st,
+        };
+        if (!body.pet_id && !body.client_name && !body.pet_name) {
+          UI.toast('Укажите клиента: выберите владельца или впишите имя/кличку', 'err');
+          return;
+        }
+        try {
+          if (isEdit) await api('PUT', '/appointments/' + appt.id, body);
+          else        await api('POST', '/appointments', body);
+          UI.toast(isEdit ? 'Запись обновлена' : 'Запись создана', 'ok');
+          UI.hideModal();
+          _schedDate = date;
+          var di = document.getElementById('sched-date'); if (di) di.value = date;
+          renderSchedule();
+        } catch(e) { UI.toast(e.message, 'err'); }
+      },
+    });
+  }
+
+  async function apptSetStatus(id, status) {
+    var a = _schedAppts.find(function(x){ return x.id === id; });
+    if (!a) return;
+    try {
+      await api('PUT', '/appointments/' + id, Object.assign({}, a, { status: status }));
+      UI.hideModal();
+      renderSchedule();
+    } catch(e) { UI.toast(e.message, 'err'); }
+  }
+
+  async function apptDelete(id) {
+    var ok = await UI.confirm('Удалить запись?', 'Запись будет удалена из расписания.');
+    if (!ok) return;
+    try {
+      await api('DELETE', '/appointments/' + id);
+      UI.hideModal();
+      renderSchedule();
+    } catch(e) { UI.toast(e.message, 'err'); }
+  }
+
+  // «Начать приём»: помечаем запись выполненной и открываем форму приёма
+  // с её питомцем. Врач сразу в работе, статус в расписании уже честный.
+  async function apptStartVisit(id) {
+    var a = _schedAppts.find(function(x){ return x.id === id; });
+    if (!a || !a.pet_id) return;
+    try { await api('PUT', '/appointments/' + id, Object.assign({}, a, { status: 'done' })); } catch(e) {}
+    UI.hideModal();
+    setTimeout(function(){ newVisit(a.pet_id); }, 150);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   // ГЛОБАЛЬНЫЙ ПОИСК (шапка): телефон / ФИО / кличка / № чипа
   // ═══════════════════════════════════════════════════════════════════════
   function setupGlobalSearch() {
@@ -4338,6 +4648,7 @@ ${visit.notes ? `<div class="section">
       'owners':           initOwners,
       'pets':             initPets,
       'visits':           initVisits,
+      'schedule':         initSchedule,
       'vaccinations':     initVaccinations,
       'chips':            initChips,
       'items':            initItems,
@@ -4364,6 +4675,11 @@ ${visit.notes ? `<div class="section">
     goVaccThisWeek:     goVaccThisWeek,
     newVisit:           newVisit,
     _visitsShowMore:    _visitsShowMore,
+    newApptAt:          newApptAt,
+    editAppt:           editAppt,
+    apptSetStatus:      apptSetStatus,
+    apptDelete:         apptDelete,
+    apptStartVisit:     apptStartVisit,
     editVisit:          editVisit,
     copyVisit:          copyVisit,
     copyVaccination:    copyVaccination,

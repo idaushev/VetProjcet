@@ -129,6 +129,41 @@ type Vaccination struct {
 	SyncMeta
 }
 
+// Appointment — запись на приём. Клиент может быть не из базы:
+// тогда owner_id/pet_id пустые, а имя/телефон/кличка — текстом.
+type Appointment struct {
+	ID          string     `json:"id"`
+	OwnerID     string     `json:"owner_id,omitempty"`
+	PetID       string     `json:"pet_id,omitempty"`
+	StaffID     string     `json:"staff_id,omitempty"`
+	ClientName  string     `json:"client_name,omitempty"`
+	ClientPhone string     `json:"client_phone,omitempty"`
+	PetName     string     `json:"pet_name,omitempty"`
+	StartsAt    time.Time  `json:"starts_at"`
+	DurationMin int        `json:"duration_min"`
+	Reason      string     `json:"reason,omitempty"`
+	Status      string     `json:"status"` // scheduled|done|cancelled|no_show
+	VisitID     string     `json:"visit_id,omitempty"`
+	Notes       string     `json:"notes,omitempty"`
+	SyncMeta
+}
+
+type appointmentPayload struct {
+	ID          string `json:"id,omitempty"`
+	OwnerID     string `json:"owner_id,omitempty"`
+	PetID       string `json:"pet_id,omitempty"`
+	StaffID     string `json:"staff_id,omitempty"`
+	ClientName  string `json:"client_name,omitempty"`
+	ClientPhone string `json:"client_phone,omitempty"`
+	PetName     string `json:"pet_name,omitempty"`
+	StartsAt    string `json:"starts_at"`
+	DurationMin int    `json:"duration_min,omitempty"`
+	Reason      string `json:"reason,omitempty"`
+	Status      string `json:"status,omitempty"`
+	VisitID     string `json:"visit_id,omitempty"`
+	Notes       string `json:"notes,omitempty"`
+}
+
 type Staff struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
@@ -307,6 +342,7 @@ type syncPushPayload struct {
 	VisitItems  []visitItemSyncRecord  `json:"visit_items"`
 	Vaccinations []vaccinationSyncRecord `json:"vaccinations"`
 	Staff       []staffSyncRecord      `json:"staff"`
+	Appointments []appointmentSyncRecord `json:"appointments"`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -438,6 +474,27 @@ type vaccinationSyncRecord struct {
 	Version        int      `json:"version"`
 }
 
+type appointmentSyncRecord struct {
+	ID          string  `json:"id"`
+	OwnerID     string  `json:"owner_id"`
+	PetID       string  `json:"pet_id"`
+	StaffID     string  `json:"staff_id"`
+	ClientName  string  `json:"client_name"`
+	ClientPhone string  `json:"client_phone"`
+	PetName     string  `json:"pet_name"`
+	StartsAt    string  `json:"starts_at"`
+	DurationMin int     `json:"duration_min"`
+	Reason      string  `json:"reason"`
+	Status      string  `json:"status"`
+	VisitID     string  `json:"visit_id"`
+	Notes       string  `json:"notes"`
+	UpdatedAt   string  `json:"updated_at"`
+	DeletedAt   *string `json:"deleted_at"`
+	IsDeleted   int     `json:"is_deleted"`
+	DeviceID    string  `json:"device_id"`
+	Version     int     `json:"version"`
+}
+
 type staffSyncRecord struct {
 	ID        string  `json:"id"`
 	Name      string  `json:"name"`
@@ -472,5 +529,6 @@ type syncPullData struct {
 	// Метаданные вложений едут в pull; сами файлы качаются отдельно
 	// по /attachments/{id}/file и только при наличии сети.
 	Attachments  []Attachment  `json:"attachments"`
+	Appointments []Appointment `json:"appointments"`
 	ServerTime   time.Time     `json:"server_time"`
 }
