@@ -742,6 +742,30 @@
     </main>
   </div><!-- /layout -->
 
+  <!-- ── Нижняя панель (планшет/телефон) ───────────────────────────────
+       Показывается там же, где сайдбар прячется в выдвижное меню
+       (max-width: 899px). Частые переходы стоили двух касаний:
+       гамбургер → пункт. Пункты помечены .nav-item[data-page], поэтому
+       клик, активное состояние и скрытие по правам работают тем же
+       кодом, что и для сайдбара. -->
+  <nav class="bottom-nav" id="bottom-nav" role="navigation" aria-label="Основные разделы">
+    <a class="bn-item nav-item" data-page="dashboard" href="#dashboard">
+      <i data-icon="grid" data-icon-size="22"></i><span>Обзор</span>
+    </a>
+    <a class="bn-item nav-item" data-page="schedule" href="#schedule">
+      <i data-icon="calendar" data-icon-size="22"></i><span>Расписание</span>
+    </a>
+    <a class="bn-item nav-item" data-page="visits" href="#visits">
+      <i data-icon="clipboard" data-icon-size="22"></i><span>Приёмы</span>
+    </a>
+    <button class="bn-item" type="button" id="bn-search" aria-label="Поиск">
+      <i data-icon="search" data-icon-size="22"></i><span>Поиск</span>
+    </button>
+    <button class="bn-item" type="button" id="bn-more" aria-label="Ещё разделы">
+      <i data-icon="menu" data-icon-size="22"></i><span>Ещё</span>
+    </button>
+  </nav>
+
 </div><!-- /app -->
 
 <!-- ── Modal ─────────────────────────────────────────────────────── -->
@@ -844,6 +868,23 @@
     });
   });
 
+  // ── Нижняя панель: «Поиск» и «Ещё» ────────────────────────────────
+  // Разделы (Обзор/Расписание/Приёмы) обрабатывает общий обработчик
+  // .nav-item выше — здесь только две кнопки без data-page.
+  var bnSearch = document.getElementById('bn-search');
+  if (bnSearch) bnSearch.addEventListener('click', function () {
+    var input = document.getElementById('global-search');
+    if (!input) return;
+    input.focus();
+    input.scrollIntoView({ block: 'nearest' });
+  });
+
+  var bnMore = document.getElementById('bn-more');
+  if (bnMore) bnMore.addEventListener('click', function () {
+    sidebar.classList.add('open');
+    overlay.classList.add('show');
+  });
+
   // Modal close button — через guard: спросит про несохранённые данные
   document.getElementById('modal-close-btn').addEventListener('click', function () {
     if (!window.VetUI) return;
@@ -853,7 +894,7 @@
   // ── Hash navigation ────────────────────────────────────────────────
   // Если запущено через иконку (start_url = "/?pwa=1") — hash пустой → dashboard
   // Если пользователь открыл прямую ссылку с хэшем — навигируем туда
-  var validPages = ['dashboard','owners','pets','visits','vaccinations','items','staff',
+  var validPages = ['dashboard','schedule','owners','pets','visits','vaccinations','items','staff',
                     'chips','report-daily','report-revenue','report-upcoming','report-noshows','users','settings'];
 
   // ── Сворачиваемые группы сайдбара ──────────────────────────────────

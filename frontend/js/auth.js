@@ -185,8 +185,10 @@
     document.querySelectorAll(".nav-item[data-page]").forEach(function (a) {
       var t = pageTable[a.dataset.page];
       if (!t) return;
-      var li = a.closest("li");
-      if (li) li.style.display = can(t, "view") ? "" : "none";
+      // В сайдбаре пункт лежит в <li>, в нижней панели — сам по себе.
+      // Прячем что есть: иначе раздел без доступа остался бы виден снизу.
+      var target = a.closest("li") || a;
+      target.style.display = can(t, "view") ? "" : "none";
     });
     // Кнопки добавления — по праву create.
     var addBtns = {

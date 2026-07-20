@@ -2356,3 +2356,45 @@ body[data-role="reception"] #ssg-analytics { display: none; }
   border-top: 1px solid var(--border);
 }
 .appt-actions-row .danger-text { color: var(--danger); margin-left: auto; }
+
+/* ── Нижняя панель навигации (планшет/телефон) ────────────────────
+   Показывается там же, где сайдбар уходит в выдвижное меню (899px):
+   частые переходы стоили двух касаний — гамбургер, затем пункт.
+   На десктопе скрыта — там сайдбар всегда на экране. */
+.bottom-nav { display: none; }
+
+@media (max-width: 899px) {
+  .bottom-nav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 250;
+    /* flex, а не grid с фиксированными колонками: пункт, скрытый
+       по правам доступа, должен схлопываться, а не оставлять дыру. */
+    display: flex;
+    background: var(--bg-s);
+    border-top: 1px solid var(--border);
+    /* Жестовая полоса Android: панель прижата к краю, но касаемые
+       области поднимаем над ней. */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-shadow: 0 -2px 12px rgba(12,30,60,.06);
+  }
+  .bn-item {
+    flex: 1 1 0; min-width: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 3px;
+    /* 56px — минимум для уверенного попадания пальцем. */
+    min-height: 56px; padding: 7px 2px 6px;
+    background: none; border: none; cursor: pointer;
+    font-family: inherit; font-size: .68rem; font-weight: 600;
+    color: var(--text-3); text-decoration: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: color var(--t-f), background var(--t-f);
+  }
+  .bn-item span { line-height: 1; }
+  .bn-item svg { width: 22px; height: 22px; }
+  .bn-item:active { background: var(--bg-hover); }
+  .bn-item.active { color: var(--accent); }
+
+  /* Контент не должен прятаться под панелью. */
+  .main { padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px)); }
+  /* Тосты и плавающие кнопки поднимаем над панелью. */
+  .toast-container { bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+}
