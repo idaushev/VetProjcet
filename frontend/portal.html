@@ -97,10 +97,20 @@
       <div class="err" id="photo-err"></div>
     </div>
     <div class="card">
+      <div class="h1" style="font-size:1rem;">Прививки</div>
+      <div id="vaccs-list"><div class="loader">Загрузка…</div></div>
+    </div>
+    <div class="card">
       <div class="h1" style="font-size:1rem;">Приёмы и назначения</div>
       <div id="visits-list"><div class="loader">Загрузка…</div></div>
     </div>
   </div>
+
+  <!-- Кнопка «Позвонить» — портал не должен быть тупиком: посмотрел →
+       возник вопрос → сразу звонок. Появляется, если задан CLINIC_PHONE. -->
+  <a id="call-btn" class="btn" style="display:none;text-decoration:none;text-align:center;position:sticky;bottom:14px;box-shadow:0 4px 14px rgba(26,140,94,.35);" href="#">
+    📞 Позвонить в клинику
+  </a>
 </div>
 
 <script>
@@ -168,12 +178,18 @@
   $('phone').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('code').focus(); });
   $('code').addEventListener('keydown', function (e) { if (e.key === 'Enter') login(); });
 
-  // Если у сервера настроено имя бота — превращаем подсказку в ссылку t.me
+  // Если у сервера настроено имя бота — превращаем подсказку в ссылку t.me;
+  // телефон клиники включает кнопку «Позвонить».
   api('GET', '/portal/bot-info').then(function (d) {
     if (d && d.bot) {
       $('bot-hint').innerHTML = 'Пароль выдаёт телеграм-бот клиники: '
         + '<a href="https://t.me/' + esc(d.bot) + '" target="_blank" rel="noopener">@' + esc(d.bot) + '</a>'
         + ' — напишите ему «пароль», код действует 10 минут.';
+    }
+    if (d && d.phone) {
+      var call = $('call-btn');
+      call.href = 'tel:' + d.phone.replace(/[^\d+]/g, '');
+      call.style.display = 'block';
     }
   }).catch(function () {});
 
@@ -258,6 +274,28 @@
           + '</div>';
       }).join('');
     }).catch(function (e) { list.innerHTML = '<div class="loader">' + esc(e.message) + '</div>'; });
+
+    // Прививки: что ставили и когда следующая
+    var vlist = $('vaccs-list');
+    vlist.innerHTML = '<div class="loader">Загрузка…</div>';
+    api('GET', '/portal/pets/' + p.id + '/vaccinations').then(function (vaccs) {
+      if (!vaccs || !vaccs.length) { vlist.innerHTML = '<div class="loader">Прививок пока не было</div>'; return; }
+      var today = new Date().toISOString().slice(0, 10);
+      vlist.innerHTML = vaccs.map(function (v) {
+        var due = (v.next_due_at || '').slice(0, 10);
+        var overdue = due && due < today;
+        return '<div class="visit" style="padding:10px 14px;">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;">'
+          + '<span style="font-weight:600;font-size:.9rem;">' + esc(v.vaccine_name) + '</span>'
+          + '<span class="pet-sub">' + fmtDate(v.administered_at) + '</span></div>'
+          + (due
+              ? '<div class="' + (overdue ? '' : 'next-box') + '" style="margin-top:6px;font-size:.82rem;'
+                + (overdue ? 'color:var(--danger);font-weight:600;' : '') + '">'
+                + (overdue ? '⚠ Просрочена: следующая была нужна ' : 'Следующая: ') + fmtDate(due) + '</div>'
+              : '')
+          + '</div>';
+      }).join('');
+    }).catch(function (e) { vlist.innerHTML = '<div class="loader">' + esc(e.message) + '</div>'; });
   }
 
   $('btn-back').onclick = openPets;

@@ -451,8 +451,8 @@ func pushVisit(ctx context.Context, db *sql.DB, rec visitSyncRecord) (bool, erro
 		INSERT INTO visits (id, pet_id, staff_id, visit_type, animal_weight, date, next_visit_date,
 		                    treatment_days, treatment_until,
 		                    patient_condition, anamnesis, diagnosis, treatment, notes,
-		                    total_amount, discount, payment_card, change_log, updated_at, deleted_at, is_deleted, device_id, version, created_at, client_updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                    total_amount, discount, discount_reason, payment_card, change_log, updated_at, deleted_at, is_deleted, device_id, version, created_at, client_updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		  pet_id=excluded.pet_id, staff_id=excluded.staff_id,
 		  visit_type=excluded.visit_type, animal_weight=excluded.animal_weight,
@@ -460,7 +460,7 @@ func pushVisit(ctx context.Context, db *sql.DB, rec visitSyncRecord) (bool, erro
 		  treatment_days=excluded.treatment_days, treatment_until=excluded.treatment_until,
 		  patient_condition=excluded.patient_condition, anamnesis=excluded.anamnesis,
 		  diagnosis=excluded.diagnosis, treatment=excluded.treatment, notes=excluded.notes,
-		  total_amount=excluded.total_amount, discount=excluded.discount, payment_card=excluded.payment_card,
+		  total_amount=excluded.total_amount, discount=excluded.discount, discount_reason=excluded.discount_reason, payment_card=excluded.payment_card,
 		  change_log=excluded.change_log, updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, is_deleted=excluded.is_deleted,
 		  device_id=excluded.device_id, version=excluded.version,
 		  client_updated_at=excluded.client_updated_at`,
@@ -468,7 +468,7 @@ func pushVisit(ctx context.Context, db *sql.DB, rec visitSyncRecord) (bool, erro
 		treatDays, Tp(treatUntil),
 		nullableString(rec.PatientCondition), nullableString(rec.Anamnesis),
 		nullableString(rec.Diagnosis), nullableString(rec.Treatment), nullableString(rec.Notes),
-		rec.TotalAmount, rec.Discount, rec.PaymentCard, rec.ChangeLog, serverNow, deletedAt, rec.IsDeleted,
+		rec.TotalAmount, rec.Discount, nullableString(rec.DiscountReason), rec.PaymentCard, rec.ChangeLog, serverNow, deletedAt, rec.IsDeleted,
 		nullableString(rec.DeviceID), rec.Version, serverNow, clientAt,
 	)
 	return err == nil, err

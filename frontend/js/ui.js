@@ -207,7 +207,9 @@
     {value:'другое',label:'Другое'},
   ];
 
-  var CONDITIONS = ['Здоров','Стабильное','Лёгкое','средней тяжести','тяжелое','крайне тяжелое','терминальное'];
+  // Регистр единый; буква «е» в «тяжелое» — намеренно, так значения хранятся
+  // в базе и валидируются сервером (сравнение регистронезависимое).
+  var CONDITIONS = ['Здоров','Стабильное','Лёгкое','Средней тяжести','Тяжелое','Крайне тяжелое','Терминальное'];
 
   var DEATH_REASONS = [
     'По возрасту','По болезни','Экстренное состояние','Несчастный случай',
@@ -676,7 +678,7 @@
         <div class="form-group" style="flex:1;min-width:200px;">
           <label class="form-label">Состояние пациента</label>
           <div id="condition-tabs" class="condition-tabs mt-1">
-            ${CONDITIONS.map(function(c){ return '<span class="condition-tab'+(c===(prefill.patient_condition||'')?' selected':'')+'" data-val="'+c+'">'+c+'</span>'; }).join('')}
+            ${CONDITIONS.map(function(c,i){ var sel = c.toLowerCase()===(prefill.patient_condition||'').toLowerCase(); return '<span class="condition-tab sev-'+i+(sel?' selected':'')+'" data-val="'+c+'">'+c+'</span>'; }).join('')}
           </div>
           <input type="hidden" id="f-condition" value="${esc(prefill.patient_condition||'')}">
         </div>
@@ -750,6 +752,11 @@
                    placeholder="0" value="${prefill && prefill.discount ? prefill.discount : 0}"
                    oninput="VetUI._updatePaymentSummary()">
           </div>
+          <div class="payment-field" id="f-discount-reason-wrap" style="${prefill && prefill.discount ? '' : 'display:none;'}">
+            <label class="form-label">Причина скидки <span class="form-req">*</span></label>
+            <input id="f-discount-reason" class="form-input" type="text" maxlength="120"
+                   placeholder="Постоянный клиент, акция..." value="${esc(prefill && prefill.discount_reason || '')}">
+          </div>
           <div class="payment-field">
             <label class="form-label">${I('card')} Оплата картой (безнал), ₸</label>
             <input id="f-payment-card" class="form-input" type="number" min="0" step="1"
@@ -811,6 +818,11 @@
     var payEl  = document.getElementById('vitem-total-pay');
     if (payRow) payRow.style.display = disc > 0 ? '' : 'none';
     if (payEl)  payEl.textContent = total.toFixed(0) + ' ₸';
+    // Причина скидки видна, как только врач ввёл скидку — по сырому значению
+    // поля, а не по клампу: пока позиции не добавлены, сумма 0 и кламп
+    // обнулил бы скидку, спрятав поле причины.
+    var reasonWrap = document.getElementById('f-discount-reason-wrap');
+    if (reasonWrap) reasonWrap.style.display = (parseFloat(discEl && discEl.value) || 0) > 0 ? '' : 'none';
     var card  = Math.max(0, Math.min(parseFloat(cardEl.value) || 0, total));
     var cash  = Math.max(0, total - card);
 
@@ -1148,6 +1160,74 @@
   function updateVitTotal(){var tot=0;document.querySelectorAll('[id^="vit-tot-"]').forEach(function(el){tot+=parseFloat(el.textContent)||0;});var el=document.getElementById('vitem-total');if(el)el.textContent=tot.toFixed(0)+' ₸'; _updatePaymentSummary();}
   function collectVisitItems(){var items=[];document.querySelectorAll('.vitem-row').forEach(function(row){var id=row.dataset.rowId;var name=document.getElementById('vit-n-'+id).value.trim();var type=document.getElementById('vit-t-'+id).value;var qty=parseFloat(document.getElementById('vit-q-'+id).value)||1;var price=parseFloat(document.getElementById('vit-p-'+id).value)||0;var costEl=document.getElementById('vit-c-'+id);var costPrice=costEl?parseFloat(costEl.value)||0:Math.round(price*0.5*100)/100;if(!name)return;items.push({item_id:row.dataset.itemId||null,name:name,type:type,quantity:qty,price:price,cost_price:costPrice,total:Math.round(qty*price*100)/100});});return items;}
 
+  // ── Черновики формы приёма ─────────────────────────────────────────────
+  // Предупреждение при закрытии не спасает от смахивания PWA из недавних
+  // приложений: страница умирает без событий. Поэтому форма приёма каждые
+  // 4 секунды сохраняет состояние в localStorage, а при следующем открытии
+  // предлагает восстановить. Черновик живёт сутки и стирается при сохранении.
+  var VISIT_DRAFT_KEY = 'vet_visit_draft';
+  var _draftTimer = null;
+
+  function startVisitDraftAutosave(key) {
+    stopVisitDraftAutosave();
+    _draftTimer = setInterval(function() {
+      if (!document.getElementById('vf-root')) { stopVisitDraftAutosave(); return; }
+      try {
+        var vs = getVisitState();
+        var meaningful = vs.anamnesis || vs.diagnosis || vs.treatment || vs.notes ||
+          vs.condition || vs.items.length ||
+          (vs.ownerNew && vs.ownerNew.fio) || (vs.petNew && vs.petNew.name);
+        if (!meaningful) return;
+        localStorage.setItem(VISIT_DRAFT_KEY, JSON.stringify({
+          key: key, ts: Date.now(),
+          state: {
+            owner_id: vs.owner ? vs.owner.id : '', pet_id: vs.pet ? vs.pet.id : '',
+            ownerNew: vs.ownerNew, petNew: vs.petNew,
+            date: vs.date, next_visit_date: vs.next_visit_date,
+            treatment_days: vs.treatment_days, visit_type: vs.visit_type,
+            animal_weight: vs.animal_weight, patient_condition: vs.condition,
+            anamnesis: vs.anamnesis, diagnosis: vs.diagnosis,
+            treatment: vs.treatment, notes: vs.notes,
+            staff_id: vs.staff_id, discount: vs.discount,
+            discount_reason: vs.discount_reason, payment_card: vs.payment_card,
+            items: vs.items,
+          },
+        }));
+      } catch(e) {}
+    }, 4000);
+  }
+  function stopVisitDraftAutosave() { if (_draftTimer) { clearInterval(_draftTimer); _draftTimer = null; } }
+  function clearVisitDraft() {
+    stopVisitDraftAutosave();
+    try { localStorage.removeItem(VISIT_DRAFT_KEY); } catch(e) {}
+  }
+  function getVisitDraft(key) {
+    try {
+      var d = JSON.parse(localStorage.getItem(VISIT_DRAFT_KEY) || 'null');
+      if (!d || d.key !== key || !d.state) return null;
+      if (Date.now() - d.ts > 24*3600000) { clearVisitDraft(); return null; }
+      return d.state;
+    } catch(e) { return null; }
+  }
+  // Восстановление того, что не входит в prefill формы: черновики нового
+  // владельца/животного. Вызывается ПОСЛЕ initVisitForm.
+  function applyVisitDraftExtras(draft, allOwners, allPets, allItems) {
+    if (!draft) return;
+    if (draft.ownerNew && draft.ownerNew.fio && !_vs.owner) {
+      _vs.ownerMode = 'new';
+      _vs.ownerDraft = draft.ownerNew;
+      renderOwnerArea(allOwners, allPets, allItems);
+    }
+    if (draft.petNew && draft.petNew.name && !_vs.pet) {
+      _vs.showNewPet = true;
+      _vs.petDraft = draft.petNew;
+      var ownerPets = _vs.owner
+        ? allPets.filter(function(p){ return p.owner_id===_vs.owner.id && !p.is_deleted && p.status==='active'; })
+        : [];
+      renderPetArea(ownerPets, allPets, allItems);
+    }
+  }
+
   function getVisitState() {
     // Собираем данные нового владельца — все поля
     var ownerNew=null;
@@ -1180,6 +1260,7 @@
     return {
       staff_id:document.getElementById('f-staff')?document.getElementById('f-staff').value:'',
       discount:discount,
+      discount_reason:document.getElementById('f-discount-reason')?document.getElementById('f-discount-reason').value.trim():'',
       owner:_vs.owner, ownerNew:ownerNew, ownerMode:_vs.ownerMode,
       pet:_vs.pet, petNew:petNew,
       date:document.getElementById('f-visit-date')?document.getElementById('f-visit-date').value:'',
@@ -1290,6 +1371,10 @@
     addVisitItemRow:addVisitItemRow,
     collectVisitItems:collectVisitItems,
     getVisitState:getVisitState,
+    startVisitDraftAutosave:startVisitDraftAutosave,
+    clearVisitDraft:clearVisitDraft,
+    getVisitDraft:getVisitDraft,
+    applyVisitDraftExtras:applyVisitDraftExtras,
     _toggleSection:_toggleSection,
     _updatePaymentSummary:_updatePaymentSummary,
     _diagAutocomplete:_diagAutocomplete,

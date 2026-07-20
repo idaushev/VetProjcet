@@ -148,12 +148,54 @@ func (a *app) handlePortalLogin(w http.ResponseWriter, r *http.Request) {
 	}})
 }
 
-// handlePortalBotInfo — публичная справка для страницы входа: имя бота,
-// чтобы показать ссылку «получить пароль». Токен наружу не отдаём.
+// handlePortalBotInfo — публичная справка для страницы входа: имя бота
+// (ссылка «получить пароль») и телефон клиники (кнопка «Позвонить»).
+// Токен наружу не отдаём.
 func (a *app) handlePortalBotInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: map[string]string{
-		"bot": a.config.TelegramBotName,
+		"bot":   a.config.TelegramBotName,
+		"phone": a.config.ClinicPhone,
 	}})
+}
+
+// handlePortalPetVaccinations — прививки питомца: что ставили и когда
+// следующая. Самый частый вопрос владельца — данные уже есть в базе.
+type portalVaccination struct {
+	VaccineName    string `json:"vaccine_name"`
+	AdministeredAt string `json:"administered_at"`
+	NextDueAt      string `json:"next_due_at,omitempty"`
+}
+
+func (a *app) handlePortalPetVaccinations(w http.ResponseWriter, r *http.Request) {
+	ownerID := a.requirePortalOwner(w, r)
+	if ownerID == "" {
+		return
+	}
+	petID := strings.TrimSpace(r.PathValue("id"))
+	if !a.petBelongsToOwner(r.Context(), petID, ownerID) {
+		writeError(w, http.StatusNotFound, "Питомец не найден")
+		return
+	}
+	rows, err := a.db.QueryContext(r.Context(),
+		`SELECT vaccine_name, COALESCE(administered_at,''), COALESCE(next_due_at,'')
+		 FROM vaccinations WHERE pet_id=? AND is_deleted=0
+		 ORDER BY administered_at DESC LIMIT 50`, petID)
+	if err != nil {
+		a.logger.Printf("portalVaccinations: %v", err)
+		writeError(w, http.StatusInternalServerError, "Ошибка сервера")
+		return
+	}
+	defer rows.Close()
+
+	vaccs := make([]portalVaccination, 0)
+	for rows.Next() {
+		var v portalVaccination
+		if err := rows.Scan(&v.VaccineName, &v.AdministeredAt, &v.NextDueAt); err != nil {
+			continue
+		}
+		vaccs = append(vaccs, v)
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: vaccs})
 }
 
 // ─── Сессия ───────────────────────────────────────────────────────────────────

@@ -22,6 +22,8 @@ type Config struct {
 	// Публичный адрес портала (https://<хост>:8443/portal) — бот добавляет
 	// его к сообщению с паролем. Пусто — ссылка не показывается.
 	PortalPublicURL string
+	// Телефон клиники — кнопка «Позвонить» на портале владельцев.
+	ClinicPhone string
 }
 
 func LoadConfig() Config {
@@ -35,6 +37,7 @@ func LoadConfig() Config {
 		TelegramToken: getEnv("TELEGRAM_BOT_TOKEN", ""),
 		TelegramBotName: getEnv("TELEGRAM_BOT_NAME", ""),
 		PortalPublicURL: getEnv("PORTAL_URL", ""),
+		ClinicPhone:     getEnv("CLINIC_PHONE", ""),
 	}
 }
 

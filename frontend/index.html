@@ -72,6 +72,14 @@
       </svg>
       <span class="topbar-title">VetClinic</span>
     </div>
+    <!-- Глобальный поиск: регистратор слышит телефон или кличку в трубке —
+         одно поле находит владельца и животное из любого места приложения -->
+    <div class="topbar-search" id="topbar-search">
+      <i data-icon="search" data-icon-size="16" class="topbar-search-icon"></i>
+      <input type="search" id="global-search" autocomplete="off"
+             placeholder="Поиск: телефон, ФИО, кличка, № чипа">
+      <div class="autocomplete-dropdown" id="global-search-dd"></div>
+    </div>
     <div class="topbar-spacer"></div>
     <!-- #pwa-sync-status вставляется через app.js -->
   </header>
@@ -302,6 +310,13 @@
               <div class="stat-value" id="stat-vaccinations-due">—</div>
               <div class="stat-label">Вакцинаций на неделе ↗</div>
             </div>
+            <!-- Четвёртая карточка зависит от роли: врач видит свои приёмы,
+                 админ — выручку дня. Наполняется в initDashboard. -->
+            <div class="stat-card stat-card-link" id="stat-card-role" style="display:none;"
+                 onclick="if(window.VetPages)VetPages.goVisitsToday()">
+              <div class="stat-value" id="stat-role-value">—</div>
+              <div class="stat-label" id="stat-role-label"></div>
+            </div>
           </div>
 
           <!-- Виджеты: на широких экранах в две колонки, на планшете/узких — в одну.
@@ -387,10 +402,13 @@
             <input type="search" class="search-input" id="search-visits" placeholder="Поиск по диагнозу, пациенту...">
           </div>
           <div id="visit-date-filter" class="flex-gap">
-            <button class="filter-btn active" data-period="all">Все</button>
-            <button class="filter-btn" data-period="today">Сегодня</button>
+            <button class="filter-btn" data-period="all">Все</button>
+            <button class="filter-btn active" data-period="today">Сегодня</button>
             <button class="filter-btn" data-period="week">Неделя</button>
           </div>
+          <select class="filter-select" id="visit-doctor-filter" aria-label="Врач" style="max-width:180px;">
+            <option value="">Все врачи</option>
+          </select>
         </div>
         <div id="visits-list" class="entity-list"></div>
       </section>

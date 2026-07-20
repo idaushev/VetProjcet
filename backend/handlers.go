@@ -116,6 +116,7 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /portal/me",               a.handlePortalMe)
 	mux.HandleFunc("GET /portal/pets",             a.handlePortalPets)
 	mux.HandleFunc("GET /portal/pets/{id}/visits", a.handlePortalPetVisits)
+	mux.HandleFunc("GET /portal/pets/{id}/vaccinations", a.handlePortalPetVaccinations)
 	mux.HandleFunc("PUT /portal/pets/{id}/photo",  a.handlePortalPetPhoto)
 	mux.HandleFunc("GET /portal", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, filepath.Join(a.frontend, "portal.html"))

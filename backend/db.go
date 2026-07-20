@@ -362,6 +362,7 @@ var migrations = []string{
 	`ALTER TABLE visits ADD COLUMN change_log TEXT DEFAULT ''`,
 	`ALTER TABLE visits ADD COLUMN treatment_days INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE visits ADD COLUMN discount REAL NOT NULL DEFAULT 0`,
+	`ALTER TABLE visits ADD COLUMN discount_reason TEXT`,
 	`ALTER TABLE visits ADD COLUMN treatment_until DATETIME`,
 	`CREATE INDEX IF NOT EXISTS idx_visits_updated ON visits(updated_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_visits_deleted ON visits(is_deleted)`,
