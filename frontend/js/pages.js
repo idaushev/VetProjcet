@@ -127,7 +127,14 @@
       setText('stat-on-treatment',     onTreatmentPets.length);
       setText('stat-vaccinations-due', dueVacc.length);
 
-      // Четвёртая карточка — под роль: врач видит СВОЁ, админ — деньги дня.
+      // Записи нужны и четвёртой карточке, и виджету ниже — грузим один раз.
+      var allAppts = [];
+      try { allAppts = await window.VetDB.getAll('appointments'); } catch(e) {}
+
+      // Четвёртая карточка — под роль: врач видит свои приёмы, остальные —
+      // загрузку на завтра. Денег на дашборде нет намеренно: планшет стоит
+      // на виду, и сумма дневного дохода читается любым клиентом у стойки.
+      // Выручка живёт в «Отчётах», куда нужно зайти осознанно.
       var roleCard = document.getElementById('stat-card-role');
       if (roleCard) {
         var u = window.VetAuth ? VetAuth.user() : null;
@@ -135,11 +142,17 @@
           var mine = todayVisits.filter(function(v){ return v.staff_id === u.staff_id; });
           setText('stat-role-value', mine.length);
           setText('stat-role-label', 'Мои приёмы сегодня ↗');
+          roleCard.onclick = function(){ goVisitsToday(); };
           roleCard.style.display = '';
-        } else if (u && window.VetAuth && VetAuth.sumsScope().mode === 'all') {
-          var revenue = todayVisits.reduce(function(s,v){ return s + (v.total_amount||0); }, 0);
-          setText('stat-role-value', revenue.toLocaleString('ru-RU', {maximumFractionDigits:0}) + ' ₸');
-          setText('stat-role-label', 'Выручка сегодня ↗');
+        } else if (u) {
+          var tomorrow = toAstanaStr(new Date(Date.now() + 86400000));
+          var tomorrowAppts = allAppts.filter(function(a){
+            return !a.is_deleted && a.status === 'scheduled'
+              && (a.starts_at||'').slice(0,10) === tomorrow;
+          });
+          setText('stat-role-value', tomorrowAppts.length);
+          setText('stat-role-label', 'Записей на завтра ↗');
+          roleCard.onclick = function(){ navigate('schedule'); };
           roleCard.style.display = '';
         } else {
           roleCard.style.display = 'none';
@@ -154,8 +167,6 @@
       // Виджет «Записи на сегодня» — расписание видно прямо с обзора
       var apptsEl = document.getElementById('dash-appts');
       if (apptsEl) {
-        var allAppts = [];
-        try { allAppts = await window.VetDB.getAll('appointments'); } catch(e) {}
         var todayAppts = allAppts.filter(function(a) {
           return !a.is_deleted && (a.starts_at||'').slice(0,10) === today && a.status === 'scheduled';
         }).sort(function(a,b){ return (a.starts_at||'') < (b.starts_at||'') ? -1 : 1; }).slice(0, 8);
@@ -190,8 +201,10 @@
           +UI.avatar(pet.name||'?',pet.type)
           +'<div class="erow-body"><div class="erow-title">'+esc(pet.name||'Неизвестно')+visitTypeBadge+'</div>'
           +'<div class="erow-sub">'+esc(owner.fio||'')+' · '+esc(v.diagnosis||v.anamnesis||'Без диагноза')+'</div></div>'
+          // Суммы на главной не показываем: планшет стоит на виду, и клиент
+          // у стойки видел бы, сколько заплатил предыдущий. В списке приёмов
+          // и в отчётах суммы на месте — туда заходят осознанно.
           +'<div class="erow-right"><span class="erow-date">'+fmtDate(v.date)+'</span>'
-          +(v.total_amount?(window.VetAuth&&!VetAuth.canSeeSum(v.staff_id)?'<span class="erow-amount" title="Сумма скрыта настройками прав">···</span>':'<span class="erow-amount">'+Number(v.total_amount).toFixed(0)+' ₸</span>'):'')
           +'</div></div>';
       }).join('');
 

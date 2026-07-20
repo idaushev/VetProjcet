@@ -320,9 +320,10 @@
               <div class="stat-label">Вакцинаций на неделе ↗</div>
             </div>
             <!-- Четвёртая карточка зависит от роли: врач видит свои приёмы,
-                 админ — выручку дня. Наполняется в initDashboard. -->
-            <div class="stat-card stat-card-link" id="stat-card-role" style="display:none;"
-                 onclick="if(window.VetPages)VetPages.goVisitsToday()">
+                 остальные — загрузку на завтра. Сумм на дашборде нет: планшет
+                 стоит на виду у клиентов. Обработчик клика ставит
+                 initDashboard — он зависит от того, что показано. -->
+            <div class="stat-card stat-card-link" id="stat-card-role" style="display:none;">
               <div class="stat-value" id="stat-role-value">—</div>
               <div class="stat-label" id="stat-role-label"></div>
             </div>
