@@ -796,6 +796,12 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 /* ── Modal ──────────────────────────────────────────────────────── */
 .modal-overlay {
   position: fixed; inset: 0; z-index: 1000;
+  /* Центрируем по ВИДИМОЙ области, а не по всему экрану: при открытой
+     клавиатуре высота overlay ограничивается --vvh, иначе модалка
+     центрируется по полной высоте и её низ (футер с «Сохранить»)
+     оказывается под клавиатурой — даже если сама модалка сжалась. */
+  height: min(100dvh, var(--vvh, 100dvh));
+  bottom: auto;
   background: rgba(26,36,52,.45);
   backdrop-filter: blur(8px) saturate(.8);
   display: flex; align-items: center; justify-content: center;
@@ -817,7 +823,11 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
   background: var(--bg-s);
   border: 1px solid var(--border);
   border-radius: var(--r-xl);
-  width: 100%; max-width: 580px; max-height: 92dvh;
+  /* min() с --vvh: при открытой клавиатуре модалка сжимается, и закреплённый
+     футер («Сохранить») остаётся над ней. --vvh ставит ui.js; если его нет,
+     остаётся обычное поведение по dvh. */
+  width: 100%; max-width: 580px;
+  max-height: min(92dvh, var(--vvh, 92dvh));
   display: flex; flex-direction: column;
   box-shadow: var(--shadow-xl);
   transform: translateY(20px) scale(.97);
@@ -836,7 +846,7 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 .modal.modal-lg   { max-width: 800px; }
 .modal.modal-sm   { max-width: 380px; }
 .modal.modal-xl   { max-width: 1060px; }
-.modal.modal-full { max-width: min(96vw, 1200px); max-height: 96dvh; }
+.modal.modal-full { max-width: min(96vw, 1200px); max-height: min(96dvh, var(--vvh, 96dvh)); }
 
 .modal-header {
   display: flex; align-items: center; gap: 12px;
