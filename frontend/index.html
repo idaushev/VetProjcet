@@ -843,6 +843,20 @@
 
           <!-- ── Вкладка: Данные ──────────────────────────────────────── -->
           <div class="settings-panel" data-spanel="data" style="display:none;">
+            <div class="card" style="max-width:680px;margin-bottom:16px;">
+              <div class="card-header"><span class="card-title">Обновление данных</span></div>
+              <div class="card-body" style="padding:20px;">
+                <p style="font-size:.88rem;color:var(--text-2);margin-bottom:16px;">
+                  Заново загрузить все данные с сервера — если на устройстве чего-то
+                  не хватает или данные расходятся. Ничего не удаляет: локальные
+                  несохранённые изменения останутся и уйдут на сервер при синхронизации.
+                </p>
+                <button class="btn btn-primary" id="btn-refresh-from-server" style="min-width:200px;">
+                  <i data-icon="refresh" data-icon-size="18"></i> Обновить с сервера
+                </button>
+                <span id="refresh-server-msg" style="display:none;margin-left:12px;color:var(--accent);font-weight:600;font-size:.9rem;">✓ Обновлено</span>
+              </div>
+            </div>
             <div class="card" style="max-width:680px;border-color:var(--danger-dim);">
               <div class="card-header"><span class="card-title" style="color:var(--danger);">Локальные данные</span></div>
               <div class="card-body" style="padding:20px;">

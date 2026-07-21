@@ -817,12 +817,17 @@
     renderVisitList();
   }
 
-  async function newVisit(petId) {
+  async function newVisit(petId, ownerId) {
     // Получаем время с сервера для дефолтного значения поля даты
     var serverTime = await UI.getServerTime();
     var data = await loadAll();
     var prefillPet   = petId ? (data.pets||[]).find(function(p){ return p.id===petId; }) : null;
-    var prefillOwner = prefillPet ? (data.owners||[]).find(function(o){ return o.id===prefillPet.owner_id; }) : null;
+    // Владелец: от питомца, либо напрямую (R9 — «Новый приём» из карточки
+    // владельца с несколькими/без питомцев: подставляем владельца, питомца
+    // врач выберет сам).
+    var prefillOwner = prefillPet
+      ? (data.owners||[]).find(function(o){ return o.id===prefillPet.owner_id; })
+      : (ownerId ? (data.owners||[]).find(function(o){ return o.id===ownerId; }) : null);
     // Автозаполнение веса — берём последний вес из истории приёмов питомца
     var lastWeight = null;
     if (prefillPet) {
@@ -894,6 +899,14 @@
           if (!okNoItems) return;
         }
 
+        // R6: приём без врача не попадёт в отчёт по врачу и сводку выработки.
+        if (!vs.staff_id) {
+          var okNoDoc = await UI.confirm('Врач не указан',
+            'Приём не попадёт в отчёт по врачу и в сводку выработки. Сохранить без врача?',
+            { yes: 'Сохранить', no: 'Вернуться' });
+          if (!okNoDoc) return;
+        }
+
         var grossAmount = vs.items.reduce(function(s,i){ return s + (i.total||0); }, 0);
         var discount = Math.min(vs.discount || 0, grossAmount);
         var totalAmount = Math.max(0, grossAmount - discount);
@@ -927,6 +940,7 @@
   }
 
   function newVisitForPet(petId) { navigate('visits'); setTimeout(function(){ newVisit(petId); }, 100); }
+  function newVisitForOwner(ownerId) { navigate('visits'); setTimeout(function(){ newVisit(null, ownerId); }, 100); }
 
   var _prevVisitSnapshot = null;
   async function editVisit(id) {
@@ -2754,6 +2768,25 @@
 
     setupSettingsTabs();
     setupThemeSwitch();
+
+    // R7: неразрушающее «Обновить с сервера» (полный pull) — отдельно от
+    // пугающего «Сбросить локальные данные».
+    var refBtn = el('btn-refresh-from-server');
+    if (refBtn) refBtn.onclick = async function() {
+      if (!(window.VetSync && VetSync.pullFull)) return;
+      refBtn.disabled = true;
+      var old = refBtn.innerHTML; refBtn.innerHTML = 'Обновляю…';
+      try {
+        await VetSync.pullFull();
+        var m = el('refresh-server-msg'); if (m) m.style.display='';
+        UI.toast('Данные обновлены с сервера', 'ok');
+        // Перечитываем экран из свежего IndexedDB — простой и надёжный путь.
+        setTimeout(function(){ location.reload(); }, 700);
+      } catch(e) {
+        UI.toast('Не удалось обновить: ' + (e && e.message || e), 'err');
+        refBtn.innerHTML = old; refBtn.disabled = false;
+      }
+    };
     // Пользователи и телеграм — админские вкладки; грузим по факту наличия.
     if (document.querySelector('[data-spanel="users"]') && window.VetAuth && VetAuth.user() && VetAuth.user().role === 'admin') {
       initUsers();
@@ -3872,7 +3905,7 @@ ${visit.notes ? `<div class="section">
       +'<button class="oc-action-btn primary" onclick="VetUI.hideModal();setTimeout(function(){'
         +(activePets.length===1
           ? 'VetPages.newVisitForPet(\''+activePets[0].id+'\');'
-          : 'navigate(\'visits\');setTimeout(function(){document.getElementById(\'btn-add-visit\').click();},200);')
+          : 'VetPages.newVisitForOwner(\''+ownerId+'\');')
         +'},150)">'+I('clipboard')+' Новый приём</button>'
       +'<button class="oc-action-btn" onclick="VetUI.hideModal();setTimeout(function(){VetPages.editOwner(\''+ownerId+'\');},150)">'+I('edit')+' Редактировать</button>'
       +'<button class="oc-action-btn" onclick="VetUI.hideModal();setTimeout(function(){VetPages.addPetForOwner(\''+ownerId+'\');},150)">'+I('paw')+' Добавить питомца</button>'
@@ -5480,8 +5513,9 @@ ${visit.notes ? `<div class="section">
     });
     inp.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') { dd.classList.remove('show'); inp.blur(); }
-      if (e.key === 'Enter') run();
     });
+    // R4: ↑/↓ по результатам, Enter открывает выделенный/первый.
+    if (window.VetUI && VetUI.acKeyboard) VetUI.acKeyboard(inp, dd);
     inp.addEventListener('blur', function() { setTimeout(function(){ dd.classList.remove('show'); }, 200); });
   }
   document.addEventListener('DOMContentLoaded', setupGlobalSearch);
@@ -5535,6 +5569,7 @@ ${visit.notes ? `<div class="section">
     deleteVisit:        deleteVisit,
     printVisitCard:     printVisitCard,
     newVisitForPet:     newVisitForPet,
+    newVisitForOwner:   newVisitForOwner,
     addOwner:           addOwner,
     _ownersShowMore:    _ownersShowMore,
     _petsShowMore:      _petsShowMore,

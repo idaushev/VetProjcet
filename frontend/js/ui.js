@@ -67,6 +67,33 @@
       + '<div class="row-menu" role="menu">'+body+'</div></span>';
   }
 
+  // R4: клавиатура в автокомплитах. ↑/↓ двигают подсветку .ac-active,
+  // Enter выбирает выделенный (или первый) пункт. Работает с любым
+  // выпадающим списком, чьи пункты имеют класс .ac-item.
+  function acKeyboard(inp, dd) {
+    if (!inp || !dd) return;
+    inp.addEventListener('keydown', function(e) {
+      var visible = dd.classList.contains('show') || (dd.offsetParent !== null && dd.getClientRects().length);
+      var items = [].slice.call(dd.querySelectorAll('.ac-item')).filter(function(it){
+        return getComputedStyle(it).cursor !== 'default'; // пропускаем «Ничего не найдено»
+      });
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (!visible || !items.length) return;
+        e.preventDefault();
+        var cur = dd.querySelector('.ac-item.ac-active');
+        var idx = items.indexOf(cur);
+        idx = e.key === 'ArrowDown' ? (idx + 1) % items.length : (idx <= 0 ? items.length - 1 : idx - 1);
+        items.forEach(function(it){ it.classList.remove('ac-active'); });
+        items[idx].classList.add('ac-active');
+        items[idx].scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'Enter') {
+        if (!visible || !items.length) return;
+        var target = dd.querySelector('.ac-item.ac-active') || items[0];
+        if (target) { e.preventDefault(); target.click(); }
+      }
+    });
+  }
+
   var _openRowMenu = null;
   function closeRowMenu() {
     if (_openRowMenu) {
@@ -1061,13 +1088,9 @@
         });
         var cBtn=dd.querySelector('.ac-create'); if(cBtn) cBtn.onclick=function(){_vs.ownerMode='new';_vs.ownerDraft.fio=q;dd.classList.remove('show');renderOwnerArea(allOwners,allPets,allItems);};
       });
-      inp.addEventListener('keydown', function(e) {
-        if (e.key!=='Enter') return; e.preventDefault();
-        var q=inp.value.trim(); if(!q) return;
-        var first=dd.querySelector('.ac-item:not(.ac-create)');
-        if (first&&dd.classList.contains('show')) first.click();
-        else { _vs.ownerMode='new'; _vs.ownerDraft={fio:q,phone:'',iin:''}; dd.classList.remove('show'); renderOwnerArea(allOwners,allPets,allItems); }
-      });
+      // R4: ↑/↓ + Enter по подсказкам (включая «Создать нового», когда он
+      // единственный пункт — Enter его и нажмёт, повторяя прежнее поведение).
+      acKeyboard(inp, dd);
       inp.addEventListener('blur', function(){ setTimeout(function(){ dd.classList.remove('show'); },220); });
       inp.focus();
       renderPetArea([], allPets, allItems);
@@ -1278,6 +1301,24 @@
       });
     });
     inp.addEventListener('blur',function(){setTimeout(function(){dd.classList.remove('show');},200);});
+    // R8/R4: Enter в названии позиции — если открыт список подсказок, выбрать
+    // первую; иначе (позиция заполнена) добавить новую пустую строку и встать
+    // в неё. Ускоряет ввод нескольких услуг подряд без мыши.
+    inp.addEventListener('keydown', function(e){
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      if (dd.classList.contains('show')) {
+        var first = dd.querySelector('.ac-item');
+        if (first) { first.click(); return; }
+      }
+      if (inp.value.trim()) {
+        addVisitItemRow(allItems);
+        var rows = document.querySelectorAll('#vitem-rows .vitem-row');
+        var last = rows[rows.length - 1];
+        var nameInp = last && last.querySelector('.vitem-input');
+        if (nameInp) nameInp.focus();
+      }
+    });
     ['vit-q-'+id,'vit-p-'+id,'vit-c-'+id].forEach(function(eid){var el=document.getElementById(eid);if(el)el.addEventListener('input',function(){updateVitRow(id);});});
     row.querySelector('[data-rem]').onclick=function(){row.remove();updateVitTotal();};
     updateVitRow(id);
@@ -1484,6 +1525,7 @@
   window.VetUI = {
     icon:icon, esc:esc, avatar:avatar,
     rowMenu:rowMenu, toggleRowMenu:toggleRowMenu, closeRowMenu:closeRowMenu,
+    acKeyboard:acKeyboard,
     toast:toast, confirm:confirm,
     showModal:showModal, hideModal:hideModal, requestHideModal:requestHideModal,
     ownerFormHTML:ownerFormHTML, ownerFormData:ownerFormData,

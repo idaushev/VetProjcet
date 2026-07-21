@@ -2754,3 +2754,6 @@ body[data-role="admin"] .settings-tab.admin-only { display: inline-flex; }
 }
 .next-preset:hover { background: var(--accent-dim); border-color: var(--accent-border); color: var(--accent); }
 .next-preset:active { transform: translateY(1px); }
+
+/* Подсветка активного пункта автокомплита при навигации ↑/↓ (R4) */
+.ac-item.ac-active { background: var(--bg-hover); }
