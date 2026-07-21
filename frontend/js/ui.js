@@ -181,6 +181,14 @@
     if (modalHeader) { modalHeader.style.display = ''; }
     if (footer)      { footer.style.display = ''; }
 
+    // Кнопки, которые формы вставляют в шапку модалки (История/Копировать/
+    // Печать приёма), — сносим при открытии ЛЮБОЙ новой модалки. Иначе они
+    // «протекают»: открыв приём, а потом карточку препарата, видишь чужую
+    // «Историю изменений», зовущую showVisitHistory старого приёма.
+    ['modal-visit-hist-btn','modal-visit-copy-btn','modal-visit-print-btn'].forEach(function(bid){
+      var b; while ((b = document.getElementById(bid)) && b.parentNode) b.parentNode.removeChild(b);
+    });
+
     overlay.querySelector('#modal-title').textContent = cfg.title||'';
     modal.className = 'modal'+(cfg.size?' modal-'+cfg.size:'');
     modalBody.innerHTML = cfg.bodyHTML||'';
