@@ -458,6 +458,10 @@
           <select class="filter-select" id="sched-doctor" aria-label="Врач" style="max-width:var(--ctl-w-md);">
             <option value="">Все врачи</option>
           </select>
+          <div id="sched-view" class="flex-gap" role="group" aria-label="Вид расписания">
+            <button class="filter-btn active" data-sview="list">Списком</button>
+            <button class="filter-btn" data-sview="doctors">По врачам</button>
+          </div>
           <span class="text-muted text-sm" id="sched-count"></span>
         </div>
         <div class="page-inner">

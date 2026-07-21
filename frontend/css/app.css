@@ -2757,3 +2757,39 @@ body[data-role="admin"] .settings-tab.admin-only { display: inline-flex; }
 
 /* Подсветка активного пункта автокомплита при навигации ↑/↓ (R4) */
 .ac-item.ac-active { background: var(--bg-hover); }
+
+/* ── Расписание «по врачам» (R5): колонки-столбцы врачей ────────────
+   Столбец = врач, строка = слот. Липкие шапка и колонка времени.
+   На узких экранах контейнер прокручивается по горизонтали. */
+:root { --sched-time-w: 62px; }
+.sched-doctors {
+  display: grid; gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: auto;
+  max-height: calc(100dvh - 220px);
+}
+.schd-corner, .schd-head {
+  position: sticky; top: 0; z-index: 3;
+  background: var(--bg-s);
+  padding: 10px 12px; font-weight: 700; font-size: var(--fs-md);
+  color: var(--text); white-space: nowrap;
+  text-align: center;
+}
+.schd-corner { left: 0; z-index: 4; }
+.schd-time {
+  position: sticky; left: 0; z-index: 2;
+  background: var(--bg-s);
+  padding: 8px 6px; font-size: var(--fs-xs); color: var(--text-3);
+  font-variant-numeric: tabular-nums; text-align: center;
+  display: flex; align-items: center; justify-content: center;
+}
+.schd-cell {
+  background: var(--bg-card);
+  min-height: 46px; padding: 4px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.schd-cell:not(.has) { cursor: pointer; }
+.schd-cell:not(.has):hover { background: var(--bg-hover); }
+.schd-cell .appt-card { margin: 0; }

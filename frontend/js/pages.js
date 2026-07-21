@@ -5003,6 +5003,7 @@ ${visit.notes ? `<div class="section">
 
   var _schedDate   = null;  // YYYY-MM-DD
   var _schedDoctor = '';
+  var _schedView   = 'list'; // 'list' | 'doctors' (колонки по врачам)
   var _schedAppts  = [];
   var _schedStaff  = [];
   var _schedOwners = [];
@@ -5057,6 +5058,21 @@ ${visit.notes ? `<div class="section">
     var addBtn = document.getElementById('btn-add-appt');
     if (addBtn) addBtn.onclick = function() { openApptForm(null, null); };
 
+    // R5: переключатель вида «Списком / По врачам». В режиме врачей фильтр
+    // по одному врачу не нужен — прячем селектор, показываем все колонки.
+    var viewBox = document.getElementById('sched-view');
+    var docWrap = document.getElementById('sched-doctor');
+    function applyViewUI() {
+      if (viewBox) viewBox.querySelectorAll('.filter-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.sview === _schedView); });
+      if (docWrap) docWrap.style.display = _schedView === 'doctors' ? 'none' : '';
+    }
+    if (viewBox) {
+      viewBox.querySelectorAll('.filter-btn').forEach(function(b){
+        b.onclick = function() { _schedView = b.dataset.sview; applyViewUI(); renderSchedule(); };
+      });
+    }
+    applyViewUI();
+
     await renderSchedule();
   }
 
@@ -5070,7 +5086,7 @@ ${visit.notes ? `<div class="section">
     _schedAppts = all.filter(function(a) {
       if (a.is_deleted) return false;
       if ((a.starts_at||'').slice(0,10) !== _schedDate) return false;
-      if (_schedDoctor && a.staff_id !== _schedDoctor) return false;
+      if (_schedView !== 'doctors' && _schedDoctor && a.staff_id !== _schedDoctor) return false;
       return true;
     }).sort(function(a,b){ return (a.starts_at||'') < (b.starts_at||'') ? -1 : 1; });
 
@@ -5119,6 +5135,15 @@ ${visit.notes ? `<div class="section">
         + '</div>';
     }
 
+    // R5: режим «по врачам» — колонки. Каждый столбец = врач, запись стоит
+    // в столбце своего врача и в строке своего слота. Записи без врача —
+    // в отдельном столбце «Без врача». Слоты вне рабочих часов и в этом
+    // режиме показываем строками «до/после».
+    if (_schedView === 'doctors') {
+      grid.innerHTML = renderScheduleByDoctors(bySlot, apptCard, staffMap);
+      return;
+    }
+
     // Линия «сейчас»: только на сегодняшнем дне. Врач сканирует сетку
     // глазами десятки раз в день — линия сразу показывает, где он во времени.
     var nowHM = '';
@@ -5150,6 +5175,48 @@ ${visit.notes ? `<div class="section">
   }
 
   function newApptAt(time) { openApptForm(null, time); }
+  function newApptForDoc(time, staffId) { openApptForm(null, time, staffId); }
+
+  // R5: сетка «по врачам» — колонки. Столбец = врач; запись стоит в столбце
+  // своего врача и в строке своего слота. Записи без врача — столбец «Без
+  // врача». Клик по пустой ячейке записывает на это время к этому врачу.
+  function renderScheduleByDoctors(bySlot, apptCard, staffMap) {
+    var cols = _schedStaff.map(function(s){ return { id: s.id, name: s.name }; });
+    if (_schedAppts.some(function(a){ return !a.staff_id; })) cols.push({ id: '', name: 'Без врача' });
+    if (!cols.length) return emptyState('Нет врачей — добавьте персонал', '+ Добавить', "navigate('staff')", 'users');
+
+    function cellAppts(slotAppts, colId) {
+      return (slotAppts || []).filter(function(a){ return (a.staff_id || '') === colId; });
+    }
+
+    var tmpl = 'var(--sched-time-w) repeat(' + cols.length + ', minmax(150px, 1fr))';
+    var html = '<div class="sched-doctors" style="grid-template-columns:' + tmpl + ';">';
+    html += '<div class="schd-corner"></div>';
+    cols.forEach(function(c){ html += '<div class="schd-head">' + esc(c.name) + '</div>'; });
+
+    function row(label, slotAppts, slotTime) {
+      html += '<div class="schd-time">' + esc(label) + '</div>';
+      cols.forEach(function(c){
+        var appts = cellAppts(slotAppts, c.id);
+        var clickable = slotTime && c.id;
+        html += '<div class="schd-cell' + (appts.length ? ' has' : '') + '"'
+          + (clickable ? ' onclick="if(event.target===this)VetPages.newApptForDoc(\'' + slotTime + '\',\'' + c.id + '\')" title="Записать на ' + slotTime + '"' : '')
+          + '>' + appts.map(apptCard).join('') + '</div>';
+      });
+    }
+
+    if (bySlot.before) row('до ' + String(SCHED_START_H).padStart(2,'0') + ':00', bySlot.before, null);
+    for (var h = SCHED_START_H; h < SCHED_END_H; h++) {
+      ['00','30'].forEach(function(mm){
+        var t = String(h).padStart(2,'0') + ':' + mm;
+        row(t, bySlot[t], t);
+      });
+    }
+    if (bySlot.after) row('после ' + SCHED_END_H + ':00', bySlot.after, null);
+
+    html += '</div>';
+    return html;
+  }
   function editAppt(id) {
     var a = _schedAppts.find(function(x){ return x.id === id; });
     if (a) openApptForm(a, null);
@@ -5222,14 +5289,14 @@ ${visit.notes ? `<div class="section">
   }
 
   // ── Форма записи ────────────────────────────────────────────────────
-  async function openApptForm(appt, defaultTime) {
+  async function openApptForm(appt, defaultTime, defaultStaff) {
     await ensureSchedData();
     var isEdit = !!(appt && appt.id);
     appt = appt || {};
     var st = appt.status || 'scheduled';
     var hm = appt.starts_at ? appt.starts_at.slice(11,16) : (defaultTime || '10:00');
     var dateVal = appt.starts_at ? appt.starts_at.slice(0,10) : _schedDate;
-    var curStaff = appt.staff_id || (window.VetAuth && VetAuth.user() ? (VetAuth.user().staff_id||'') : '');
+    var curStaff = appt.staff_id || defaultStaff || (window.VetAuth && VetAuth.user() ? (VetAuth.user().staff_id||'') : '');
 
     var durOpts = [15,30,45,60,90,120].map(function(m){
       return '<option value="'+m+'"'+(m===(appt.duration_min||30)?' selected':'')+'>'+m+' мин</option>';
@@ -5553,6 +5620,7 @@ ${visit.notes ? `<div class="section">
     newVisit:           newVisit,
     _visitsShowMore:    _visitsShowMore,
     newApptAt:          newApptAt,
+    newApptForDoc:      newApptForDoc,
     editAppt:           editAppt,
     apptSetStatus:      apptSetStatus,
     apptDelete:         apptDelete,
