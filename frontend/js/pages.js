@@ -298,7 +298,7 @@
         + '</div></div></div>';
     }).join('')
     + (ownersMore
-        ? '<div style="text-align:center;padding:14px;"><button class="btn btn-ghost" onclick="VetPages._ownersShowMore()">Показать ещё (' + (ownersTotal - _ownersLimit) + ')</button></div>'
+        ? '<div class="list-more"><button class="btn btn-ghost" onclick="VetPages._ownersShowMore()">Показать ещё (' + (ownersTotal - _ownersLimit) + ')</button></div>'
         : '');
   }
 
@@ -477,7 +477,7 @@
         +'</div></div></div>';
     }).join('')
     + (petsMore
-        ? '<div style="text-align:center;padding:14px;"><button class="btn btn-ghost" onclick="VetPages._petsShowMore()">Показать ещё (' + (petsTotal - _petsLimit) + ')</button></div>'
+        ? '<div class="list-more"><button class="btn btn-ghost" onclick="VetPages._petsShowMore()">Показать ещё (' + (petsTotal - _petsLimit) + ')</button></div>'
         : '');
   }
 
@@ -675,7 +675,7 @@
         +'</div></div></div>';
     }).join('')
     + (showMore
-        ? '<div style="text-align:center;padding:14px;">'
+        ? '<div class="list-more">'
           + '<button class="btn btn-ghost" onclick="VetPages._visitsShowMore()">Показать ещё ('
           + (totalCount - _visitRenderLimit) + ')</button></div>'
         : '');
@@ -2476,7 +2476,7 @@
 
     var noItemsWarn = (noItems && noItems.count)
       ? '<div style="background:#fff8e6;border:1px solid #f0d48a;border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:.88rem;color:#8a6d1a;">'
-        + '⚠ Приёмов без позиций: <b>' + noItems.count + '</b> на <b>' + fmtMoney(noItems.sum) + '</b> — '
+        + I('alert') + ' Приёмов без позиций: <b>' + noItems.count + '</b> на <b>' + fmtMoney(noItems.sum) + '</b> — '
         + 'эти суммы не входят в выручку и разбивку по врачам. Откройте приёмы и добавьте услуги.'
         + '</div>'
       : '';
@@ -3602,7 +3602,7 @@ ${visit.notes ? `<div class="section">
           : 'navigate(\'visits\');setTimeout(function(){document.getElementById(\'btn-add-visit\').click();},200);')
         +'},150)">'+I('clipboard')+' Новый приём</button>'
       +'<button class="oc-action-btn" onclick="VetUI.hideModal();setTimeout(function(){VetPages.editOwner(\''+ownerId+'\');},150)">'+I('edit')+' Редактировать</button>'
-      +'<button class="oc-action-btn" onclick="VetUI.hideModal();setTimeout(function(){VetPages.addPetForOwner(\''+ownerId+'\');},150)">🐾 Добавить питомца</button>'
+      +'<button class="oc-action-btn" onclick="VetUI.hideModal();setTimeout(function(){VetPages.addPetForOwner(\''+ownerId+'\');},150)">'+I('paw')+' Добавить питомца</button>'
       +'<button class="oc-action-btn" onclick="VetPages.callOwner(\''+esc(owner.phone||'')+'\')">'+I('phone')+' Позвонить</button>'
       +'</div>';
 
@@ -4772,7 +4772,7 @@ ${visit.notes ? `<div class="section">
       + '</div>'
       // Статусные действия — только у существующей записи
       + (isEdit ? '<div class="appt-actions-row">'
-          + (st !== 'done' && appt.pet_id ? '<button class="btn btn-primary btn-sm" onclick="VetPages.apptStartVisit(\''+esc(appt.id)+'\')">▶ Начать приём</button>' : '')
+          + (st !== 'done' && appt.pet_id ? '<button class="btn btn-primary btn-sm" onclick="VetPages.apptStartVisit(\''+esc(appt.id)+'\')">'+I('play')+' Начать приём</button>' : '')
           + (st === 'scheduled' ? '<button class="btn btn-ghost btn-sm" onclick="VetPages.apptSetStatus(\''+esc(appt.id)+'\',\'no_show\')">Не пришли</button>' : '')
           + (st === 'scheduled' ? '<button class="btn btn-ghost btn-sm" onclick="VetPages.apptSetStatus(\''+esc(appt.id)+'\',\'cancelled\')">Отменить запись</button>' : '')
           + (st === 'cancelled' || st === 'no_show' ? '<button class="btn btn-ghost btn-sm" onclick="VetPages.apptSetStatus(\''+esc(appt.id)+'\',\'scheduled\')">Вернуть в запись</button>' : '')
@@ -4971,13 +4971,13 @@ ${visit.notes ? `<div class="section">
       dd.innerHTML =
         ownerHits.map(function(o) {
           return '<div class="ac-item" data-kind="owner" data-id="'+o.id+'">'
-            + '<div class="ac-item-title">👤 '+esc(o.fio)+'</div>'
+            + '<div class="ac-item-title">'+I('user')+' '+esc(o.fio)+'</div>'
             + '<div class="ac-item-sub">'+esc(o.phone||'')+'</div></div>';
         }).join('')
         + petHits.map(function(p) {
             var o = ownersMap[p.owner_id] || {};
             return '<div class="ac-item" data-kind="pet" data-id="'+p.id+'">'
-              + '<div class="ac-item-title">🐾 '+esc(p.name)+(p.status==='deceased'?' †':'')+'</div>'
+              + '<div class="ac-item-title">'+I('paw')+' '+esc(p.name)+(p.status==='deceased'?' †':'')+'</div>'
               + '<div class="ac-item-sub">'+esc(p.type||'')+(o.fio?' · '+esc(o.fio):'')+'</div></div>';
           }).join('');
       dd.classList.add('show');

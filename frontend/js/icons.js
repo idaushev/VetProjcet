@@ -40,6 +40,7 @@
     plus:     '<path d="M12 5v14M5 12h14"/>',
     x:        '<path d="M18 6 6 18M6 6l12 12"/>',
     check:    '<path d="m20 6-11 11-5-5"/>',
+    play:     '<polygon points="6 3 20 12 6 21 6 3"/>',
     edit:     '<path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/><path d="m15 5 4 4"/>',
     trash:    '<path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/>',
     download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/>',

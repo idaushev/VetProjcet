@@ -77,7 +77,9 @@
       <div class="h1" style="font-size:1rem;">Ближайшая запись</div>
       <div id="appts-list"></div>
     </div>
-    <button class="btn" id="btn-book" style="margin-bottom:14px;">📅 Записаться на приём</button>
+    <button class="btn" id="btn-book" style="margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:8px;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+      Записаться на приём</button>
     <div class="card">
       <div class="h1" id="hello"></div>
       <div class="muted">Ваши питомцы. Нажмите, чтобы посмотреть приёмы и назначения.</div>
@@ -133,8 +135,9 @@
 
   <!-- Кнопка «Позвонить» — портал не должен быть тупиком: посмотрел →
        возник вопрос → сразу звонок. Появляется, если задан CLINIC_PHONE. -->
-  <a id="call-btn" class="btn" style="display:none;text-decoration:none;text-align:center;position:sticky;bottom:14px;box-shadow:0 4px 14px rgba(26,140,94,.35);" href="#">
-    📞 Позвонить в клинику
+  <a id="call-btn" class="btn" style="display:none;text-decoration:none;align-items:center;justify-content:center;gap:8px;position:sticky;bottom:14px;box-shadow:0 4px 14px rgba(26,140,94,.35);" href="#">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+    Позвонить в клинику
   </a>
 </div>
 
@@ -239,7 +242,7 @@
         var d = new Date(a.starts_at);
         var when = fmtDate(a.starts_at) + ' (' + DAYS[d.getDay()] + ') в ' + a.starts_at.slice(11, 16);
         return '<div class="next-box" style="margin-top:10px;">'
-          + '📅 ' + esc(when)
+          + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px;"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>' + esc(when)
           + (a.pet_name ? ' · ' + esc(a.pet_name) : '')
           + (a.staff_name ? '<div style="font-weight:400;margin-top:2px;">Врач: ' + esc(a.staff_name) + '</div>' : '')
           + (a.reason ? '<div style="font-weight:400;margin-top:2px;">' + esc(a.reason) + '</div>' : '')
