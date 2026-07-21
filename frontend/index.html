@@ -930,6 +930,10 @@
     });
     var target = document.getElementById('page-' + page);
     if (target) target.classList.add('active');
+    // Нижняя панель: если открыт раздел не из трёх быстрых — подсветить «Ещё»,
+    // чтобы на планшете было видно «вы где-то в меню», а не «нигде».
+    var bnMoreBtn = document.getElementById('bn-more');
+    if (bnMoreBtn) bnMoreBtn.classList.toggle('active', ['dashboard','schedule','visits'].indexOf(page) === -1);
     window.history.replaceState(null, '', '#' + page);
 
     // Initialize page

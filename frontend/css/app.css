@@ -2097,16 +2097,6 @@ mark {
 }
 
 /* Print */
-@media print {
-  .sidebar, .topbar, .toolbar, .report-controls,
-  #btn-print-report, .page-actions, .sidebar-sync-wrap { display: none !important; }
-  .page.active { display: block !important; }
-  .main { overflow: visible !important; }
-  .report-table { font-size: 11pt; }
-  .report-group { break-inside: avoid; border: 1px solid #ccc; }
-  .report-grand { border: 2px solid #ccc; }
-}
-
 /* ── Сворачиваемые группы сайдбара ────────────────────────────────── */
 .ss-label {
   cursor: pointer; user-select: none;
@@ -2221,12 +2211,23 @@ mark {
 .vf-section-title:has(+ .vf-section-body.collapsed) .vf-section-arrow { transform: rotate(-90deg); }
 
 /* ── Print ──────────────────────────────────────────────────────── */
+/* ── Печать (единый слой) ──────────────────────────────────────────
+   Один @media print на всё приложение (раньше было два конфликтующих
+   блока). На бумаге — только содержимое: убираем весь интерактивный
+   хром, включая нижнюю панель, меню «⋯» и любые кнопки. */
 @media print {
-  .sidebar, .topbar, .erow-actions, .btn, .toolbar { display: none !important; }
-  .main { overflow: visible; }
-  .page.active { display: block; }
+  .sidebar, .topbar, .topbar-search, .bottom-nav, .toolbar,
+  .report-controls, .page-actions, .settings-tabs,
+  .sidebar-sync-wrap, .erow-actions, .row-menu, .btn { display: none !important; }
+  body { background: #fff; }
+  .main { overflow: visible !important; }
+  .page { display: none !important; }
+  .page.active { display: block !important; }
   .entity-list { box-shadow: none; border: 1px solid #ccc; }
-  .erow { page-break-inside: avoid; }
+  .erow { page-break-inside: avoid; break-inside: avoid; }
+  .report-table { font-size: 11pt; }
+  .report-group { break-inside: avoid; border: 1px solid #ccc; }
+  .report-grand { break-inside: avoid; border: 2px solid #ccc; }
 }
 
 /* ── Экран входа ─────────────────────────────────────────────────── */
