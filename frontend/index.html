@@ -490,14 +490,19 @@
         <div class="page-header">
           <h1 class="page-title">Отчёт за день</h1>
           <div class="page-actions">
-            <button class="btn btn-ghost" id="btn-print-report" style="display:none" onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
+            <button class="btn btn-ghost" id="btn-print-report" disabled onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
           </div>
         </div>
         <div class="page-inner">
           <div class="report-controls">
             <div class="form-group">
               <label class="form-label">Дата</label>
-              <input type="date" id="report-date" class="form-input" style="width:var(--ctl-w-sm);">
+              <div class="flex-gap" style="align-items:center;">
+                <button class="btn btn-ghost btn-sm" id="report-date-prev" title="Предыдущий день" aria-label="Предыдущий день">←</button>
+                <input type="date" id="report-date" class="form-input" style="width:var(--ctl-w-sm);" aria-label="Дата отчёта">
+                <button class="btn btn-ghost btn-sm" id="report-date-next" title="Следующий день" aria-label="Следующий день">→</button>
+                <button class="btn btn-ghost btn-sm" id="report-date-today">Сегодня</button>
+              </div>
             </div>
             <div class="form-group" id="report-doctor-wrap" style="display:none;">
               <label class="form-label">Врач</label>
@@ -515,7 +520,7 @@
         <div class="page-header">
           <h1 class="page-title">Выручка за период</h1>
           <div class="page-actions">
-            <button class="btn btn-ghost" id="btn-print-revenue" style="display:none" onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
+            <button class="btn btn-ghost" id="btn-print-revenue" disabled onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
           </div>
         </div>
         <div class="page-inner">
@@ -543,7 +548,7 @@
         <div class="page-header">
           <h1 class="page-title">Предстоящие приёмы</h1>
           <div class="page-actions">
-            <button class="btn btn-ghost" id="btn-print-upcoming" style="display:none" onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
+            <button class="btn btn-ghost" id="btn-print-upcoming" disabled onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
           </div>
         </div>
         <div class="page-inner">
@@ -568,7 +573,7 @@
         <div class="page-header">
           <h1 class="page-title">Не пришли на приём</h1>
           <div class="page-actions">
-            <button class="btn btn-ghost" id="btn-print-noshows" style="display:none" onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
+            <button class="btn btn-ghost" id="btn-print-noshows" disabled onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
           </div>
         </div>
         <div class="page-inner">
@@ -586,12 +591,10 @@
           <h1 class="page-title">Каталог</h1>
           <div class="page-actions">
             <button class="btn btn-ghost" onclick="VetPages.downloadItemTemplate()" title="Скачать шаблон Excel">
-              <svg style="width:15px;height:15px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              Шаблон
+              <i data-icon="download" data-icon-size="16"></i> Шаблон
             </button>
             <label class="btn btn-ghost" style="cursor:pointer;" title="Загрузить из Excel">
-              <svg style="width:15px;height:15px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              Импорт Excel
+              <i data-icon="upload" data-icon-size="16"></i> Импорт Excel
               <input type="file" id="excel-import-input" accept=".xlsx,.xls" style="display:none" onchange="VetPages.importItemsExcel(this)">
             </label>
             <button class="btn btn-primary" id="btn-add-item">+ Добавить</button>

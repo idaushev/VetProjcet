@@ -2021,6 +2021,14 @@
     return !!(window.VetAuth && VetAuth.can('staff', 'view') && VetAuth.can('staff', 'create'));
   }
 
+  // Кнопка печати отчёта: всегда на месте, но неактивна без данных.
+  // Раньше её показывали/прятали через display — при формировании она
+  // «появлялась» и панель дёргалась. Теперь только disabled.
+  function setReportPrint(id, on) {
+    var b = document.getElementById(id);
+    if (b) b.disabled = !on;
+  }
+
   async function initReportDaily() {
     var dateInput = document.getElementById('report-date');
     if (dateInput && !dateInput.value) {
@@ -2055,6 +2063,27 @@
       var d = document.getElementById('report-date');
       generateReport(d ? d.value : '');
     };
+    // Степпер дней «← дата → Сегодня» — как в расписании: пролистывать
+    // отчёт по дням быстрее, чем каждый раз открывать календарь.
+    function shiftReportDay(delta) {
+      var d = document.getElementById('report-date');
+      if (!d || !d.value) return;
+      var parts = d.value.split('-');
+      var dt = new Date(Number(parts[0]), Number(parts[1])-1, Number(parts[2]));
+      dt.setDate(dt.getDate() + delta);
+      d.value = localDateStr(dt);
+      generateReport(d.value);
+    }
+    var pv = document.getElementById('report-date-prev');
+    var nx = document.getElementById('report-date-next');
+    var td = document.getElementById('report-date-today');
+    if (pv) pv.onclick = function(){ shiftReportDay(-1); };
+    if (nx) nx.onclick = function(){ shiftReportDay(1); };
+    if (td) td.onclick = function(){
+      var d = document.getElementById('report-date');
+      if (d) { d.value = localDateStr(new Date()); generateReport(d.value); }
+    };
+    if (dateInput) dateInput.onchange = function(){ if (this.value) generateReport(this.value); };
     if (dateInput && dateInput.value) generateReport(dateInput.value);
   }
 
@@ -2128,7 +2157,7 @@
 
       if (!visits.length) {
         el.innerHTML = emptyState('За период приёмов нет');
-        document.getElementById('btn-print-revenue').style.display = 'none';
+        setReportPrint('btn-print-revenue', false);
         return;
       }
 
@@ -2241,7 +2270,7 @@
         + '</tbody></table></div>'
         + '</div>';
 
-      document.getElementById('btn-print-revenue').style.display = '';
+      setReportPrint('btn-print-revenue', true);
     } catch(e) {
       console.error('[RevenueReport]', e);
       el.innerHTML = emptyState('Ошибка формирования отчёта: ' + e.message);
@@ -2341,7 +2370,7 @@
       if (!dayVisits.length) {
         el.innerHTML = '<div class="report-empty">Нет приёмов за ' + esc(fmtDate(dateStr))
           + (filterName ? ' у врача ' + esc(filterName) : '') + '</div>';
-        document.getElementById('btn-print-report').style.display = 'none';
+        setReportPrint('btn-print-report', false);
         return;
       }
 
@@ -2419,8 +2448,7 @@
       el.innerHTML = buildReportHTML(dateStr, services, drugs, dayVisits, petsMap, ownersMap, staffMap, dayVisitItems, catalogMap, filterName,
         { count: noItemVisits.length, sum: noItemsSum }, discountRows);
 
-      var printBtn = document.getElementById('btn-print-report');
-      if (printBtn) printBtn.style.display = '';
+      setReportPrint('btn-print-report', true);
 
     } catch(e) {
       console.error('[Report]', e);
@@ -3117,6 +3145,7 @@ ${visit.notes ? `<div class="section">
       var sortedDates = Object.keys(byDate).sort();
       if (!sortedDates.length) {
         el.innerHTML = '<div class="report-empty">Нет предстоящих приёмов на ближайшие ' + days + ' дней</div>';
+        setReportPrint('btn-print-upcoming', false);
         return;
       }
 
@@ -3151,7 +3180,7 @@ ${visit.notes ? `<div class="section">
       });
       html += '</div>';
       el.innerHTML = html;
-      document.getElementById('btn-print-report').style.display = '';
+      setReportPrint('btn-print-upcoming', true);
     } catch(e) {
       el.innerHTML = '<div class="report-empty">Ошибка: ' + esc(e.message) + '</div>';
     }
@@ -3227,6 +3256,7 @@ ${visit.notes ? `<div class="section">
 
       if (!noShows.length && !apptNoShows.length) {
         el.innerHTML = '<div class="report-empty">Нет пропущенных приёмов — все клиенты пришли вовремя 👍</div>';
+        setReportPrint('btn-print-noshows', false);
         return;
       }
 
@@ -3275,7 +3305,7 @@ ${visit.notes ? `<div class="section">
       }
       html += '</tbody></table></div></div>';
       el.innerHTML = html;
-      document.getElementById('btn-print-report').style.display = '';
+      setReportPrint('btn-print-noshows', true);
     } catch(e) {
       el.innerHTML = '<div class="report-empty">Ошибка: ' + esc(e.message) + '</div>';
     }
