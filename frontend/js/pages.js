@@ -336,6 +336,19 @@
   function setText(id, val) { var el=document.getElementById(id); if(el) el.textContent=String(val); }
   function buildMap(arr) { var m={}; (arr||[]).forEach(function(x){ m[x.id]=x; }); return m; }
 
+  // Скелетон загрузки: несколько «пустых» строк с шиммером вместо голого
+  // текста «Загрузка…». На планшете при рефреше меньше моргает и ощущается
+  // быстрее. Ширины детерминированы (не случайны), чтобы блок не «дрожал».
+  var _skWidths = [58, 42, 66, 48, 60, 52];
+  function skeletonRows(n) {
+    n = n || 5;
+    var s = '<div class="skeleton-list" aria-hidden="true">';
+    for (var i = 0; i < n; i++) {
+      s += '<div class="skeleton-row"><div class="skeleton-bar" style="width:' + _skWidths[i % _skWidths.length] + '%"></div></div>';
+    }
+    return s + '</div>';
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // OWNERS
   // ═══════════════════════════════════════════════════════════════════════
@@ -1223,10 +1236,17 @@
     var [vacc, pets] = await Promise.all([api('GET','/vaccinations'), api('GET','/pets?status=all')]);
     _vaccinations = vacc || [];
     _vacPetsMap   = buildMap(pets || []);
-    var dateSel = document.getElementById('filter-vacc-date');
-    if (dateSel) {
-      dateSel.value = _vaccDateFilter;
-      dateSel.onchange = function(){ _vaccDateFilter = this.value; renderVaccinationList(); };
+    var vdateFilter = document.getElementById('vacc-date-filter');
+    if (vdateFilter) {
+      vdateFilter.querySelectorAll('.filter-btn').forEach(function(btn) {
+        btn.classList.toggle('active', btn.dataset.vdate === _vaccDateFilter);
+        btn.onclick = function() {
+          vdateFilter.querySelectorAll('.filter-btn').forEach(function(b){ b.classList.remove('active'); });
+          btn.classList.add('active');
+          _vaccDateFilter = btn.dataset.vdate;
+          renderVaccinationList();
+        };
+      });
     }
     renderVaccinationList();
     setupSearch('search-vaccinations', function(q){ renderVaccinationList(); });
@@ -2086,7 +2106,7 @@
     var toStr   = document.getElementById('revenue-to').value;
     if (!fromStr || !toStr) { el.innerHTML = emptyState('Укажите период'); return; }
     if (fromStr > toStr) { el.innerHTML = emptyState('Дата начала позже даты конца'); return; }
-    el.innerHTML = '<div class="report-empty">Загрузка...</div>';
+    el.innerHTML = skeletonRows();
 
     try {
       var d = await loadAll();
@@ -2275,7 +2295,7 @@
 
     var el = document.getElementById('report-content');
     if (!el) return;
-    el.innerHTML = '<div class="report-empty">Загрузка...</div>';
+    el.innerHTML = skeletonRows();
 
     try {
       // Загружаем данные из IndexedDB (работает офлайн)
@@ -3055,7 +3075,7 @@ ${visit.notes ? `<div class="section">
     var days = daysInput ? parseInt(daysInput.value) || 30 : 30;
     var el = document.getElementById('upcoming-content');
     if (!el) return;
-    el.innerHTML = '<div class="report-empty">Загрузка...</div>';
+    el.innerHTML = skeletonRows();
 
     try {
       var allVisits  = await window.VetDB.getAll('visits');
@@ -3142,7 +3162,7 @@ ${visit.notes ? `<div class="section">
   async function generateNoShowsReport() {
     var el = document.getElementById('noshows-content');
     if (!el) return;
-    el.innerHTML = '<div class="report-empty">Загрузка...</div>';
+    el.innerHTML = skeletonRows();
 
     try {
       var allVisits  = await window.VetDB.getAll('visits');

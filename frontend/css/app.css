@@ -113,6 +113,15 @@
 
   --ctl-h: 42px;
 
+  /* Ширины контролов в тулбаре/строке фильтров и в шапках отчётов.
+     Раньше поля дат и селекты жили инлайновыми ширинами вразнобой
+     (170/180/200/220px, ~7 мест) — строка фильтров собиралась «на глаз».
+     Три ступени: sm — даты и короткие селекты; md — владелец/врач;
+     lg — длинные подписи (ФИО врача в отчёте). */
+  --ctl-w-sm: 168px;
+  --ctl-w-md: 190px;
+  --ctl-w-lg: 224px;
+
   /* Горизонтальная врезка страницы: page-header, toolbar и page-inner
      стоят на одной вертикали на всех брейкпоинтах. Раньше 28/16/36px
      повторялись в трёх селекторах на трёх ширинах — девять мест правки. */
@@ -1527,8 +1536,10 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
   cursor: pointer;
   transition: box-shadow var(--t), transform var(--t), background var(--t);
 }
-.stat-card-link:hover  { box-shadow: var(--shadow-md); transform: translateY(-2px); }
-.stat-card-link:active { transform: translateY(0); }
+.stat-card-link:hover  { box-shadow: var(--shadow-md); transform: translateY(-2px); border-color: var(--accent-border); }
+/* На планшете hover нет — нужен ощутимый отклик на касание: цифра-ссылка
+   должна «нажиматься». Фон-подсветка + возврат по вертикали дают тактильность. */
+.stat-card-link:active { transform: translateY(0); background: var(--bg-active); }
 
 /* ── Поле поиска — с очисткой ───────────────────────────────────── */
 .search-wrap { position: relative; }
@@ -2575,3 +2586,26 @@ body[data-role="reception"] #ssg-analytics { display: none; }
 .settings-tab.admin-only { display: none; }
 body[data-role="admin"] .settings-tab.admin-only { display: inline-flex; }
 .settings-panel { animation: pageFadeIn .18s var(--ease) both; }
+
+/* ── Скелетон загрузки ─────────────────────────────────────────────
+   Заменяет голый текст «Загрузка…» в списках и отчётах: несколько
+   строк-плейсхолдеров с мягким шиммером. Уважает prefers-reduced-motion. */
+.skeleton-list { padding: 4px 0; }
+.skeleton-row {
+  display: flex; align-items: center;
+  min-height: 56px; padding: 14px var(--card-pad-x);
+  border-bottom: 1px solid var(--border);
+}
+.skeleton-bar {
+  height: 12px; border-radius: var(--r-full);
+  background: linear-gradient(90deg, var(--border) 25%, var(--bg-hover) 37%, var(--border) 63%);
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+@keyframes skeleton-shimmer {
+  0%   { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-bar { animation: none; }
+}

@@ -381,7 +381,7 @@
         <div class="toolbar">
           <div class="toolbar-search">
             <i data-icon="search" data-icon-size="18" class="toolbar-search-icon"></i>
-            <input type="search" class="search-input" id="search-owners" placeholder="Поиск по имени, телефону, ИИН...">
+            <input type="search" class="search-input" id="search-owners" aria-label="Поиск владельцев" placeholder="Поиск по имени, телефону, ИИН...">
           </div>
         </div>
         <div id="owners-list" class="entity-list"></div>
@@ -392,23 +392,23 @@
         <div class="page-header">
           <h1 class="page-title">Животные</h1>
           <div class="page-actions">
-            <select class="filter-select" id="filter-pet-status" aria-label="Статус">
-              <option value="active">Активные</option>
-              <option value="on-treatment">На лечении</option>
-              <option value="deceased">Умершие</option>
-              <option value="all">Все</option>
-            </select>
-            <select class="filter-select" id="filter-owner-id" style="max-width:180px;" aria-label="Владелец">
-              <option value="">Все владельцы</option>
-            </select>
             <button class="btn btn-primary" id="btn-add-pet">+ Добавить</button>
           </div>
         </div>
         <div class="toolbar">
           <div class="toolbar-search">
             <i data-icon="search" data-icon-size="18" class="toolbar-search-icon"></i>
-            <input type="search" class="search-input" id="search-pets" placeholder="Поиск по кличке, породе, № чипа...">
+            <input type="search" class="search-input" id="search-pets" aria-label="Поиск животных" placeholder="Поиск по кличке, породе, № чипа...">
           </div>
+          <select class="filter-select" id="filter-pet-status" aria-label="Статус">
+            <option value="active">Активные</option>
+            <option value="on-treatment">На лечении</option>
+            <option value="deceased">Умершие</option>
+            <option value="all">Все</option>
+          </select>
+          <select class="filter-select" id="filter-owner-id" style="max-width:var(--ctl-w-md);" aria-label="Владелец">
+            <option value="">Все владельцы</option>
+          </select>
         </div>
         <div id="pets-list" class="entity-list"></div>
       </section>
@@ -423,12 +423,12 @@
         </div>
         <div class="toolbar" style="flex-wrap:wrap;gap:10px;">
           <div class="flex-gap" style="align-items:center;">
-            <button class="btn btn-ghost btn-sm" id="sched-prev" title="Предыдущий день">←</button>
-            <input type="date" id="sched-date" class="form-input" style="width:170px;">
-            <button class="btn btn-ghost btn-sm" id="sched-next" title="Следующий день">→</button>
+            <button class="btn btn-ghost btn-sm" id="sched-prev" title="Предыдущий день" aria-label="Предыдущий день">←</button>
+            <input type="date" id="sched-date" class="form-input" style="width:var(--ctl-w-sm);" aria-label="Дата расписания">
+            <button class="btn btn-ghost btn-sm" id="sched-next" title="Следующий день" aria-label="Следующий день">→</button>
             <button class="btn btn-ghost btn-sm" id="sched-today">Сегодня</button>
           </div>
-          <select class="filter-select" id="sched-doctor" aria-label="Врач" style="max-width:200px;">
+          <select class="filter-select" id="sched-doctor" aria-label="Врач" style="max-width:var(--ctl-w-md);">
             <option value="">Все врачи</option>
           </select>
           <span class="text-muted text-sm" id="sched-count"></span>
@@ -449,14 +449,14 @@
         <div class="toolbar">
           <div class="toolbar-search">
             <i data-icon="search" data-icon-size="18" class="toolbar-search-icon"></i>
-            <input type="search" class="search-input" id="search-visits" placeholder="Поиск по диагнозу, пациенту...">
+            <input type="search" class="search-input" id="search-visits" aria-label="Поиск приёмов" placeholder="Поиск по диагнозу, пациенту...">
           </div>
-          <div id="visit-date-filter" class="flex-gap">
+          <div id="visit-date-filter" class="flex-gap" role="group" aria-label="Период">
             <button class="filter-btn" data-period="all">Все</button>
             <button class="filter-btn active" data-period="today">Сегодня</button>
             <button class="filter-btn" data-period="week">Неделя</button>
           </div>
-          <select class="filter-select" id="visit-doctor-filter" aria-label="Врач" style="max-width:180px;">
+          <select class="filter-select" id="visit-doctor-filter" aria-label="Врач" style="max-width:var(--ctl-w-md);">
             <option value="">Все врачи</option>
           </select>
         </div>
@@ -474,13 +474,13 @@
         <div class="toolbar">
           <div class="toolbar-search">
             <i data-icon="search" data-icon-size="18" class="toolbar-search-icon"></i>
-            <input type="search" class="search-input" id="search-vaccinations" placeholder="Поиск по вакцине, животному...">
+            <input type="search" class="search-input" id="search-vaccinations" aria-label="Поиск вакцинаций" placeholder="Поиск по вакцине, животному...">
           </div>
-          <select class="filter-select" id="filter-vacc-date" aria-label="Период">
-            <option value="all">Все</option>
-            <option value="week">Ближайшие 7 дней</option>
-            <option value="overdue">Просроченные</option>
-          </select>
+          <div id="vacc-date-filter" class="flex-gap" role="group" aria-label="Период">
+            <button class="filter-btn active" data-vdate="all">Все</button>
+            <button class="filter-btn" data-vdate="week">7 дней</button>
+            <button class="filter-btn" data-vdate="overdue">Просроченные</button>
+          </div>
         </div>
         <div id="vaccinations-list" class="entity-list"></div>
       </section>
@@ -497,11 +497,11 @@
           <div class="report-controls">
             <div class="form-group">
               <label class="form-label">Дата</label>
-              <input type="date" id="report-date" class="form-input" style="width:180px;">
+              <input type="date" id="report-date" class="form-input" style="width:var(--ctl-w-sm);">
             </div>
             <div class="form-group" id="report-doctor-wrap" style="display:none;">
               <label class="form-label">Врач</label>
-              <select id="report-doctor" class="form-select" style="width:220px;"></select>
+              <select id="report-doctor" class="form-select" style="width:var(--ctl-w-lg);"></select>
             </div>
             <button class="btn btn-primary" id="btn-generate-report">Сформировать</button>
           </div>
@@ -522,11 +522,11 @@
           <div class="report-controls">
             <div class="form-group">
               <label class="form-label">С</label>
-              <input type="date" id="revenue-from" class="form-input" style="width:170px;">
+              <input type="date" id="revenue-from" class="form-input" style="width:var(--ctl-w-sm);">
             </div>
             <div class="form-group">
               <label class="form-label">По</label>
-              <input type="date" id="revenue-to" class="form-input" style="width:170px;">
+              <input type="date" id="revenue-to" class="form-input" style="width:var(--ctl-w-sm);">
             </div>
             <div class="revenue-presets">
               <button class="btn btn-sm btn-ghost" data-preset="week">Неделя</button>
@@ -600,9 +600,9 @@
         <div class="toolbar">
           <div class="toolbar-search">
             <i data-icon="search" data-icon-size="18" class="toolbar-search-icon"></i>
-            <input type="search" class="search-input" id="search-items" placeholder="Поиск услуги или препарата...">
+            <input type="search" class="search-input" id="search-items" aria-label="Поиск в каталоге" placeholder="Поиск услуги или препарата...">
           </div>
-          <div id="item-type-filter" class="flex-gap">
+          <div id="item-type-filter" class="flex-gap" role="group" aria-label="Тип">
             <button class="filter-btn active" data-type="all">Все</button>
             <button class="filter-btn" data-type="service">Услуги</button>
             <button class="filter-btn" data-type="drug">Препараты</button>
@@ -622,7 +622,7 @@
         <div class="toolbar">
           <div class="toolbar-search">
             <i data-icon="search" data-icon-size="18" class="toolbar-search-icon"></i>
-            <input type="search" class="search-input" id="search-staff" placeholder="Поиск по имени, должности...">
+            <input type="search" class="search-input" id="search-staff" aria-label="Поиск персонала" placeholder="Поиск по имени, должности...">
           </div>
         </div>
         <div id="staff-list" class="entity-list"></div>
@@ -645,7 +645,7 @@
           <div class="toolbar" style="padding-left:0;padding-right:0;">
             <div class="toolbar-search">
               <i data-icon="search" data-icon-size="18" class="toolbar-search-icon"></i>
-              <input type="search" class="search-input" id="search-chips"
+              <input type="search" class="search-input" id="search-chips" aria-label="Поиск по чипам"
                      inputmode="numeric" placeholder="Номер чипа, кличка или владелец...">
             </div>
           </div>
