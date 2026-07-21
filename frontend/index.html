@@ -331,6 +331,17 @@
 
           <!-- Виджеты: на широких экранах в две колонки, на планшете/узких — в одну.
                Раскладку держит .dash-grid, см. CSS. -->
+          <!-- Рабочий список: заявки с портала, просроченные прививки,
+               не вернувшиеся на повторный. Скрыт, пока пусто. -->
+          <div class="card" id="dash-attention-card" style="display:none;border-color:var(--warn-border);">
+            <div class="card-header">
+              <span class="card-title" style="color:var(--warn);">Требуют внимания <span id="dash-attention-count" class="attention-count"></span></span>
+            </div>
+            <div class="card-body">
+              <div id="dash-attention" class="recent-list"></div>
+            </div>
+          </div>
+
           <div class="dash-grid">
             <div class="card">
               <div class="card-header">
@@ -721,6 +732,20 @@
                 <button class="btn btn-primary" id="btn-save-settings">Сохранить настройки</button>
                 <span id="settings-saved-msg" style="display:none;margin-left:12px;color:var(--accent);font-weight:600;font-size:.9rem;">✓ Сохранено</span>
               </div>
+            </div>
+          </div>
+
+          <!-- Журнал напоминаний (телеграм-бот) — только администратор -->
+          <div class="card admin-only" style="max-width:680px;margin-top:16px;">
+            <div class="card-header">
+              <span class="card-title">Журнал напоминаний</span>
+              <button class="btn btn-sm btn-ghost" onclick="VetPages.showNotificationsLog()">Открыть →</button>
+            </div>
+            <div class="card-body" style="padding:20px;">
+              <p style="font-size:.88rem;color:var(--text-2);margin:0;">
+                Что и когда телеграм-бот отправил владельцам: подтверждения, напоминания
+                о приёмах и вакцинациях. Здесь видно, дошло ли сообщение и не отвалился ли бот.
+              </p>
             </div>
           </div>
 

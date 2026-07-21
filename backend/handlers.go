@@ -98,6 +98,7 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /authorship",   a.handleAuthorship)
 
 	// Админка пользователей — только администратор
+	mux.HandleFunc("GET /notifications", a.requireAdmin(a.handleNotifications))
 	mux.HandleFunc("GET /users",         a.requireAdmin(a.handleUsers))
 	mux.HandleFunc("POST /users",        a.requireAdmin(a.handleUsers))
 	mux.HandleFunc("PUT /users/{id}",    a.requireAdmin(a.handleUserByID))

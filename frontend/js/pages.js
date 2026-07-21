@@ -193,6 +193,99 @@
             }).join('')
           : emptyState('Записей нет — день свободен', 'Записать клиента', "navigate('schedule')");
       }
+
+      // ── Рабочий список «требуют внимания» ──────────────────────────
+      // Одна очередь задач на день вместо трёх разрозненных отчётов:
+      //   1) неподтверждённые заявки с портала  2) просроченные прививки
+      //   3) не вернувшиеся на повторный приём. У каждой — кнопка «Позвонить».
+      var attention = [];
+      // 1) Заявки с портала, ждущие подтверждения
+      allAppts.filter(function(a){
+        return !a.is_deleted && a.status === 'scheduled' && a.source === 'portal' && a.confirmed === 0;
+      }).forEach(function(a){
+        var pet = a.pet_id ? petsMap[a.pet_id] : null;
+        var owner = a.owner_id ? ownersMap[a.owner_id] : (pet ? ownersMap[pet.owner_id] : null);
+        attention.push({
+          icon: 'calendar', tone: 'warn',
+          title: 'Заявка с портала: ' + esc((a.pet_id&&pet?pet.name:a.pet_name)||'—'),
+          sub: fmtDate(a.starts_at) + ' ' + (a.starts_at||'').slice(11,16) + ' · ' + esc(owner?owner.fio:(a.client_name||'')),
+          phone: (owner?owner.phone:a.client_phone) || '',
+          onclick: "VetPages.editAppt('"+a.id+"')",
+          sortKey: '0'+(a.starts_at||'')
+        });
+      });
+      // 2) Просроченные вакцинации (next_due_at в прошлом), активные питомцы
+      var vaccByPet = {};
+      (d.vaccinations||[]).forEach(function(v){
+        if (v.is_deleted || !v.next_due_at) return;
+        var pid = v.pet_id;
+        if (!vaccByPet[pid] || (v.next_due_at||'') > (vaccByPet[pid].next_due_at||'')) vaccByPet[pid] = v;
+      });
+      Object.keys(vaccByPet).forEach(function(pid){
+        var v = vaccByPet[pid];
+        if ((v.next_due_at||'').slice(0,10) >= today) return; // ещё не просрочена
+        var pet = petsMap[pid];
+        if (!pet || pet.is_deleted || pet.status !== 'active') return;
+        var owner = ownersMap[pet.owner_id];
+        attention.push({
+          icon: 'syringe', tone: 'danger',
+          title: 'Просрочена прививка: ' + esc(pet.name),
+          sub: esc(v.vaccine_name||'') + ' · срок был ' + fmtDate(v.next_due_at) + ' · ' + esc(owner?owner.fio:''),
+          phone: owner ? owner.phone : '',
+          onclick: "VetPages.showPetCard('"+pid+"')",
+          sortKey: '1'+(v.next_due_at||'')
+        });
+      });
+      // 3) Не вернулись на повторный: последний визит с next_visit_date в прошлом
+      //    и без последующего визита.
+      var latestByPet = {};
+      d.visits.filter(function(v){ return !v.is_deleted; }).forEach(function(v){
+        if (!latestByPet[v.pet_id] || (v.date||'') > (latestByPet[v.pet_id].date||'')) latestByPet[v.pet_id] = v;
+      });
+      Object.keys(latestByPet).forEach(function(pid){
+        var v = latestByPet[pid];
+        if (!v.next_visit_date || (v.next_visit_date||'').slice(0,10) >= today) return;
+        var hasNewer = d.visits.some(function(v2){
+          return !v2.is_deleted && v2.pet_id === pid && (v2.date||'') > (v.next_visit_date||'') && v2.id !== v.id;
+        });
+        if (hasNewer) return;
+        var pet = petsMap[pid]; if (!pet || pet.is_deleted || pet.status !== 'active') return;
+        var owner = ownersMap[pet.owner_id];
+        attention.push({
+          icon: 'clock', tone: 'blue',
+          title: 'Не пришёл на повторный: ' + esc(pet.name),
+          sub: 'ждали ' + fmtDate(v.next_visit_date) + ' · ' + esc(owner?owner.fio:''),
+          phone: owner ? owner.phone : '',
+          onclick: "VetPages.showPetCard('"+pid+"')",
+          sortKey: '2'+(v.next_visit_date||'')
+        });
+      });
+
+      var attCard = document.getElementById('dash-attention-card');
+      var attEl = document.getElementById('dash-attention');
+      var attCount = document.getElementById('dash-attention-count');
+      if (attCard && attEl) {
+        if (!attention.length) {
+          attCard.style.display = 'none';
+        } else {
+          attention.sort(function(a,b){ return a.sortKey < b.sortKey ? -1 : 1; });
+          if (attCount) attCount.textContent = attention.length;
+          attEl.innerHTML = attention.slice(0, 12).map(function(x){
+            var callBtn = x.phone
+              ? '<a class="btn btn-icon btn-open" href="tel:'+esc(String(x.phone).replace(/[^\d+]/g,''))+'" onclick="event.stopPropagation();" title="Позвонить">'+I('phone')+'</a>'
+              : '';
+            return '<div class="erow" onclick="'+x.onclick+'">'
+              + '<span class="att-icon att-'+x.tone+'">'+I(x.icon)+'</span>'
+              + '<div class="erow-body"><div class="erow-title">'+x.title+'</div>'
+              + '<div class="erow-sub">'+x.sub+'</div></div>'
+              + '<div class="erow-right">'+callBtn+'</div>'
+              + '</div>';
+          }).join('')
+          + (attention.length > 12 ? '<div class="list-more"><span class="text-muted text-sm">…и ещё '+(attention.length-12)+'</span></div>' : '');
+          attCard.style.display = '';
+        }
+      }
+
       var recentVisits = d.visits.filter(function(v){ return !v.is_deleted; }).sort(function(a,b){
         return new Date(b.date) - new Date(a.date);
       }).slice(0, DASH_ROWS);
@@ -3835,6 +3928,94 @@ ${visit.notes ? `<div class="section">
   // PET HISTORY REPORTS
   // ═══════════════════════════════════════════════════════════════════════
 
+  // ── Журнал напоминаний (телеграм-бот) ──────────────────────────────
+  var NOTIF_KIND = {
+    portal_access:   'Доступ к порталу',
+    visit_reminder:  'Напоминание о приёме',
+    vaccination_due: 'Срок вакцинации',
+    custom:          'Сообщение',
+  };
+  var NOTIF_STATUS = {
+    sent:    { label: 'Доставлено', cls: 'badge-active' },
+    pending: { label: 'В очереди',  cls: 'badge-course' },
+    error:   { label: 'Ошибка',     cls: 'badge-deceased' },
+  };
+
+  async function showNotificationsLog() {
+    UI.showModal({ title: 'Журнал напоминаний', size: 'lg', onSave: false,
+      bodyHTML: '<div id="notif-log" class="report-empty">Загрузка…</div>' });
+    var box = document.getElementById('notif-log');
+    var data;
+    try {
+      // Только онлайн и мимо локального перехвата: журнал живёт на сервере.
+      var base = (window.VetAppConfig && window.VetAppConfig.apiBase) || '';
+      var nfetch = window.__nativeFetch || window.fetch.bind(window);
+      var res = await nfetch(base + '/notifications', {
+        headers: { 'X-Bypass-Local': '1', 'X-Auth-Token': (window.VetAuth && VetAuth.token && VetAuth.token()) || '' }
+      });
+      var j = await res.json();
+      if (!res.ok || j.status !== 'ok') { box.innerHTML = '<div class="report-empty">'+esc((j&&j.message)||'Не удалось загрузить журнал')+'</div>'; return; }
+      data = j.data;
+    } catch(e) {
+      box.innerHTML = '<div class="report-empty">Журнал доступен только онлайн — нужна связь с сервером</div>';
+      return;
+    }
+    var botWarn = !data.bot_enabled
+      ? '<div class="appt-confirm-banner" style="margin:0 0 12px;">'+I('alert')+' Бот выключен на сервере (нет токена). Сообщения копятся в очереди и уйдут после включения.</div>'
+      : '';
+    var summary = '<div style="display:flex;gap:16px;margin-bottom:12px;font-size:.85rem;">'
+      + '<span>Доставлено: <b style="color:var(--accent)">'+(data.count_sent||0)+'</b></span>'
+      + '<span>В очереди: <b>'+(data.count_pending||0)+'</b></span>'
+      + '<span>Ошибок: <b style="color:var(--danger)">'+(data.count_error||0)+'</b></span></div>';
+    var items = data.items || [];
+    if (!items.length) { box.innerHTML = botWarn + summary + '<div class="report-empty">Пока ничего не отправлялось</div>'; return; }
+    box.innerHTML = botWarn + summary
+      + '<table class="history-table"><thead><tr><th>Когда</th><th>Кому</th><th>Тип</th><th>Статус</th></tr></thead><tbody>'
+      + items.map(function(n){
+          var st = NOTIF_STATUS[n.status] || { label: n.status, cls: '' };
+          var when = n.created_at ? fmtDate(n.created_at) + ' ' + String(n.created_at).slice(11,16) : '—';
+          var who = esc(n.owner_fio || n.owner_phone || '—');
+          var errTitle = n.error ? ' title="'+esc(n.error)+'"' : '';
+          return '<tr'+errTitle+'><td style="white-space:nowrap;">'+when+'</td>'
+            + '<td>'+who+'</td>'
+            + '<td>'+esc(NOTIF_KIND[n.kind]||n.kind)+'</td>'
+            + '<td><span class="badge '+st.cls+'">'+esc(st.label)+'</span></td></tr>';
+        }).join('')
+      + '</tbody></table>';
+  }
+
+  // Спарклайн динамики веса: SVG-линия по точкам «дата → вес».
+  // Клинически важна траектория (почки, онкология, ожирение), а не таблица.
+  // Вход — массив визитов, отсортированный по убыванию даты (как в истории).
+  function weightSparklineHTML(descData) {
+    var pts = descData.slice().reverse().map(function(v){ return { d: v.date, w: Number(v.animal_weight) }; })
+                .filter(function(p){ return !isNaN(p.w) && p.w > 0; });
+    if (pts.length < 2) return ''; // одна точка — линию не построить
+    var W = 560, H = 120, padX = 40, padY = 16;
+    var ws = pts.map(function(p){ return p.w; });
+    var minW = Math.min.apply(null, ws), maxW = Math.max.apply(null, ws);
+    var range = (maxW - minW) || 1;
+    var n = pts.length;
+    function x(i){ return padX + (W - 2*padX) * (n === 1 ? 0.5 : i/(n-1)); }
+    function y(w){ return padY + (H - 2*padY) * (1 - (w - minW)/range); }
+    var line = pts.map(function(p,i){ return (i?'L':'M') + x(i).toFixed(1) + ' ' + y(p.w).toFixed(1); }).join(' ');
+    var dots = pts.map(function(p,i){ return '<circle cx="'+x(i).toFixed(1)+'" cy="'+y(p.w).toFixed(1)+'" r="3" fill="var(--accent)"/>'; }).join('');
+    var first = pts[0].w, last = pts[n-1].w;
+    var trend = last > first ? '▲ +' + (Math.round((last-first)*100)/100) + ' кг'
+              : last < first ? '▼ −' + (Math.round((first-last)*100)/100) + ' кг'
+              : 'без изменений';
+    var trendColor = last > first ? 'var(--accent)' : (last < first ? 'var(--danger)' : 'var(--text-3)');
+    return '<div class="weight-spark">'
+      + '<div class="weight-spark-head"><span>Динамика веса</span>'
+      + '<span style="color:'+trendColor+';font-weight:700;">'+trend+'</span></div>'
+      + '<svg viewBox="0 0 '+W+' '+H+'" class="weight-spark-svg" preserveAspectRatio="none">'
+      + '<text x="4" y="'+(y(maxW)+4).toFixed(1)+'" class="ws-axis">'+maxW+'</text>'
+      + '<text x="4" y="'+(y(minW)+4).toFixed(1)+'" class="ws-axis">'+minW+'</text>'
+      + '<path d="'+line+'" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>'
+      + dots
+      + '</svg></div>';
+  }
+
   async function showPetHistory(petId) {
     var allVisits   = await window.VetDB.getAll('visits');
     var allVaccs    = await window.VetDB.getAll('vaccinations');
@@ -3888,9 +4069,18 @@ ${visit.notes ? `<div class="section">
     // Вес
     var weightData = petVisits.filter(function(v){ return v.animal_weight; });
     body += '<div id="htab-weight" style="display:none">'
-      + (weightData.length ? '<table class="history-table"><thead><tr><th>Дата</th><th>Вес</th><th>Диагноз</th></tr></thead><tbody>'
-        + weightData.map(function(v){
-            return '<tr><td>'+fmtDate(v.date)+'</td><td><b>'+v.animal_weight+' кг</b></td><td>'+esc(v.diagnosis||'—')+'</td></tr>';
+      + (weightData.length
+        ? weightSparklineHTML(weightData)
+        + '<table class="history-table"><thead><tr><th>Дата</th><th>Вес</th><th>Изм.</th><th>Диагноз</th></tr></thead><tbody>'
+        + weightData.map(function(v, i){
+            // weightData отсортирован по убыванию даты: следующий по индексу — предыдущий по времени
+            var prev = weightData[i+1];
+            var delta = prev && prev.animal_weight ? (v.animal_weight - prev.animal_weight) : null;
+            var deltaHTML = delta === null ? '—'
+              : (delta === 0 ? '<span style="color:var(--text-3)">0</span>'
+                : '<span style="color:'+(delta>0?'var(--accent)':'var(--danger)')+';font-weight:700;">'
+                  + (delta>0?'+':'') + (Math.round(delta*100)/100) + '</span>');
+            return '<tr><td>'+fmtDate(v.date)+'</td><td><b>'+v.animal_weight+' кг</b></td><td>'+deltaHTML+'</td><td>'+esc(v.diagnosis||'—')+'</td></tr>';
           }).join('')
         + '</tbody></table>'
         : '<div class="report-empty">Данные о весе не записаны</div>')
@@ -4647,11 +4837,12 @@ ${visit.notes ? `<div class="section">
       var who = (owner ? owner.fio : (a.client_name || '')) || '';
       var doc = a.staff_id && staffMap[a.staff_id] ? staffMap[a.staff_id].name.split(' ')[0] : '';
       var hm = (a.starts_at||'').slice(11,16);
-      // Запись, созданную владельцем через портал, помечаем: клиника должна
-      // видеть, что время не согласовано, и при накладке — перезвонить.
-      var fromPortal = (a.notes||'').indexOf('портал') >= 0;
-      return '<div class="appt-card '+st.cls+'" onclick="VetPages.editAppt(\''+a.id+'\')">'
-        + (fromPortal ? '<span class="appt-portal" title="Запись создана владельцем через портал — время не согласовано">портал</span>' : '')
+      // Заявка с портала: клиника видит источник, а неподтверждённые
+      // (confirmed=0) выделяем рамкой — их надо подтвердить или перезвонить.
+      var fromPortal = a.source === 'portal' || (a.notes||'').indexOf('портал') >= 0;
+      var unconfirmed = fromPortal && a.confirmed === 0;
+      return '<div class="appt-card '+st.cls+(unconfirmed?' appt-unconfirmed':'')+'" onclick="VetPages.editAppt(\''+a.id+'\')">'
+        + (fromPortal ? '<span class="appt-portal'+(unconfirmed?' unconf':'')+'" title="'+(unconfirmed?'Новая заявка с портала — подтвердите время или перезвоните':'Запись создана владельцем через портал')+'">'+(unconfirmed?'заявка':'портал')+'</span>' : '')
         + '<div class="appt-time">'+esc(hm)+'<span class="appt-dur"> · '+(a.duration_min||30)+' мин</span></div>'
         + '<div class="appt-body">'
         + '<div class="appt-title">'+esc(petName || 'Без клички')+(who ? ' <span class="appt-owner">· '+esc(who)+'</span>' : '')+'</div>'
@@ -4696,6 +4887,35 @@ ${visit.notes ? `<div class="section">
   function editAppt(id) {
     var a = _schedAppts.find(function(x){ return x.id === id; });
     if (a) openApptForm(a, null);
+  }
+
+  // Конфликт по времени у одного врача: пересечение интервалов
+  // [start, start+dur) на ту же дату, статус scheduled, кроме самой записи.
+  // Возвращает {who, time} конфликтующей записи или null. Читаем из
+  // IndexedDB, а не из _schedAppts: расписание могло быть отфильтровано.
+  async function _apptConflict(dateStr, timeStr, durMin, staffId, excludeId) {
+    var startMin = parseInt(timeStr.slice(0,2),10)*60 + parseInt(timeStr.slice(3,5),10);
+    var endMin = startMin + (durMin || 30);
+    var all = [];
+    try { all = await window.VetDB.getAll('appointments'); } catch(e) { return null; }
+    var ownersMap = buildMap(_schedOwners);
+    var petsMap = buildMap(_schedPets);
+    for (var i = 0; i < all.length; i++) {
+      var a = all[i];
+      if (a.is_deleted || a.id === excludeId) continue;
+      if (a.status !== 'scheduled') continue;
+      if (a.staff_id !== staffId) continue;
+      if ((a.starts_at||'').slice(0,10) !== dateStr) continue;
+      var t = (a.starts_at||'').slice(11,16);
+      var aStart = parseInt(t.slice(0,2),10)*60 + parseInt(t.slice(3,5),10);
+      var aEnd = aStart + (a.duration_min || 30);
+      if (startMin < aEnd && aStart < endMin) { // интервалы пересекаются
+        var pet = a.pet_id ? petsMap[a.pet_id] : null;
+        var owner = a.owner_id ? ownersMap[a.owner_id] : (pet ? ownersMap[pet.owner_id] : null);
+        return { who: (owner ? owner.fio : (a.client_name || (pet ? pet.name : ''))) || 'клиент', time: t };
+      }
+    }
+    return null;
   }
 
   // Форму записи открывают и вне страницы расписания (из формы приёма) —
@@ -4751,7 +4971,17 @@ ${visit.notes ? `<div class="section">
     var staffOpts = '<option value="">— не указан —</option>'
       + _schedStaff.map(function(s){ return '<option value="'+esc(s.id)+'"'+(s.id===curStaff?' selected':'')+'>'+esc(s.name)+'</option>'; }).join('');
 
-    var bodyHTML = '<div class="form-grid">'
+    // Неподтверждённая заявка с портала: баннер вверху формы. Регистратор
+    // проверяет время, назначает врача и сохраняет — сохранение подтверждает.
+    var isUnconfirmed = appt.source === 'portal' && appt.confirmed === 0;
+    var banner = isUnconfirmed
+      ? '<div class="appt-confirm-banner">' + I('alert')
+        + ' Новая заявка с портала. Проверьте время, назначьте врача и сохраните — заявка станет подтверждённой записью.'
+        + (appt.client_phone ? ' <a href="tel:'+esc(appt.client_phone.replace(/[^\\d+]/g,''))+'">Позвонить клиенту</a>' : '')
+        + '</div>'
+      : '';
+
+    var bodyHTML = banner + '<div class="form-grid">'
       + '<div class="form-group"><label class="form-label">Дата</label><input id="ap-date" class="form-input" type="date" value="'+esc(dateVal)+'"></div>'
       + '<div class="form-group"><label class="form-label">Время</label><input id="ap-time" class="form-input" type="time" step="900" value="'+esc(hm)+'"></div>'
       + '<div class="form-group"><label class="form-label">Длительность</label><select id="ap-dur" class="form-select">'+durOpts+'</select></div>'
@@ -4780,9 +5010,9 @@ ${visit.notes ? `<div class="section">
           + '</div>' : '');
 
     UI.showModal({
-      title: isEdit ? 'Запись' : 'Новая запись',
+      title: isUnconfirmed ? 'Заявка с портала' : (isEdit ? 'Запись' : 'Новая запись'),
       bodyHTML: bodyHTML,
-      saveLabel: isEdit ? 'Сохранить' : 'Записать',
+      saveLabel: isUnconfirmed ? 'Подтвердить запись' : (isEdit ? 'Сохранить' : 'Записать'),
       afterOpen: function() {
         // ── Автокомплит владельца ──
         var inp = document.getElementById('ap-owner-search');
@@ -4851,31 +5081,50 @@ ${visit.notes ? `<div class="section">
         var ownerId = g('ap-owner-id');
         var petWrap = document.getElementById('ap-pet-wrap');
         var petId = (ownerId && petWrap && petWrap.style.display !== 'none') ? g('ap-pet') : '';
+        var staffId = g('ap-staff');
+        var durMin = parseInt(g('ap-dur'), 10) || 30;
+        var startsAt = date + 'T' + time + ':00.000Z';
         var body = {
           owner_id:     ownerId,
           pet_id:       petId,
-          staff_id:     g('ap-staff'),
+          staff_id:     staffId,
           client_name:  g('ap-client-name'),
           client_phone: g('ap-client-phone'),
           pet_name:     g('ap-pet-name'),
-          starts_at:    date + 'T' + time + ':00.000Z',
-          duration_min: parseInt(g('ap-dur'), 10) || 30,
+          starts_at:    startsAt,
+          duration_min: durMin,
           reason:       g('ap-reason'),
           notes:        g('ap-notes'),
           status:       st,
+          // Источник сохраняем; сохранение заявки регистратором = подтверждение.
+          source:       appt.source || '',
+          confirmed:    1,
         };
         if (!body.pet_id && !body.client_name && !body.pet_name) {
           UI.toast('Укажите клиента: выберите владельца или впишите имя/кличку', 'err');
           return;
         }
+        // Двойная запись: тот же врач, пересечение по времени. Мягко —
+        // клиника может сознательно посадить двоих (напр. срочный случай).
+        if (staffId) {
+          var clash = await _apptConflict(date, time, durMin, staffId, isEdit ? appt.id : null);
+          if (clash) {
+            var ok = await UI.confirm('Врач уже занят',
+              'На это время к выбранному врачу уже записан ' + (clash.who || 'клиент')
+              + ' (' + clash.time + '). Всё равно записать?',
+              { yes: 'Всё равно записать', no: 'Изменить время' });
+            if (!ok) return;
+          }
+        }
         try {
           if (isEdit) await api('PUT', '/appointments/' + appt.id, body);
           else        await api('POST', '/appointments', body);
-          UI.toast(isEdit ? 'Запись обновлена' : 'Запись создана', 'ok');
+          UI.toast(isUnconfirmed ? 'Заявка подтверждена' : (isEdit ? 'Запись обновлена' : 'Запись создана'), 'ok');
           UI.hideModal();
           _schedDate = date;
           var di = document.getElementById('sched-date'); if (di) di.value = date;
           renderSchedule();
+          initDashboard();
         } catch(e) { UI.toast(e.message, 'err'); }
       },
     });
@@ -5067,6 +5316,7 @@ ${visit.notes ? `<div class="section">
     showPetCard:        showPetCard,
     printPetCard:       printPetCard,
     showPetHistory:     showPetHistory,
+    showNotificationsLog: showNotificationsLog,
     markDeceased:       markDeceased,
     petPhotoInput:      petPhotoInput,
     addPetForOwner:     addPetForOwner,

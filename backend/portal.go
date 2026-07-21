@@ -520,9 +520,9 @@ func (a *app) handlePortalBook(w http.ResponseWriter, r *http.Request) {
 	now := T(nowUTC())
 	if _, err := a.db.ExecContext(ctx, `
 		INSERT INTO appointments (id, owner_id, pet_id, client_name, client_phone,
-		                          starts_at, duration_min, reason, status, notes,
+		                          starts_at, duration_min, reason, status, notes, source, confirmed,
 		                          created_at, updated_at, version)
-		VALUES (?, ?, ?, ?, ?, ?, 30, ?, 'scheduled', 'Запись создана владельцем через портал', ?, ?, 1)`,
+		VALUES (?, ?, ?, ?, ?, ?, 30, ?, 'scheduled', 'Запись создана владельцем через портал', 'portal', 0, ?, ?, 1)`,
 		id, ownerID, petID, nullableString(fio), nullableString(phone),
 		T(starts), nullableString(reason), now, now,
 	); err != nil {

@@ -533,6 +533,11 @@ var migrations = []string{
 	`CREATE INDEX IF NOT EXISTS idx_appts_starts  ON appointments(starts_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_appts_updated ON appointments(updated_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_appts_deleted ON appointments(is_deleted)`,
+	// source — откуда пришла запись: 'portal' (создал владелец) или пусто (клиника).
+	// confirmed — подтвердил ли регистратор. Записи клиники подтверждены сразу
+	// (DEFAULT 1); заявки с портала приходят с confirmed=0 и попадают в очередь.
+	`ALTER TABLE appointments ADD COLUMN source TEXT`,
+	`ALTER TABLE appointments ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 1`,
 
 	// Одноразовые пароли входа на портал. Выдаёт телеграм-бот по запросу
 	// владельца; действуют 10 минут, сгорают после первого входа.

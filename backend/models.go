@@ -145,6 +145,8 @@ type Appointment struct {
 	Status      string     `json:"status"` // scheduled|done|cancelled|no_show
 	VisitID     string     `json:"visit_id,omitempty"`
 	Notes       string     `json:"notes,omitempty"`
+	Source      string     `json:"source,omitempty"`   // portal — создал владелец; иначе клиника
+	Confirmed   int        `json:"confirmed"`          // 0 — заявка ждёт подтверждения регистратора
 	SyncMeta
 }
 
@@ -162,6 +164,8 @@ type appointmentPayload struct {
 	Status      string `json:"status,omitempty"`
 	VisitID     string `json:"visit_id,omitempty"`
 	Notes       string `json:"notes,omitempty"`
+	Source      string `json:"source,omitempty"`
+	Confirmed   *int   `json:"confirmed,omitempty"` // указатель: nil = не прислали (старый клиент)
 }
 
 type Staff struct {
@@ -488,6 +492,8 @@ type appointmentSyncRecord struct {
 	Status      string  `json:"status"`
 	VisitID     string  `json:"visit_id"`
 	Notes       string  `json:"notes"`
+	Source      string  `json:"source"`
+	Confirmed   *int    `json:"confirmed"`
 	UpdatedAt   string  `json:"updated_at"`
 	DeletedAt   *string `json:"deleted_at"`
 	IsDeleted   int     `json:"is_deleted"`

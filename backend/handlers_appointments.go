@@ -28,6 +28,7 @@ SELECT a.id, COALESCE(a.owner_id,''), COALESCE(a.pet_id,''), COALESCE(a.staff_id
        COALESCE(a.client_name,''), COALESCE(a.client_phone,''), COALESCE(a.pet_name,''),
        a.starts_at, COALESCE(a.duration_min,30), COALESCE(a.reason,''),
        COALESCE(a.status,'scheduled'), COALESCE(a.visit_id,''), COALESCE(a.notes,''),
+       COALESCE(a.source,''), COALESCE(a.confirmed,1),
        a.created_at, a.updated_at, a.deleted_at, a.is_deleted,
        COALESCE(a.device_id,''), COALESCE(a.version,1)
 FROM appointments a`
@@ -40,6 +41,7 @@ func scanAppointment(s interface{ Scan(...interface{}) error }) (Appointment, er
 		&ap.ClientName, &ap.ClientPhone, &ap.PetName,
 		&startsAt, &ap.DurationMin, &ap.Reason,
 		&ap.Status, &ap.VisitID, &ap.Notes,
+		&ap.Source, &ap.Confirmed,
 		&createdAt, &updatedAt, &deletedAt, &ap.IsDeleted,
 		&ap.DeviceID, &ap.Version,
 	)
@@ -77,6 +79,12 @@ func appointmentFromPayload(p appointmentPayload) (Appointment, error) {
 		strings.TrimSpace(p.PetName) == "" && strings.TrimSpace(p.OwnerID) == "" {
 		return Appointment{}, errors.New("укажите клиента: питомца из базы или имя/кличку текстом")
 	}
+	// confirmed: nil (старый клиент не прислал поле) трактуем как 1 —
+	// это запись из клиники, она подтверждена. Явный 0 приходит от портала.
+	confirmed := 1
+	if p.Confirmed != nil {
+		confirmed = *p.Confirmed
+	}
 	return Appointment{
 		ID:          strings.TrimSpace(p.ID),
 		OwnerID:     strings.TrimSpace(p.OwnerID),
@@ -91,6 +99,8 @@ func appointmentFromPayload(p appointmentPayload) (Appointment, error) {
 		Status:      status,
 		VisitID:     strings.TrimSpace(p.VisitID),
 		Notes:       strings.TrimSpace(p.Notes),
+		Source:      strings.TrimSpace(p.Source),
+		Confirmed:   confirmed,
 	}, nil
 }
 
@@ -183,13 +193,13 @@ func (a *app) createAppointment(w http.ResponseWriter, r *http.Request) {
 	now := T(nowUTC())
 	if _, err := a.db.ExecContext(ctx, `
 		INSERT INTO appointments (id, owner_id, pet_id, staff_id, client_name, client_phone, pet_name,
-		                          starts_at, duration_min, reason, status, visit_id, notes,
+		                          starts_at, duration_min, reason, status, visit_id, notes, source, confirmed,
 		                          created_at, updated_at, version)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
 		ap.ID, nullableString(ap.OwnerID), nullableString(ap.PetID), nullableString(ap.StaffID),
 		nullableString(ap.ClientName), nullableString(ap.ClientPhone), nullableString(ap.PetName),
 		T(ap.StartsAt), ap.DurationMin, nullableString(ap.Reason), ap.Status,
-		nullableString(ap.VisitID), nullableString(ap.Notes), now, now,
+		nullableString(ap.VisitID), nullableString(ap.Notes), nullableString(ap.Source), ap.Confirmed, now, now,
 	); err != nil {
 		a.logger.Printf("createAppointment: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to create appointment")
@@ -219,12 +229,12 @@ func (a *app) updateAppointment(w http.ResponseWriter, r *http.Request, id strin
 	res, err := a.db.ExecContext(ctx, `
 		UPDATE appointments SET owner_id=?, pet_id=?, staff_id=?, client_name=?, client_phone=?, pet_name=?,
 		                        starts_at=?, duration_min=?, reason=?, status=?, visit_id=?, notes=?,
-		                        updated_at=?, version=version+1
+		                        source=?, confirmed=?, updated_at=?, version=version+1
 		WHERE id=? AND is_deleted=0`,
 		nullableString(ap.OwnerID), nullableString(ap.PetID), nullableString(ap.StaffID),
 		nullableString(ap.ClientName), nullableString(ap.ClientPhone), nullableString(ap.PetName),
 		T(ap.StartsAt), ap.DurationMin, nullableString(ap.Reason), ap.Status,
-		nullableString(ap.VisitID), nullableString(ap.Notes), T(nowUTC()), id,
+		nullableString(ap.VisitID), nullableString(ap.Notes), nullableString(ap.Source), ap.Confirmed, T(nowUTC()), id,
 	)
 	if err != nil {
 		a.logger.Printf("updateAppointment: %v", err)
@@ -279,26 +289,32 @@ func pushAppointment(ctx context.Context, db *sql.DB, rec appointmentSyncRecord)
 	if dur <= 0 {
 		dur = 30
 	}
+	// confirmed: nil (планшет со старой версией) → 1, запись клиники подтверждена.
+	confirmed := 1
+	if rec.Confirmed != nil {
+		confirmed = *rec.Confirmed
+	}
 	serverNow := T(nowUTC())
 	clientAt := Tp(parseSyncTimePtr(&rec.UpdatedAt))
 	deletedAt := Tp(parseSyncTimePtr(rec.DeletedAt))
 	_, err = db.ExecContext(ctx, `
 		INSERT INTO appointments (id, owner_id, pet_id, staff_id, client_name, client_phone, pet_name,
-		                          starts_at, duration_min, reason, status, visit_id, notes,
+		                          starts_at, duration_min, reason, status, visit_id, notes, source, confirmed,
 		                          updated_at, deleted_at, is_deleted, device_id, version, created_at, client_updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		  owner_id=excluded.owner_id, pet_id=excluded.pet_id, staff_id=excluded.staff_id,
 		  client_name=excluded.client_name, client_phone=excluded.client_phone, pet_name=excluded.pet_name,
 		  starts_at=excluded.starts_at, duration_min=excluded.duration_min, reason=excluded.reason,
 		  status=excluded.status, visit_id=excluded.visit_id, notes=excluded.notes,
+		  source=excluded.source, confirmed=excluded.confirmed,
 		  updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, is_deleted=excluded.is_deleted,
 		  device_id=excluded.device_id, version=excluded.version,
 		  client_updated_at=excluded.client_updated_at`,
 		rec.ID, nullableString(rec.OwnerID), nullableString(rec.PetID), nullableString(rec.StaffID),
 		nullableString(rec.ClientName), nullableString(rec.ClientPhone), nullableString(rec.PetName),
 		T(starts), dur, nullableString(rec.Reason), status,
-		nullableString(rec.VisitID), nullableString(rec.Notes),
+		nullableString(rec.VisitID), nullableString(rec.Notes), nullableString(rec.Source), confirmed,
 		serverNow, deletedAt, rec.IsDeleted, nullableString(rec.DeviceID), rec.Version, serverNow, clientAt,
 	)
 	return err == nil, err

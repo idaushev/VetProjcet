@@ -486,3 +486,72 @@ func (a *app) telegramSendMessage(ctx context.Context, chatID int64, text string
 	}
 	return nil
 }
+
+// ─── Журнал уведомлений (для клиники) ────────────────────────────────────────
+
+// handleNotifications отдаёт последние уведомления: кому, что, когда, статус.
+// Персонал видит, ушло ли напоминание клиенту и не отвалился ли бот.
+// Гейт — requireAdmin (маршрут в handlers.go): в журнале телефоны и тексты.
+func (a *app) handleNotifications(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	rows, err := a.db.QueryContext(ctx, `
+		SELECT n.id, COALESCE(n.kind,''), COALESCE(n.message,''), COALESCE(n.status,''),
+		       COALESCE(n.error,''), n.created_at, n.sent_at,
+		       COALESCE(o.fio,''), COALESCE(o.phone,'')
+		FROM notifications n
+		LEFT JOIN owners o ON o.id = n.owner_id
+		ORDER BY n.id DESC LIMIT 200`)
+	if err != nil {
+		a.logger.Printf("handleNotifications: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to load notifications")
+		return
+	}
+	defer rows.Close()
+
+	type notifRow struct {
+		ID        int64  `json:"id"`
+		Kind      string `json:"kind"`
+		Message   string `json:"message"`
+		Status    string `json:"status"`
+		Error     string `json:"error,omitempty"`
+		CreatedAt string `json:"created_at"`
+		SentAt    string `json:"sent_at,omitempty"`
+		OwnerFio  string `json:"owner_fio,omitempty"`
+		OwnerPhone string `json:"owner_phone,omitempty"`
+	}
+	list := make([]notifRow, 0, 200)
+	var pending, sent, errored int
+	for rows.Next() {
+		var n notifRow
+		var created, sentAt timeScanner
+		if err := rows.Scan(&n.ID, &n.Kind, &n.Message, &n.Status, &n.Error,
+			&created, &sentAt, &n.OwnerFio, &n.OwnerPhone); err != nil {
+			continue
+		}
+		if created.t != nil {
+			n.CreatedAt = created.t.Format(time.RFC3339)
+		}
+		if sentAt.t != nil {
+			n.SentAt = sentAt.t.Format(time.RFC3339)
+		}
+		switch n.Status {
+		case "sent":
+			sent++
+		case "error":
+			errored++
+		default:
+			pending++
+		}
+		list = append(list, n)
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: map[string]interface{}{
+		"items":        list,
+		"bot_enabled":  a.config.TelegramToken != "",
+		"count_sent":   sent,
+		"count_pending": pending,
+		"count_error":  errored,
+	}})
+}
