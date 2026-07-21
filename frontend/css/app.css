@@ -2741,3 +2741,16 @@ body[data-role="admin"] .settings-tab.admin-only { display: inline-flex; }
 :root[data-theme="dark"] .condition-tab.selected.sev-4 { background:#2a1a10; color:#f0803a; }
 :root[data-theme="dark"] .condition-tab.selected.sev-5 { background:#2a1519; color:#f0616f; }
 :root[data-theme="dark"] .condition-tab.selected.sev-6 { background:#28162220; color:#d670a8; }
+
+/* Пресеты «Следующий приём» (R3): быстрые интервалы под полем даты */
+.next-presets { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.next-preset {
+  appearance: none; cursor: pointer;
+  padding: 3px 9px; border-radius: var(--r-full);
+  border: 1px solid var(--border); background: var(--bg-input);
+  color: var(--text-2); font-size: var(--fs-xs); font-weight: 600;
+  font-family: inherit; white-space: nowrap;
+  transition: background var(--t), border-color var(--t), color var(--t);
+}
+.next-preset:hover { background: var(--accent-dim); border-color: var(--accent-border); color: var(--accent); }
+.next-preset:active { transform: translateY(1px); }

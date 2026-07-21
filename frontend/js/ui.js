@@ -721,9 +721,17 @@
           <label class="form-label">Дата и время</label>
           <input id="f-visit-date" class="form-input" type="datetime-local" value="${esc(dateVal)}" oninput="VetUI.recalcTreatment()">
         </div>
-        <div class="form-group" style="flex:0 0 180px;">
+        <div class="form-group" style="flex:0 0 230px;">
           <label class="form-label">Следующий приём</label>
           <input id="f-next-visit-date" class="form-input" type="date" value="${esc(prefill.next_visit_date?new Date(prefill.next_visit_date).toISOString().slice(0,10):'')}">
+          <div class="next-presets" id="next-presets">
+            <button type="button" class="next-preset" onclick="VetUI.setNextVisitPreset('7d')">+7д</button>
+            <button type="button" class="next-preset" onclick="VetUI.setNextVisitPreset('2w')">+2нед</button>
+            <button type="button" class="next-preset" onclick="VetUI.setNextVisitPreset('1m')">+1мес</button>
+            <button type="button" class="next-preset" onclick="VetUI.setNextVisitPreset('3m')">+3мес</button>
+            <button type="button" class="next-preset" onclick="VetUI.setNextVisitPreset('6m')">+6мес</button>
+            <button type="button" class="next-preset" onclick="VetUI.setNextVisitPreset('1y')">+1год</button>
+          </div>
         </div>
         <div class="form-group" style="flex:0 0 165px;">
           <label class="form-label">Курс лечения, дней</label>
@@ -872,6 +880,32 @@
     if (sec) sec.classList.toggle('collapsed');
   }
 
+  // R3: пресеты «Следующий приём» — от даты приёма прибавить интервал.
+  // Повторные осмотры назначают типовыми сроками; ручной ввод даты медленный.
+  function setNextVisitPreset(kind) {
+    var base = document.getElementById('f-visit-date');
+    var d = base && base.value ? new Date(base.value) : new Date();
+    if (isNaN(d.getTime())) d = new Date();
+    var m = ({ '7d':[0,0,7], '2w':[0,0,14], '1m':[0,1,0], '3m':[0,3,0], '6m':[0,6,0], '1y':[1,0,0] })[kind] || [0,0,0];
+    d.setFullYear(d.getFullYear() + m[0]);
+    d.setMonth(d.getMonth() + m[1]);
+    d.setDate(d.getDate() + m[2]);
+    var out = document.getElementById('f-next-visit-date');
+    if (out) out.value = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  }
+
+  // R1: когда владелец и животное выбраны, верхние секции 1–2 не нужны
+  // раскрытыми — сворачиваем их в строки-сводки (шапка показывает кого),
+  // а «Услуги» (денежная часть) поднимается в первый экран без прокрутки.
+  function _collapseTopSections() {
+    ['vs-owner', 'vs-pet'].forEach(function(id){
+      var s = document.getElementById(id);
+      if (s) s.classList.add('collapsed');
+    });
+    var items = document.getElementById('vs-items');
+    if (items) items.classList.remove('collapsed');
+  }
+
   // Пересчитывает итоги оплаты: наличные = итого − карта, доля клиники, заработок врача
   function _updatePaymentSummary() {
     var totalEl = document.getElementById('vitem-total');
@@ -981,6 +1015,8 @@
       area.innerHTML = '<div class="selected-card">'+avatar(_vs.owner.fio,'owner')+'<div class="selected-card-info"><div class="selected-card-title">'+esc(_vs.owner.fio)+'</div><div class="selected-card-sub">'+esc(_vs.owner.phone||'')+'</div></div><span class="selected-card-clear" id="vf-clear-owner">&times;</span></div>';
       document.getElementById('vf-clear-owner').onclick = function() {
         _vs.ownerMode='search'; _vs.owner=null; _vs.pet=null; _vs.petDraft=null; _vs.showNewPet=false;
+        // Снова раскрываем секции 1–2 — владельца надо искать заново.
+        ['vs-owner','vs-pet'].forEach(function(id){ var s=document.getElementById(id); if(s) s.classList.remove('collapsed'); });
         renderOwnerArea(allOwners,allPets,allItems); renderPetArea([],allPets,allItems);
       };
       var ownerPets = allPets.filter(function(p){ return p.owner_id===_vs.owner.id && !p.is_deleted && p.status==='active'; });
@@ -1161,6 +1197,10 @@
               +(p.weight?' · '+I('scale')+' '+p.weight+' кг':'')
               +'</span>';
           }
+          // Владелец и животное определены — убираем верхние секции с глаз,
+          // поднимаем «Услуги» в первый экран. Клик по чипу животного бывает
+          // только в потоке нового приёма, поэтому безопасно всегда.
+          _collapseTopSections();
         };
         if (window.VetDB) {
           window.VetDB.getAll('vaccinations').then(function(vaccs) {
@@ -1467,6 +1507,7 @@
     getVisitDraft:getVisitDraft,
     applyVisitDraftExtras:applyVisitDraftExtras,
     _toggleSection:_toggleSection,
+    setNextVisitPreset:setNextVisitPreset,
     _updatePaymentSummary:_updatePaymentSummary,
     _diagAutocomplete:_diagAutocomplete,
   };
