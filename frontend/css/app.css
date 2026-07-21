@@ -2519,6 +2519,12 @@ body[data-role="reception"] #ssg-analytics { display: none; }
 .appt-confirm-banner .icon { flex-shrink: 0; color: var(--warn); }
 
 /* Рабочий список «требуют внимания» на дашборде */
+/* Рабочий список — прямой потомок .page-inner, поэтому попадал под правило
+   «.page-inner > .card { max-width: 820px }» (для форм) и на широком экране
+   обрезался до 820px и прижимался влево, а сетки над/под ним — во всю ширину.
+   Держим карточку во всю ширину, чтобы стояла ровно со .stats-grid/.dash-grid. */
+#dash-attention-card { max-width: none; margin-bottom: 24px; }
+
 .attention-count {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 20px; height: 20px; padding: 0 6px;
