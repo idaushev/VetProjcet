@@ -77,25 +77,34 @@ func (a *app) linkOwnerChat(ctx context.Context, ownerID string, chatID int64, u
 
 // ─── Фоновый отправитель ─────────────────────────────────────────────────────
 
+// startTelegramNotifier запускает фоновые циклы бота. Токен теперь
+// редактируется из UI, поэтому циклы работают ВСЕГДА и сами проверяют
+// на каждой итерации, задан ли токен: включение/выключение бота из
+// интерфейса применяется без перезапуска сервера.
 func (a *app) startTelegramNotifier() {
-	if a.config.TelegramToken == "" {
-		a.logger.Println("Телеграм-бот выключен (TELEGRAM_BOT_TOKEN не задан); outbox копится")
-		return
+	if a.tgToken() == "" {
+		a.logger.Println("Телеграм-бот: токен пока не задан (укажите в Настройках) — outbox копится")
+	} else {
+		a.logger.Println("Телеграм-бот: отправитель уведомлений и приём сообщений запущены")
 	}
-	a.logger.Println("Телеграм-бот: отправитель уведомлений и приём сообщений запущены")
+	// Доставка outbox
 	go func() {
 		for {
-			a.deliverPendingNotifications()
+			if a.tgToken() != "" {
+				a.deliverPendingNotifications()
+			}
 			time.Sleep(30 * time.Second)
 		}
 	}()
+	// Приём входящих (long-poll); сам пропускает итерацию без токена
 	go a.telegramPollUpdates()
-	// Планировщик напоминаний: раз в час ищет записи на завтра и подходящие
-	// вакцинации, кладёт в outbox. Дедупликация — по ref_id, поэтому свип
-	// можно гонять сколько угодно раз, дублей не будет.
+	// Планировщик напоминаний: раз в час. Дедупликация по ref_id, поэтому
+	// повторные проходы дублей не создают. Уважает флаг reminders_enabled.
 	go func() {
 		for {
-			a.reminderSweep()
+			if a.tgToken() != "" && a.remindersEnabled() {
+				a.reminderSweep()
+			}
 			time.Sleep(time.Hour)
 		}
 	}()
@@ -105,7 +114,7 @@ func (a *app) startTelegramNotifier() {
 
 // astanaDate возвращает YYYY-MM-DD в часовом поясе клиники (UTC+5) со сдвигом дней.
 func astanaDate(daysAhead int) string {
-	return nowUTC().Add(5 * time.Hour).AddDate(0, 0, daysAhead).Format("2006-01-02")
+	return nowUTC().Add(5*time.Hour).AddDate(0, 0, daysAhead).Format("2006-01-02")
 }
 
 func (a *app) reminderSweep() {
@@ -275,6 +284,11 @@ func (a *app) tgStateSet(key, value string) {
 func (a *app) telegramPollUpdates() {
 	offset, _ := strconv.ParseInt(a.tgStateGet("update_offset"), 10, 64)
 	for {
+		// Токен могли ещё не задать или убрать из Настроек — ждём, не долбя API.
+		if a.tgToken() == "" {
+			time.Sleep(30 * time.Second)
+			continue
+		}
 		updates, err := a.telegramGetUpdates(offset)
 		if err != nil {
 			a.logger.Printf("telegram getUpdates: %v", err)
@@ -297,7 +311,7 @@ func (a *app) telegramGetUpdates(offset int64) ([]tgUpdate, error) {
 	// timeout=25 — long-poll: Telegram держит соединение до 25 секунд,
 	// поэтому цикл не молотит API впустую.
 	url := fmt.Sprintf("%s%s/getUpdates?timeout=25&offset=%d",
-		telegramAPIBase, a.config.TelegramToken, offset)
+		telegramAPIBase, a.tgToken(), offset)
 	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -327,9 +341,10 @@ func (a *app) telegramGetUpdates(offset int64) ([]tgUpdate, error) {
 }
 
 // handleTelegramUpdate — вся логика диалога с владельцем:
-//   /start            → просим номер (кнопка «поделиться контактом»)
-//   контакт или номер → ищем владельца, привязываем чат, шлём пароль
-//   «пароль»/другое   → привязан: новый пароль; не привязан: просим номер
+//
+//	/start            → просим номер (кнопка «поделиться контактом»)
+//	контакт или номер → ищем владельца, привязываем чат, шлём пароль
+//	«пароль»/другое   → привязан: новый пароль; не привязан: просим номер
 func (a *app) handleTelegramUpdate(u tgUpdate) {
 	if u.Message == nil {
 		return
@@ -399,8 +414,8 @@ func (a *app) sendPortalCode(ctx context.Context, chatID int64, ownerID, fio str
 	}
 	msg := hello + "Ваш пароль для входа в кабинет: " + code +
 		"\n\nОн действует 10 минут и подходит один раз. Нужен новый — просто напишите «пароль»."
-	if a.config.PortalPublicURL != "" {
-		msg += "\n\nКабинет: " + a.config.PortalPublicURL
+	if a.portalURL() != "" {
+		msg += "\n\nКабинет: " + a.portalURL()
 	}
 	a.telegramReply(ctx, chatID, msg, map[string]interface{}{"remove_keyboard": true})
 }
@@ -414,7 +429,7 @@ func (a *app) telegramReply(ctx context.Context, chatID int64, text string, repl
 	}
 	body, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		telegramAPIBase+a.config.TelegramToken+"/sendMessage", bytes.NewReader(body))
+		telegramAPIBase+a.tgToken()+"/sendMessage", bytes.NewReader(body))
 	if err != nil {
 		return
 	}
@@ -471,7 +486,7 @@ func (a *app) telegramSendMessage(ctx context.Context, chatID int64, text string
 		"text":    text,
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		telegramAPIBase+a.config.TelegramToken+"/sendMessage", bytes.NewReader(body))
+		telegramAPIBase+a.tgToken()+"/sendMessage", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -511,14 +526,14 @@ func (a *app) handleNotifications(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type notifRow struct {
-		ID        int64  `json:"id"`
-		Kind      string `json:"kind"`
-		Message   string `json:"message"`
-		Status    string `json:"status"`
-		Error     string `json:"error,omitempty"`
-		CreatedAt string `json:"created_at"`
-		SentAt    string `json:"sent_at,omitempty"`
-		OwnerFio  string `json:"owner_fio,omitempty"`
+		ID         int64  `json:"id"`
+		Kind       string `json:"kind"`
+		Message    string `json:"message"`
+		Status     string `json:"status"`
+		Error      string `json:"error,omitempty"`
+		CreatedAt  string `json:"created_at"`
+		SentAt     string `json:"sent_at,omitempty"`
+		OwnerFio   string `json:"owner_fio,omitempty"`
 		OwnerPhone string `json:"owner_phone,omitempty"`
 	}
 	list := make([]notifRow, 0, 200)
@@ -548,10 +563,10 @@ func (a *app) handleNotifications(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: map[string]interface{}{
-		"items":        list,
-		"bot_enabled":  a.config.TelegramToken != "",
-		"count_sent":   sent,
+		"items":         list,
+		"bot_enabled":   a.tgToken() != "",
+		"count_sent":    sent,
 		"count_pending": pending,
-		"count_error":  errored,
+		"count_error":   errored,
 	}})
 }

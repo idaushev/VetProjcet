@@ -99,6 +99,10 @@ func (a *app) routes() http.Handler {
 
 	// Админка пользователей — только администратор
 	mux.HandleFunc("GET /notifications", a.requireAdmin(a.handleNotifications))
+	// Настройки телеграма/уведомлений — редактирует администратор
+	mux.HandleFunc("GET /settings/telegram",       a.requireAdmin(a.handleGetTelegramSettings))
+	mux.HandleFunc("PUT /settings/telegram",       a.requireAdmin(a.handlePutTelegramSettings))
+	mux.HandleFunc("POST /settings/telegram/test", a.requireAdmin(a.handleTestTelegram))
 	mux.HandleFunc("GET /users",         a.requireAdmin(a.handleUsers))
 	mux.HandleFunc("POST /users",        a.requireAdmin(a.handleUsers))
 	mux.HandleFunc("PUT /users/{id}",    a.requireAdmin(a.handleUserByID))

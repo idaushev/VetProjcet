@@ -555,6 +555,14 @@ var migrations = []string{
 	    key   TEXT PRIMARY KEY,
 	    value TEXT NOT NULL
 	)`,
+
+	// Редактируемые из UI настройки сервера (токен бота, имя бота, адрес
+	// портала, телефон клиники, вкл/выкл напоминаний). Пусто в этой таблице —
+	// действует значение из переменной окружения (обратная совместимость).
+	`CREATE TABLE IF NOT EXISTS server_settings (
+	    key   TEXT PRIMARY KEY,
+	    value TEXT NOT NULL
+	)`,
 }
 
 // ─── openDB ──────────────────────────────────────────────────────────────────

@@ -220,16 +220,10 @@
               <span class="nav-text">Персонал</span>
             </a>
           </li>
-          <li class="admin-only">
-            <a class="nav-item" data-page="users" href="#users" title="Пользователи">
-              <i data-icon="user" data-icon-size="22" class="nav-icon"></i>
-              <span class="nav-text">Пользователи</span>
-            </a>
-          </li>
         </ul>
       </div>
 
-      <!-- Настройки — всегда в низу навигации -->
+      <!-- Настройки — всегда в низу навигации (Пользователи внутри, вкладкой) -->
       <div class="ss-group" id="ssg-settings">
         <ul class="nav-list ss-body" style="padding-top:0">
           <li>
@@ -660,108 +654,170 @@
       </section>
 
       <!-- Users (админка) -->
-      <section class="page" id="page-users">
-        <div class="page-header">
-          <h1 class="page-title">Пользователи</h1>
-          <div class="page-actions">
-            <button class="btn btn-primary" id="btn-add-user">+ Добавить</button>
-          </div>
-        </div>
-        <div class="page-inner">
-          <div class="text-sm text-muted" style="margin-bottom:10px;">
-            Учётные записи для входа. Пользователь не обязан быть врачом:
-            связь с сотрудником — по желанию. Управление требует связи с сервером.
-          </div>
-          <div id="users-list" class="entity-list"></div>
-        </div>
-      </section>
-
       <!-- Settings -->
       <section class="page" id="page-settings">
         <div class="page-header">
-          <h1 class="page-title">Настройки клиники</h1>
+          <h1 class="page-title">Настройки</h1>
+        </div>
+        <!-- Вкладки настроек -->
+        <div class="settings-tabs" id="settings-tabs">
+          <button class="settings-tab active" data-stab="clinic">Клиника</button>
+          <button class="settings-tab admin-only" data-stab="telegram">Телеграм и уведомления</button>
+          <button class="settings-tab admin-only" data-stab="users">Пользователи</button>
+          <button class="settings-tab" data-stab="data">Данные</button>
         </div>
         <div class="page-inner">
-          <div class="card" style="max-width:680px;">
-            <div class="card-header"><span class="card-title">Реквизиты для печатных форм</span></div>
-            <div class="card-body" style="padding:20px;">
-              <div class="form-grid">
-                <div class="form-group form-span-2">
-                  <label class="form-label">Название клиники</label>
-                  <input id="s-clinic-name" class="form-input" placeholder="Ветеринарная клиника VetClinic">
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Телефон</label>
-                  <input id="s-clinic-phone" class="form-input" type="tel" placeholder="+7 777 000 0000">
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Адрес</label>
-                  <input id="s-clinic-address" class="form-input" placeholder="г. Алматы, ул. Абая 1">
-                </div>
-                <div class="form-group form-span-2">
-                  <label class="form-label">Логотип в шапке печатной формы</label>
-                  <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
-                    <div id="s-logo-wrap" style="width:90px;height:90px;border:1.5px dashed var(--border);border-radius:var(--r-lg);display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--bg-input);">
-                      <img id="s-logo-preview" style="width:100%;height:100%;object-fit:contain;display:none;" alt="Логотип">
-                      <span id="s-logo-empty" style="font-size:2rem;"><i data-icon="hospital" data-icon-size="18"></i></span>
-                    </div>
-                    <div style="display:flex;flex-direction:column;gap:8px;">
-                      <label class="btn btn-ghost btn-sm" style="cursor:pointer;">
-                        <i data-icon="folder" data-icon-size="18"></i> Выбрать логотип
-                        <input type="file" id="s-logo-input" accept="image/*" style="display:none"
-                               onchange="VetPages.handleLogoUpload(this)">
-                      </label>
-                      <button class="btn btn-ghost btn-sm" id="s-logo-clear"
-                              onclick="VetPages.clearLogo()" style="display:none"><i data-icon="x" data-icon-size="18"></i> Удалить</button>
-                      <span class="text-sm text-muted">PNG, JPG, SVG — любой размер, сожмётся сам</span>
+
+          <!-- ── Вкладка: Клиника ─────────────────────────────────────── -->
+          <div class="settings-panel active" data-spanel="clinic">
+            <div class="card" style="max-width:680px;">
+              <div class="card-header"><span class="card-title">Реквизиты для печатных форм</span></div>
+              <div class="card-body" style="padding:20px;">
+                <div class="form-grid">
+                  <div class="form-group form-span-2">
+                    <label class="form-label">Название клиники</label>
+                    <input id="s-clinic-name" class="form-input" placeholder="Ветеринарная клиника VetClinic">
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Телефон</label>
+                    <input id="s-clinic-phone" class="form-input" type="tel" placeholder="+7 777 000 0000">
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Адрес</label>
+                    <input id="s-clinic-address" class="form-input" placeholder="г. Алматы, ул. Абая 1">
+                  </div>
+                  <div class="form-group form-span-2">
+                    <label class="form-label">Логотип в шапке печатной формы</label>
+                    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+                      <div id="s-logo-wrap" style="width:90px;height:90px;border:1.5px dashed var(--border);border-radius:var(--r-lg);display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--bg-input);">
+                        <img id="s-logo-preview" style="width:100%;height:100%;object-fit:contain;display:none;" alt="Логотип">
+                        <span id="s-logo-empty" style="font-size:2rem;"><i data-icon="hospital" data-icon-size="18"></i></span>
+                      </div>
+                      <div style="display:flex;flex-direction:column;gap:8px;">
+                        <label class="btn btn-ghost btn-sm" style="cursor:pointer;">
+                          <i data-icon="folder" data-icon-size="18"></i> Выбрать логотип
+                          <input type="file" id="s-logo-input" accept="image/*" style="display:none"
+                                 onchange="VetPages.handleLogoUpload(this)">
+                        </label>
+                        <button class="btn btn-ghost btn-sm" id="s-logo-clear"
+                                onclick="VetPages.clearLogo()" style="display:none"><i data-icon="x" data-icon-size="18"></i> Удалить</button>
+                        <span class="text-sm text-muted">PNG, JPG, SVG — любой размер, сожмётся сам</span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-              <div class="form-grid" style="margin-top:8px;">
-                <div class="form-group">
-                  <label class="form-label">Расписание: начало дня</label>
-                  <select id="s-sched-start" class="form-select"></select>
+                <div class="form-grid" style="margin-top:8px;">
+                  <div class="form-group">
+                    <label class="form-label">Расписание: начало дня</label>
+                    <select id="s-sched-start" class="form-select"></select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Расписание: конец дня</label>
+                    <select id="s-sched-end" class="form-select"></select>
+                  </div>
                 </div>
-                <div class="form-group">
-                  <label class="form-label">Расписание: конец дня</label>
-                  <select id="s-sched-end" class="form-select"></select>
+                <div style="margin-top:20px;">
+                  <button class="btn btn-primary" id="btn-save-settings">Сохранить настройки</button>
+                  <span id="settings-saved-msg" style="display:none;margin-left:12px;color:var(--accent);font-weight:600;font-size:.9rem;">✓ Сохранено</span>
                 </div>
-              </div>
-              <div style="margin-top:20px;">
-                <button class="btn btn-primary" id="btn-save-settings">Сохранить настройки</button>
-                <span id="settings-saved-msg" style="display:none;margin-left:12px;color:var(--accent);font-weight:600;font-size:.9rem;">✓ Сохранено</span>
               </div>
             </div>
           </div>
 
-          <!-- Журнал напоминаний (телеграм-бот) — только администратор -->
-          <div class="card admin-only" style="max-width:680px;margin-top:16px;">
-            <div class="card-header">
-              <span class="card-title">Журнал напоминаний</span>
-              <button class="btn btn-sm btn-ghost" onclick="VetPages.showNotificationsLog()">Открыть →</button>
+          <!-- ── Вкладка: Телеграм и уведомления ──────────────────────── -->
+          <div class="settings-panel admin-only" data-spanel="telegram" style="display:none;">
+            <div class="card" style="max-width:680px;">
+              <div class="card-header">
+                <span class="card-title">Подключение телеграм-бота</span>
+                <span id="tg-status" class="badge">—</span>
+              </div>
+              <div class="card-body" style="padding:20px;">
+                <p style="font-size:.85rem;color:var(--text-2);margin:0 0 16px;">
+                  Бот высылает владельцам пароли для входа в кабинет и напоминания
+                  о приёмах и вакцинациях. Токен получите у <b>@BotFather</b> в телеграме.
+                </p>
+                <div class="form-grid">
+                  <div class="form-group form-span-2">
+                    <label class="form-label">Токен бота</label>
+                    <input id="s-tg-token" class="form-input" type="password" autocomplete="off"
+                           placeholder="Оставьте пустым, чтобы не менять">
+                    <div class="form-hint" id="s-tg-token-hint"></div>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Имя бота (без @)</label>
+                    <input id="s-tg-botname" class="form-input" placeholder="vetclinic_bot">
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Телефон клиники (для портала)</label>
+                    <input id="s-tg-phone" class="form-input" type="tel" placeholder="+7 777 000 0000">
+                  </div>
+                  <div class="form-group form-span-2">
+                    <label class="form-label">Адрес портала владельцев</label>
+                    <input id="s-tg-portal" class="form-input" placeholder="https://192.168.0.10:8443/portal">
+                  </div>
+                  <div class="form-group form-span-2">
+                    <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                      <input type="checkbox" id="s-tg-reminders" style="width:18px;height:18px;">
+                      Отправлять напоминания (о приёмах на завтра и вакцинациях)
+                    </label>
+                  </div>
+                </div>
+                <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                  <button class="btn btn-primary" id="btn-save-tg">Сохранить</button>
+                  <button class="btn btn-ghost" id="btn-test-tg">Проверить подключение</button>
+                  <span id="tg-saved-msg" style="display:none;color:var(--accent);font-weight:600;font-size:.9rem;">✓ Сохранено</span>
+                </div>
+              </div>
             </div>
-            <div class="card-body" style="padding:20px;">
-              <p style="font-size:.88rem;color:var(--text-2);margin:0;">
-                Что и когда телеграм-бот отправил владельцам: подтверждения, напоминания
-                о приёмах и вакцинациях. Здесь видно, дошло ли сообщение и не отвалился ли бот.
-              </p>
+
+            <!-- Журнал напоминаний -->
+            <div class="card" style="max-width:680px;margin-top:16px;">
+              <div class="card-header">
+                <span class="card-title">Журнал напоминаний</span>
+                <button class="btn btn-sm btn-ghost" onclick="VetPages.showNotificationsLog()">Открыть →</button>
+              </div>
+              <div class="card-body" style="padding:20px;">
+                <p style="font-size:.88rem;color:var(--text-2);margin:0;">
+                  Что и когда бот отправил владельцам. Видно, дошло ли сообщение
+                  и не отвалился ли бот.
+                </p>
+              </div>
             </div>
           </div>
 
-          <!-- Опасная зона -->
-          <div class="card" style="max-width:680px;margin-top:16px;border-color:var(--danger-dim);">
-            <div class="card-header"><span class="card-title" style="color:var(--danger);">Локальные данные</span></div>
-            <div class="card-body" style="padding:20px;">
-              <p style="font-size:.88rem;color:var(--text-2);margin-bottom:16px;">
-                Если данные на устройстве расходятся с сервером — сбросьте локальный кэш.<br>
-                Приложение загрузит актуальные данные с сервера при следующем открытии.
-              </p>
-              <button class="btn btn-danger" onclick="resetLocalData()" style="min-width:200px;">
-                <i data-icon="trash" data-icon-size="18"></i> Сбросить локальные данные
-              </button>
+          <!-- ── Вкладка: Пользователи ────────────────────────────────── -->
+          <div class="settings-panel admin-only" data-spanel="users" style="display:none;">
+            <div class="card" style="max-width:820px;">
+              <div class="card-header">
+                <span class="card-title">Учётные записи</span>
+                <button class="btn btn-sm btn-primary" id="btn-add-user">+ Добавить</button>
+              </div>
+              <div class="card-body" style="padding:16px 20px;">
+                <div class="text-sm text-muted" style="margin-bottom:10px;">
+                  Учётные записи для входа. Пользователь не обязан быть врачом:
+                  связь с сотрудником — по желанию. Управление требует связи с сервером.
+                </div>
+                <div id="users-list" class="entity-list"></div>
+              </div>
             </div>
           </div>
+
+          <!-- ── Вкладка: Данные ──────────────────────────────────────── -->
+          <div class="settings-panel" data-spanel="data" style="display:none;">
+            <div class="card" style="max-width:680px;border-color:var(--danger-dim);">
+              <div class="card-header"><span class="card-title" style="color:var(--danger);">Локальные данные</span></div>
+              <div class="card-body" style="padding:20px;">
+                <p style="font-size:.88rem;color:var(--text-2);margin-bottom:16px;">
+                  Если данные на устройстве расходятся с сервером — сбросьте локальный кэш.<br>
+                  Приложение загрузит актуальные данные с сервера при следующем открытии.
+                </p>
+                <button class="btn btn-danger" onclick="resetLocalData()" style="min-width:200px;">
+                  <i data-icon="trash" data-icon-size="18"></i> Сбросить локальные данные
+                </button>
+              </div>
+            </div>
+          </div>
+
         </div>
       </section>
 
@@ -921,7 +977,7 @@
   // Если запущено через иконку (start_url = "/?pwa=1") — hash пустой → dashboard
   // Если пользователь открыл прямую ссылку с хэшем — навигируем туда
   var validPages = ['dashboard','schedule','owners','pets','visits','vaccinations','items','staff',
-                    'chips','report-daily','report-revenue','report-upcoming','report-noshows','users','settings'];
+                    'chips','report-daily','report-revenue','report-upcoming','report-noshows','settings'];
 
   // ── Сворачиваемые группы сайдбара ──────────────────────────────────
   function toggleSSGroup(id) {

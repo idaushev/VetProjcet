@@ -154,8 +154,8 @@ func (a *app) handlePortalLogin(w http.ResponseWriter, r *http.Request) {
 // Токен наружу не отдаём.
 func (a *app) handlePortalBotInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: map[string]string{
-		"bot":   a.config.TelegramBotName,
-		"phone": a.config.ClinicPhone,
+		"bot":   a.tgBotName(),
+		"phone": a.clinicPhone(),
 	}})
 }
 
