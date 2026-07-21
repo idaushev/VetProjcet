@@ -4584,6 +4584,7 @@ ${visit.notes ? `<div class="section">
   // Работает офлайн: всё считается из локальной базы.
   // ═══════════════════════════════════════════════════════════════════════
   var _chipPets = [], _chipOwners = {};
+  var _chipFilter = 'all'; // 'all' — с чипом | 'none' — без чипа | 'month' — за 30 дней
 
   async function initChips() {
     var [pets, owners] = await Promise.all([
@@ -4601,6 +4602,17 @@ ${visit.notes ? `<div class="section">
     setText('chip-stat-none',  noChip.length);
     setText('chip-stat-month', month.length);
 
+    // Карточки-счётчики кликабельны: фильтруют список (с чипом / без чипа /
+    // за 30 дней). Клик по активной карточке сбрасывает на «с чипом».
+    document.querySelectorAll('#chip-stats .stat-card-link').forEach(function(card) {
+      var setF = function() {
+        _chipFilter = (card.dataset.cf === _chipFilter && card.dataset.cf !== 'all') ? 'all' : card.dataset.cf;
+        renderChipList();
+      };
+      card.onclick = setF;
+      card.onkeydown = function(e){ if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setF(); } };
+    });
+
     renderChipList();
     setupSearch('search-chips', function(){ renderChipList(); });
     var btn = document.getElementById('btn-chip-pet');
@@ -4613,18 +4625,34 @@ ${visit.notes ? `<div class="section">
   function renderChipList() {
     var el = document.getElementById('chips-list');
     if (!el) return;
+    // Подсветка активной карточки-фильтра.
+    document.querySelectorAll('#chip-stats .stat-card-link').forEach(function(c){
+      c.classList.toggle('active', c.dataset.cf === _chipFilter);
+    });
+
     var q = (document.getElementById('search-chips')||{}).value || '';
     var qn = q.toLowerCase();
     var qDigits = qn.replace(/\D/g, '');
+    var monthAgo = toAstanaStr(new Date(Date.now() - 30*86400000));
 
-    var list = _chipPets.filter(function(p){
-      if (!p.chip_number) return false;
+    // База по выбранной карточке.
+    var base;
+    if (_chipFilter === 'none') {
+      base = _chipPets.filter(function(p){ return !p.chip_number && p.status === 'active'; });
+    } else if (_chipFilter === 'month') {
+      base = _chipPets.filter(function(p){ return p.chip_number && p.chip_date && toAstanaStr(p.chip_date) >= monthAgo; });
+    } else {
+      base = _chipPets.filter(function(p){ return p.chip_number; });
+    }
+
+    var list = base.filter(function(p){
       if (!q) return true;
       var owner = _chipOwners[p.owner_id] || {};
       var hay = (p.name + ' ' + (p.breed||'') + ' ' + (owner.fio||'')).toLowerCase();
       // Номер сравниваем по цифрам: ввод со сканера бывает с пробелами.
-      return hay.includes(qn) || (qDigits && String(p.chip_number).includes(qDigits));
+      return hay.includes(qn) || (qDigits && p.chip_number && String(p.chip_number).includes(qDigits));
     }).sort(function(a,b){
+      if (_chipFilter === 'none') return (a.name||'').localeCompare(b.name||'', 'ru');
       // Свежие чипы сверху; без даты — в конец, по кличке.
       var da = a.chip_date || '', db = b.chip_date || '';
       if (da !== db) return da < db ? 1 : -1;
@@ -4632,9 +4660,34 @@ ${visit.notes ? `<div class="section">
     });
 
     if (!list.length) {
-      el.innerHTML = q ? searchEmpty('search-chips') : emptyState('Чипированных животных пока нет', null, null, 'paw');
+      if (q) { el.innerHTML = searchEmpty('search-chips'); return; }
+      var emptyText = _chipFilter === 'none' ? 'Все активные животные уже с чипом 👍'
+                    : _chipFilter === 'month' ? 'За 30 дней не чипировали'
+                    : 'Чипированных животных пока нет';
+      el.innerHTML = emptyState(emptyText, null, null, 'paw');
       return;
     }
+
+    // Список животных БЕЗ чипа — со своим действием «Чипировать».
+    if (_chipFilter === 'none') {
+      var canEdit = !(window.VetAuth && !VetAuth.can('pets','edit'));
+      el.innerHTML = list.map(function(p){
+        var owner = _chipOwners[p.owner_id] || {};
+        return '<div class="erow" onclick="VetPages.showPetCard(\''+p.id+'\')">'
+          + UI.avatar(p.name, p.type)
+          + '<div class="erow-body">'
+          + '<div class="erow-title">'+esc(p.name)+' <span class="chip-nochip">нет чипа</span></div>'
+          + '<div class="erow-sub">'+esc(p.type||'')+(p.breed?' · '+esc(p.breed):'')
+          + ' · '+esc(owner.fio||'—')+(owner.phone?' · '+I('phone')+' '+esc(owner.phone):'')+'</div>'
+          + '</div>'
+          + '<div class="erow-right"><div class="erow-actions">'
+          + (canEdit ? '<button class="btn btn-sm btn-primary" onclick="event.stopPropagation();VetPages.chipPetDialog()">Чипировать</button>' : '')
+          + '</div></div></div>';
+      }).join('');
+      return;
+    }
+
+    // Чипированные (все / за 30 дней).
     el.innerHTML = list.map(function(p){
       var owner = _chipOwners[p.owner_id] || {};
       var dead = p.status !== 'active';
@@ -5491,6 +5544,7 @@ ${visit.notes ? `<div class="section">
     printVaccinationCard: printVaccinationCard,
     showStaffCard:      showStaffCard,
     printChipCertificate: printChipCertificate,
+    chipPetDialog:      chipPetDialog,
     _chipMode: _chipMode, _chipOwnerToggle: _chipOwnerToggle,
     editUser:           editUser,
     addItem:            addItem,

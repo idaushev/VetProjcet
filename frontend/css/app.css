@@ -2649,3 +2649,12 @@ body[data-role="admin"] .settings-tab.admin-only { display: inline-flex; }
   white-space: nowrap;
 }
 .vf-footer-total b { color: var(--text); font-size: var(--fs-lg); font-weight: 800; }
+
+/* Метка «нет чипа» в списке чипирования (фильтр «Без чипа») */
+.chip-nochip {
+  display: inline-block; margin-left: 6px;
+  font-size: var(--fs-xs); font-weight: 600;
+  color: var(--warn); background: var(--warn-dim);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--r-full); padding: 1px 8px; vertical-align: 1px;
+}
