@@ -438,7 +438,10 @@ h4 { font-size: var(--fs-md);   font-weight: 600; }
   color: var(--text); letter-spacing: -.4px; flex: 1;
 }
 
-.page-actions { display: flex; gap: 10px; align-items: center; }
+/* flex-wrap: на узком экране (напр. «Каталог» с 3 кнопками — Шаблон/Импорт/
+   +Добавить, ~436px) кнопки не влезали в 390px и «+Добавить» обрезался за
+   краем. Теперь переносятся на вторую строку. На планшете эффекта нет. */
+.page-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
 /* ── Toolbar (search + filters) ─────────────────────────────────── */
 .toolbar {
@@ -1297,7 +1300,7 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 
 .confirm-box {
   background: var(--bg-s); border: 1px solid var(--border);
-  border-radius: var(--r-xl); padding: 28px; max-width: 400px; width: 90%;
+  border-radius: var(--r-xl); padding: 28px; max-width: 440px; width: 90%;
   box-shadow: var(--shadow-xl);
   animation: toastSlide .2s var(--ease);
 }
@@ -1986,6 +1989,12 @@ mark {
   padding: 14px 20px; background: var(--bg);
   border-top: 1px solid var(--border);
 }
+/* Нечётное число кнопок: последняя оставалась одна в левой колонке
+   (у умершего животного нет кнопки «Умер» → 5 кнопок; одиночная кнопка
+   «Пароль от портала» в своём .oc-actions). Растягиваем последнюю
+   нечётную на всю ширину — раскладка симметрична при любом количестве. */
+.oc-actions > :last-child:nth-child(odd),
+.pc-actions > :last-child:nth-child(odd) { grid-column: 1 / -1; }
 .oc-action-btn {
   display: flex; align-items: center; justify-content: center; gap: 6px;
   height: 44px; border-radius: var(--r); font-size: var(--fs-md); font-weight: 600;
