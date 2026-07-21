@@ -396,11 +396,12 @@
         + '<div class="erow-right">'
         + (cnt ? '<span class="badge badge-active">'+cnt+' пит.</span>' : '<span style="font-size:.72rem;color:var(--text-3);">нет питомцев</span>')
         + '<div class="erow-actions">'
-        + '<button class="btn btn-icon btn-open" onclick="event.stopPropagation();VetPages.showOwnerCard(\''+o.id+'\')" title="Открыть карточку">'+UI.icon('eye','')+'</button>'
-        + '<button class="btn btn-icon btn-print" onclick="event.stopPropagation();VetPages.printOwnerCard(\''+o.id+'\')" title="Печать карточки">'+UI.icon('print','')+'</button>'
-        + '<span class="erow-actions-sep"></span>'
-        + '<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editOwner(\''+o.id+'\')" title="Редактировать">'+UI.icon('edit','')+'</button>'
-        + '<button class="btn btn-icon danger" onclick="event.stopPropagation();VetPages.deleteOwner(\''+o.id+'\',\''+esc(o.fio)+'\')" title="Удалить">'+UI.icon('trash','')+'</button>'
+        + '<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editOwner(\''+o.id+'\')" title="Редактировать" aria-label="Редактировать">'+UI.icon('edit','')+'</button>'
+        + UI.rowMenu([
+            {label:'Печать карточки', icon:'print', onclick:"VetPages.printOwnerCard('"+o.id+"')"},
+            {sep:true},
+            {label:'Удалить', icon:'trash', danger:true, onclick:"VetPages.deleteOwner('"+o.id+"','"+esc(o.fio)+"')"}
+          ])
         + '</div></div></div>';
     }).join('')
     + (ownersMore
@@ -561,7 +562,7 @@
         ? '<span class="badge badge-course" title="Курс лечения до '+fmtDate(course.treatment_until)+'">'
           + I('heart') + ' Лечение: ' + course.days_left + ' дн.</span>'
         : '';
-      var deceasedBtn = p.status==='active' ? '<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.markDeceased(\''+p.id+'\')" title="Умер">'+UI.icon('skull','')+'</button>' : '';
+      var deceasedItem = p.status==='active' ? [{label:'Отметить «умер»', icon:'skull', onclick:"VetPages.markDeceased('"+p.id+"')"}] : [];
       var petAvatar = p.photo
         ? '<img class="pet-photo" src="'+p.photo+'" alt="'+UI.esc(p.name)+'">'
         : UI.avatar(p.name,p.type);
@@ -572,14 +573,15 @@
         +(p.death_date?'<div class="erow-meta">Умер: '+fmtDate(p.death_date)+(p.death_reason?' · '+esc(p.death_reason):'')+' </div>':'')
         +'</div>'
         +'<div class="erow-right"><div class="erow-actions">'
-        +'<button class="btn btn-icon btn-open" onclick="event.stopPropagation();VetPages.showPetCard(\''+p.id+'\')" title="Открыть карточку">'+UI.icon('eye','')+'</button>'
-        +'<button class="btn btn-icon btn-print" onclick="event.stopPropagation();VetPages.printPetCard(\''+p.id+'\')" title="Печать паспорта">'+UI.icon('print','')+'</button>'
-        +'<span class="erow-actions-sep"></span>'
-        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.newVisitForPet(\''+p.id+'\')" title="Новый приём">'+UI.icon('plus','')+'</button>'
-        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.showPetHistory(\''+p.id+'\')" title="История">'+I('clipboard')+'</button>'
-        +deceasedBtn
-        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editPet(\''+p.id+'\')" title="Редактировать">'+UI.icon('edit','')+'</button>'
-        +'<button class="btn btn-icon danger" onclick="event.stopPropagation();VetPages.deletePet(\''+p.id+'\',\''+esc(p.name)+'\')" title="Удалить">'+UI.icon('trash','')+'</button>'
+        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.newVisitForPet(\''+p.id+'\')" title="Новый приём" aria-label="Новый приём">'+UI.icon('plus','')+'</button>'
+        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editPet(\''+p.id+'\')" title="Редактировать" aria-label="Редактировать">'+UI.icon('edit','')+'</button>'
+        +UI.rowMenu([
+            {label:'История приёмов', icon:'clipboard', onclick:"VetPages.showPetHistory('"+p.id+"')"},
+            {label:'Печать паспорта', icon:'print', onclick:"VetPages.printPetCard('"+p.id+"')"}
+          ].concat(deceasedItem).concat([
+            {sep:true},
+            {label:'Удалить', icon:'trash', danger:true, onclick:"VetPages.deletePet('"+p.id+"','"+esc(p.name)+"')"}
+          ]))
         +'</div></div></div>';
     }).join('')
     + (petsMore
@@ -772,12 +774,13 @@
         +'<span class="erow-date">'+fmtDate(v.date)+'</span>'
         +(v.total_amount?(window.VetAuth&&!VetAuth.canSeeSum(v.staff_id)?'<span class="erow-amount" title="Сумма скрыта настройками прав">···</span>':'<span class="erow-amount">'+Number(v.total_amount).toFixed(0)+' ₸</span>'):'')
         +'<div class="erow-actions">'
-        +'<button class="btn btn-icon btn-open" onclick="event.stopPropagation();VetPages.editVisit(\''+v.id+'\')" title="Открыть приём">'+UI.icon('eye','')+'</button>'
-        +'<button class="btn btn-icon btn-print" onclick="event.stopPropagation();VetPages.printVisitCard(\''+v.id+'\')" title="Печать для владельца">'+UI.icon('print','')+'</button>'
-        +'<span class="erow-actions-sep"></span>'
-        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.copyVisit(\''+v.id+'\')" title="Копировать приём">'+I('clipboard')+'</button>'
-        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editVisit(\''+v.id+'\')" title="Редактировать">'+UI.icon('edit','')+'</button>'
-        +'<button class="btn btn-icon danger" onclick="event.stopPropagation();VetPages.deleteVisit(\''+v.id+'\')" title="Удалить">'+UI.icon('trash','')+'</button>'
+        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editVisit(\''+v.id+'\')" title="Открыть приём" aria-label="Открыть приём">'+UI.icon('edit','')+'</button>'
+        +UI.rowMenu([
+            {label:'Печать для владельца', icon:'print', onclick:"VetPages.printVisitCard('"+v.id+"')"},
+            {label:'Копировать приём', icon:'clipboard', onclick:"VetPages.copyVisit('"+v.id+"')"},
+            {sep:true},
+            {label:'Удалить', icon:'trash', danger:true, onclick:"VetPages.deleteVisit('"+v.id+"')"}
+          ])
         +'</div></div></div>';
     }).join('')
     + (showMore
@@ -1296,12 +1299,13 @@
         +'<div class="erow-right">'
         +'<span class="erow-date">'+fmtDate(v.administered_at)+'</span>'
         +'<div class="erow-actions">'
-        +'<button class="btn btn-icon btn-open" onclick="event.stopPropagation();VetPages.editVaccination(\''+v.id+'\')" title="Открыть">'+UI.icon('eye','')+'</button>'
-        +'<button class="btn btn-icon btn-print" onclick="event.stopPropagation();VetPages.printVaccinationCard(\''+v.id+'\')" title="Печать справки">'+UI.icon('print','')+'</button>'
-        +'<span class="erow-actions-sep"></span>'
-        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.copyVaccination(\''+v.id+'\')" title="Копировать">'+I('clipboard')+'</button>'
-        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editVaccination(\''+v.id+'\')" title="Редактировать">'+UI.icon('edit','')+'</button>'
-        +'<button class="btn btn-icon danger" onclick="event.stopPropagation();VetPages.deleteVaccination(\''+v.id+'\')" title="Удалить">'+UI.icon('trash','')+'</button>'
+        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editVaccination(\''+v.id+'\')" title="Открыть" aria-label="Открыть">'+UI.icon('edit','')+'</button>'
+        +UI.rowMenu([
+            {label:'Печать справки', icon:'print', onclick:"VetPages.printVaccinationCard('"+v.id+"')"},
+            {label:'Копировать', icon:'clipboard', onclick:"VetPages.copyVaccination('"+v.id+"')"},
+            {sep:true},
+            {label:'Удалить', icon:'trash', danger:true, onclick:"VetPages.deleteVaccination('"+v.id+"')"}
+          ])
         +'</div></div></div>';
     }).join('');
   }
@@ -1825,10 +1829,9 @@
         +'<div class="erow-right">'
         +'<span class="erow-amount">'+Number(it.price).toFixed(0)+' ₸</span>'
         +'<div class="erow-actions">'
-        +'<button class="btn btn-icon btn-open" onclick="event.stopPropagation();VetPages.editItem(\''+it.id+'\')" title="Открыть">'+UI.icon('eye','')+'</button>'
+        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editItem(\''+it.id+'\')" title="Редактировать" aria-label="Редактировать">'+UI.icon('edit','')+'</button>'
         +'<span class="erow-actions-sep"></span>'
-        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editItem(\''+it.id+'\')" title="Редактировать">'+UI.icon('edit','')+'</button>'
-        +'<button class="btn btn-icon danger" onclick="event.stopPropagation();VetPages.deleteItem(\''+it.id+'\',\''+esc(it.name)+'\')" title="Удалить">'+UI.icon('trash','')+'</button>'
+        +'<button class="btn btn-icon danger" onclick="event.stopPropagation();VetPages.deleteItem(\''+it.id+'\',\''+esc(it.name)+'\')" title="Удалить" aria-label="Удалить">'+UI.icon('trash','')+'</button>'
         +'</div></div></div>';
     }).join('');
   }
@@ -1901,10 +1904,9 @@
         +'<div class="erow-right">'
         +(s.is_active?'<span class="badge badge-active">Активен</span>':'<span class="badge badge-inactive">Неактивен</span>')
         +'<div class="erow-actions">'
-        +'<button class="btn btn-icon btn-open" onclick="event.stopPropagation();VetPages.showStaffCard(\''+s.id+'\')" title="Открыть карточку">'+UI.icon('eye','')+'</button>'
+        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editStaff(\''+s.id+'\')" title="Редактировать" aria-label="Редактировать">'+UI.icon('edit','')+'</button>'
         +'<span class="erow-actions-sep"></span>'
-        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editStaff(\''+s.id+'\')" title="Редактировать">'+UI.icon('edit','')+'</button>'
-        +'<button class="btn btn-icon danger" onclick="event.stopPropagation();VetPages.deleteStaff(\''+s.id+'\',\''+esc(s.name)+'\')" title="Удалить">'+UI.icon('trash','')+'</button>'
+        +'<button class="btn btn-icon danger" onclick="event.stopPropagation();VetPages.deleteStaff(\''+s.id+'\',\''+esc(s.name)+'\')" title="Удалить" aria-label="Удалить">'+UI.icon('trash','')+'</button>'
         +'</div></div></div>';
     }).join('');
   }

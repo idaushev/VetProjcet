@@ -2609,3 +2609,32 @@ body[data-role="admin"] .settings-tab.admin-only { display: inline-flex; }
 @media (prefers-reduced-motion: reduce) {
   .skeleton-bar { animation: none; }
 }
+
+/* ── Оверфлоу-меню строки списка «⋯» ───────────────────────────────
+   Вторичные/деструктивные действия строки прячутся сюда; в строке
+   остаётся 1–2 частых действия. Позиционируется JS-ом (position:fixed). */
+.row-menu-wrap { position: relative; display: inline-flex; }
+.row-menu-btn .row-menu-dots {
+  font-size: 20px; line-height: 1; letter-spacing: 1px;
+  transform: translateY(-2px); font-weight: 700;
+}
+.row-menu {
+  position: fixed; z-index: 250; min-width: 200px;
+  background: var(--bg-s); border: 1px solid var(--border);
+  border-radius: var(--r); box-shadow: var(--shadow-lg);
+  padding: 6px; display: none; flex-direction: column; gap: 2px;
+}
+.row-menu.open { display: flex; }
+.row-menu-item {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 0 12px; height: 44px;
+  background: none; border: none; cursor: pointer; text-align: left;
+  font-size: var(--fs-md); font-family: inherit; color: var(--text);
+  border-radius: var(--r-sm); white-space: nowrap;
+  transition: background var(--t);
+}
+.row-menu-item:hover { background: var(--bg-hover); }
+.row-menu-item.danger { color: var(--danger); }
+.row-menu-item.danger:hover { background: var(--danger-dim); }
+.row-menu-item svg { width: 18px; height: 18px; opacity: .7; flex-shrink: 0; }
+.row-menu-sep { height: 1px; background: var(--border); margin: 4px 6px; }

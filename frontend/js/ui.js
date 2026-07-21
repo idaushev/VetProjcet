@@ -45,6 +45,61 @@
     });
   }
 
+  // ── Меню строки списка «⋯» ─────────────────────────────────────────────
+  // Вторичные и деструктивные действия строки прячем в оверфлоу-меню, чтобы
+  // в строке осталось 1–2 частых действия под палец. Меню позиционируется
+  // position:fixed от кнопки: список имеет overflow:hidden, но у .erow нет
+  // transform, поэтому fixed-меню не обрезается и не требует портала в body.
+  //
+  // rowMenu(items): items = [{label, icon, onclick, danger} | {sep:true}].
+  // onclick — «сырой» вызов без event.stopPropagation (обёртку добавляем сами).
+  function rowMenu(items) {
+    var body = (items||[]).map(function(it) {
+      if (it.sep) return '<div class="row-menu-sep"></div>';
+      return '<button class="row-menu-item'+(it.danger?' danger':'')+'" role="menuitem"'
+        + ' onclick="event.stopPropagation();VetUI.closeRowMenu();'+it.onclick+'">'
+        + (it.icon ? I(ICON_ALIAS[it.icon]||it.icon) : '')
+        + '<span>'+esc(it.label)+'</span></button>';
+    }).join('');
+    return '<span class="row-menu-wrap">'
+      + '<button class="btn btn-icon row-menu-btn" aria-label="Ещё действия" aria-haspopup="true"'
+      + ' onclick="VetUI.toggleRowMenu(event,this)"><span class="row-menu-dots">⋯</span></button>'
+      + '<div class="row-menu" role="menu">'+body+'</div></span>';
+  }
+
+  var _openRowMenu = null;
+  function closeRowMenu() {
+    if (_openRowMenu) {
+      _openRowMenu.classList.remove('open');
+      _openRowMenu.style.cssText = '';
+      _openRowMenu = null;
+    }
+  }
+  function toggleRowMenu(e, btn) {
+    e.stopPropagation();
+    var menu = btn.parentNode.querySelector('.row-menu');
+    if (!menu) return;
+    if (_openRowMenu === menu) { closeRowMenu(); return; }
+    closeRowMenu();
+    var r = btn.getBoundingClientRect();
+    menu.style.position = 'fixed';
+    menu.style.visibility = 'hidden';
+    menu.classList.add('open');            // делаем измеримым
+    var mw = menu.offsetWidth || 200, mh = menu.offsetHeight || 0;
+    var left = Math.max(8, Math.round(r.right - mw));
+    var top = r.bottom + 4;
+    if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 4); // не помещается снизу — вверх
+    menu.style.left = left + 'px';
+    menu.style.top  = Math.round(top) + 'px';
+    menu.style.visibility = '';
+    _openRowMenu = menu;
+  }
+  // Закрытие: клик вне (кнопка и пункты сами гасят всплытие), скролл, ресайз, Esc.
+  document.addEventListener('click', closeRowMenu);
+  window.addEventListener('scroll', closeRowMenu, true);
+  window.addEventListener('resize', closeRowMenu);
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeRowMenu(); });
+
   function avatar(name, type) {
     var parts = (name||'?').trim().split(/\s+/);
     var ini = parts.length >= 2
@@ -1372,6 +1427,7 @@
 
   window.VetUI = {
     icon:icon, esc:esc, avatar:avatar,
+    rowMenu:rowMenu, toggleRowMenu:toggleRowMenu, closeRowMenu:closeRowMenu,
     toast:toast, confirm:confirm,
     showModal:showModal, hideModal:hideModal, requestHideModal:requestHideModal,
     ownerFormHTML:ownerFormHTML, ownerFormData:ownerFormData,
