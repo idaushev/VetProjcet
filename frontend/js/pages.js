@@ -2753,11 +2753,27 @@
     };
 
     setupSettingsTabs();
+    setupThemeSwitch();
     // Пользователи и телеграм — админские вкладки; грузим по факту наличия.
     if (document.querySelector('[data-spanel="users"]') && window.VetAuth && VetAuth.user() && VetAuth.user().role === 'admin') {
       initUsers();
       initTelegramSettings();
     }
+  }
+
+  // ── Переключатель темы (Светлая / Тёмная / Системная) ───────────────
+  function setupThemeSwitch() {
+    var box = document.getElementById('theme-switch');
+    if (!box || !window.VetTheme) return;
+    var cur = VetTheme.get();
+    box.querySelectorAll('[data-theme-mode]').forEach(function(btn) {
+      btn.classList.toggle('active', btn.dataset.themeMode === cur);
+      btn.onclick = function() {
+        VetTheme.set(btn.dataset.themeMode);
+        box.querySelectorAll('[data-theme-mode]').forEach(function(b){ b.classList.remove('active'); });
+        btn.classList.add('active');
+      };
+    });
   }
 
   // ── Вкладки настроек ────────────────────────────────────────────────

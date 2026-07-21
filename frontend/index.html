@@ -21,6 +21,33 @@
   <link rel="preload" href="/vendor/fonts/inter-cyrillic-400.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/vendor/fonts/inter-cyrillic-600.woff2" as="font" type="font/woff2" crossorigin>
   <link href="/vendor/fonts/inter.css" rel="stylesheet">
+  <!-- Тема: применяем ДО загрузки CSS, чтобы не мигало светлым при тёмной теме.
+       'vet-theme' в localStorage: light | dark | auto (по системе). -->
+  <script>
+    window.VetTheme = (function () {
+      function isDark(mode) {
+        return mode === 'dark' || (mode === 'auto' && window.matchMedia
+          && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      }
+      var api = {
+        get: function () { try { return localStorage.getItem('vet-theme') || 'light'; } catch (e) { return 'light'; } },
+        apply: function (mode) {
+          var dark = isDark(mode || api.get());
+          document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+          var mc = document.querySelector('meta[name="theme-color"]');
+          if (mc) mc.setAttribute('content', dark ? '#171e28' : '#ffffff');
+        },
+        set: function (mode) { try { localStorage.setItem('vet-theme', mode); } catch (e) {} api.apply(mode); }
+      };
+      api.apply();
+      if (window.matchMedia) {
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
+          if (api.get() === 'auto') api.apply('auto');
+        });
+      }
+      return api;
+    })();
+  </script>
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -718,6 +745,15 @@
                     <label class="form-label">Расписание: конец дня</label>
                     <select id="s-sched-end" class="form-select"></select>
                   </div>
+                </div>
+                <div class="form-group" style="margin-top:16px;">
+                  <label class="form-label">Оформление</label>
+                  <div id="theme-switch" class="flex-gap" role="group" aria-label="Тема оформления">
+                    <button type="button" class="filter-btn" data-theme-mode="light">Светлая</button>
+                    <button type="button" class="filter-btn" data-theme-mode="dark">Тёмная</button>
+                    <button type="button" class="filter-btn" data-theme-mode="auto">Системная</button>
+                  </div>
+                  <div class="form-hint">Тёмная тема — на устройстве, где вы её включили; на других остаётся своя.</div>
                 </div>
                 <div style="margin-top:20px;">
                   <button class="btn btn-primary" id="btn-save-settings">Сохранить настройки</button>
