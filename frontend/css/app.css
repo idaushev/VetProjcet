@@ -2639,3 +2639,13 @@ body[data-role="admin"] .settings-tab.admin-only { display: inline-flex; }
 .row-menu-item.danger:hover { background: var(--danger-dim); }
 .row-menu-item svg { width: 18px; height: 18px; opacity: .7; flex-shrink: 0; }
 .row-menu-sep { height: 1px; background: var(--border); margin: 4px 6px; }
+
+/* ── Закреплённый итог в футере формы приёма ───────────────────────
+   «К оплате» всегда на виду у кнопки «Сохранить», пока врач добавляет
+   услуги в прокручиваемом теле (секция «Оплата» может быть свёрнута). */
+.vf-footer-total {
+  margin-right: auto;
+  font-size: var(--fs-md); color: var(--text-2);
+  white-space: nowrap;
+}
+.vf-footer-total b { color: var(--text); font-size: var(--fs-lg); font-weight: 800; }

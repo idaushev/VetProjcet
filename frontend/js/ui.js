@@ -916,11 +916,27 @@
     if (cashEl)   cashEl.textContent   = cash.toFixed(0) + ' ₸';
     if (clinicEl) clinicEl.textContent = clinic.toFixed(0) + ' ₸';
     if (doctorEl) doctorEl.textContent = doctor.toFixed(0) + ' ₸';
+
+    // Дублируем итог в закреплённый футер модалки.
+    var ft = document.getElementById('vf-footer-total');
+    if (ft) ft.innerHTML = (disc > 0 ? 'К оплате ' : 'Итог ') + '<b>' + total.toFixed(0) + ' ₸</b>';
   }
 
   function initVisitForm(allOwners, allPets, allItems, prefillOwner, prefillPet) {
     // Подгоняем высоту заполненных полей под текст сразу при открытии.
     setTimeout(function(){ _autoGrowAll(document.getElementById('vf-root')); }, 30);
+    // Закрепляем «К оплате» в футере модалки: сумма всегда на виду, пока
+    // врач добавляет услуги в прокручиваемом теле (секция «Оплата» может
+    // быть свёрнута). Футер очищается на каждом showModal — не протекает.
+    var _mf = document.getElementById('modal-footer');
+    if (_mf && !document.getElementById('vf-footer-total')) {
+      var ft = document.createElement('div');
+      ft.id = 'vf-footer-total';
+      ft.className = 'vf-footer-total';
+      ft.innerHTML = 'Итог <b>0 ₸</b>';   // стартовое значение, пока нет позиций
+      _mf.insertBefore(ft, _mf.firstChild);
+    }
+    setTimeout(_updatePaymentSummary, 60);
     _vs = {
       ownerMode: prefillOwner ? 'selected' : 'search',
       owner:     prefillOwner || null,
