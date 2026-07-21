@@ -71,14 +71,36 @@
   // ── Empty state ───────────────────────────────────────────────────────
   // Пустое состояние — не тупик: если передан ctaLabel/ctaOnclick,
   // показываем кнопку следующего шага («Записать», «Новый приём»...).
-  function emptyState(text, ctaLabel, ctaOnclick) {
+  // emptyState(text, ctaLabel, ctaOnclick, iconName)
+  // iconName — имя иконки из VetIcons (напр. 'search', 'paw'); без него —
+  // нейтральный значок «инфо». Разные значки помогают отличить «ещё ничего
+  // нет» от «не найдено по фильтру».
+  function emptyState(text, ctaLabel, ctaOnclick, iconName) {
+    var iconSvg = (iconName && window.VetIcons)
+      ? window.VetIcons.get(iconName, { cls: 'list-empty-icon' })
+      : '<svg class="list-empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">'
+        + '<circle cx="12" cy="12" r="10"/><path d="M8 15h8M8 9h2m4 0h2"/></svg>';
     return `<div class="list-empty">
-      <svg class="list-empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-        <circle cx="12" cy="12" r="10"/><path d="M8 15h8M8 9h2m4 0h2"/>
-      </svg>
+      ${iconSvg}
       <span>${esc(text)}</span>
       ${ctaLabel ? '<button class="btn btn-ghost btn-sm" style="margin-top:10px;" onclick="'+esc(ctaOnclick||'')+'">'+esc(ctaLabel)+'</button>' : ''}
     </div>`;
+  }
+
+  // «Ничего не найдено» с кнопкой сброса — отдельный вид пустого состояния
+  // для поиска/фильтра: значок лупы + действие «Сбросить поиск».
+  function searchEmpty(inputId) {
+    return emptyState('Ничего не найдено', 'Сбросить поиск',
+      "VetPages.resetSearch('"+inputId+"')", 'search');
+  }
+
+  // Очищает поле поиска и перерисовывает список (setupSearch слушает oninput).
+  function resetSearch(inputId) {
+    var el = document.getElementById(inputId);
+    if (!el) return;
+    el.value = '';
+    if (typeof el.oninput === 'function') el.oninput();
+    el.focus();
   }
 
   // ── Highlight search term ─────────────────────────────────────────────
@@ -376,7 +398,7 @@
     var el = document.getElementById('owners-list');
     if (!el) return;
     if (!owners.length) {
-      el.innerHTML = q ? emptyState('Ничего не найдено') : emptyState('Владельцев ещё нет', '+ Добавить', 'VetPages.addOwner()');
+      el.innerHTML = q ? searchEmpty('search-owners') : emptyState('Владельцев ещё нет', '+ Добавить', 'VetPages.addOwner()', 'user');
       return;
     }
     var ownersTotal = owners.length;
@@ -544,7 +566,7 @@
     var el = document.getElementById('pets-list');
     if (!el) return;
     if (!pets.length) {
-      el.innerHTML = q ? emptyState('Ничего не найдено') : emptyState('Животных нет', '+ Добавить', 'VetPages.addPet()');
+      el.innerHTML = q ? searchEmpty('search-pets') : emptyState('Животных нет', '+ Добавить', 'VetPages.addPet()', 'paw');
       return;
     }
     var petsTotal = pets.length;
@@ -744,8 +766,8 @@
     var el = document.getElementById('visits-list');
     if (!el) return;
     if (!visits.length) {
-      el.innerHTML = q ? emptyState('Ничего не найдено')
-                       : emptyState('Приёмов нет', '+ Новый приём', 'VetPages.newVisit()');
+      el.innerHTML = q ? searchEmpty('search-visits')
+                       : emptyState('Приёмов нет', '+ Новый приём', 'VetPages.newVisit()', 'clipboard');
       return;
     }
 
@@ -1283,7 +1305,12 @@
 
     var el = document.getElementById('vaccinations-list');
     if (!el) return;
-    if (!list.length) { el.innerHTML = emptyState(q || _vaccDateFilter !== 'all' ? 'Ничего не найдено' : 'Вакцинаций нет'); return; }
+    if (!list.length) {
+      el.innerHTML = (q || _vaccDateFilter !== 'all')
+        ? searchEmpty('search-vaccinations')
+        : emptyState('Вакцинаций нет', '+ Добавить', 'VetPages.addVaccination()', 'syringe');
+      return;
+    }
     el.innerHTML = list.map(function(v) {
       var pet = _vacPetsMap[v.pet_id] || {};
       // Строго "<": вакцинация со сроком сегодня — ещё не просрочена.
@@ -1816,7 +1843,7 @@
 
     var el = document.getElementById('items-list');
     if (!el) return;
-    if (!list.length) { el.innerHTML = emptyState(q ? 'Ничего не найдено' : 'Каталог пуст'); return; }
+    if (!list.length) { el.innerHTML = q ? searchEmpty('search-items') : emptyState('Каталог пуст', '+ Добавить', 'VetPages.addItem()', 'box'); return; }
     el.innerHTML = list.map(function(it) {
       var typeLabel = it.type==='drug'?'Препарат':'Услуга';
       var badgeCls  = it.type==='drug'?'drug':'service';
@@ -1890,7 +1917,7 @@
     }).sort(function(a,b){ return a.name.localeCompare(b.name,'ru'); });
     var el = document.getElementById('staff-list');
     if (!el) return;
-    if (!list.length) { el.innerHTML = emptyState(q ? 'Ничего не найдено' : 'Персонал не добавлен'); return; }
+    if (!list.length) { el.innerHTML = q ? searchEmpty('search-staff') : emptyState('Персонал не добавлен', '+ Добавить', 'VetPages.addStaff()', 'users'); return; }
     el.innerHTML = list.map(function(s) {
       var media = s.photo
         ? '<img class="pet-photo" src="'+s.photo+'" alt="">'
@@ -4605,7 +4632,7 @@ ${visit.notes ? `<div class="section">
     });
 
     if (!list.length) {
-      el.innerHTML = emptyState(q ? 'Ничего не найдено' : 'Чипированных животных пока нет');
+      el.innerHTML = q ? searchEmpty('search-chips') : emptyState('Чипированных животных пока нет', null, null, 'paw');
       return;
     }
     el.innerHTML = list.map(function(p){
@@ -5427,6 +5454,7 @@ ${visit.notes ? `<div class="section">
     apptSetStatus:      apptSetStatus,
     apptDelete:         apptDelete,
     apptStartVisit:     apptStartVisit,
+    resetSearch:        resetSearch,
     editVisit:          editVisit,
     copyVisit:          copyVisit,
     copyVaccination:    copyVaccination,
