@@ -30,6 +30,13 @@ cert.pem
 rootCA.pem
 ADMIN-PASSWORD.txt
 
+# Production deployment (runtime, machine-local):
+# live DB and certs (prod/data), deployed frontend snapshot (prod/frontend),
+# and the deployed binary. The launcher prod/start.bat IS tracked.
+prod/data/
+prod/frontend/
+prod/backend.exe
+
 # OS/editor noise
 .DS_Store
 Thumbs.db
