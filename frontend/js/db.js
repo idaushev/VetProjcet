@@ -2,12 +2,12 @@
   "use strict";
 
   const DB_NAME    = "vetclinic-pwa";
-  const DB_VERSION = 4; // v4: appointments (расписание — запись на приём)
+  const DB_VERSION = 5; // v5: склад — warehouses, stock_movements
 
   // Список всех object stores
   // attachments — только метаданные, приезжают с сервера через pull.
   // Сами файлы на планшете не хранятся: смотреть сканы можно при наличии сети.
-  const ENTITY_STORES = ["owners", "pets", "items", "visits", "visit_items", "vaccinations", "staff", "attachments", "appointments"];
+  const ENTITY_STORES = ["owners", "pets", "items", "visits", "visit_items", "vaccinations", "staff", "attachments", "appointments", "warehouses", "stock_movements"];
   const META_STORES   = ["sync_queue", "sync_state", "devices", "attachment_queue"];
   const ALL_STORES    = ENTITY_STORES.concat(META_STORES);
 
@@ -43,6 +43,7 @@
           if (name === "vaccinations"){ _ensureIndex(store, "pet_id",   "pet_id",   false); }
           if (name === "attachments") { _ensureIndex(store, "visit_id", "visit_id", false); _ensureIndex(store, "pet_id", "pet_id", false); }
           if (name === "appointments"){ _ensureIndex(store, "starts_at", "starts_at", false); }
+          if (name === "stock_movements"){ _ensureIndex(store, "warehouse_id", "warehouse_id", false); _ensureIndex(store, "item_id", "item_id", false); }
         });
 
         // ── attachment_queue ───────────────────────────────────────────────

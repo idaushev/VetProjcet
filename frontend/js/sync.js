@@ -36,6 +36,7 @@
 
   const STORE_ORDER = [
     "owners", "pets", "items", "visits", "visit_items", "vaccinations", "staff", "appointments",
+    "warehouses", "stock_movements",
     // attachments — метаданные вложений. Едут только с сервера (pull):
     // само вложение создаётся загрузкой файла через POST /attachments,
     // а не push-ом записи. Push для них не нужен.

@@ -193,6 +193,38 @@ func (a *app) handleSyncPush(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// ── Склад ── права по виртуальной таблице "warehouse" (роль/право продавца).
+	if len(payload.Warehouses) > 0 && !canPush("warehouse") {
+		result.Skipped += len(payload.Warehouses)
+		payload.Warehouses = nil
+	}
+	for _, rec := range payload.Warehouses {
+		if ok, err := pushWarehouse(ctx, a.db, rec); ok {
+			a.stampAuthor(ctx, "warehouses", rec.ID, pushUserID)
+			result.Accepted++
+		} else {
+			if err != nil {
+				a.logger.Printf("syncPush warehouse %s: %v", rec.ID, err)
+			}
+			result.Skipped++
+		}
+	}
+	if len(payload.StockMovements) > 0 && !canPush("warehouse") {
+		result.Skipped += len(payload.StockMovements)
+		payload.StockMovements = nil
+	}
+	for _, rec := range payload.StockMovements {
+		if ok, err := pushStockMovement(ctx, a.db, rec); ok {
+			a.stampAuthor(ctx, "stock_movements", rec.ID, pushUserID)
+			result.Accepted++
+		} else {
+			if err != nil {
+				a.logger.Printf("syncPush stockmovement %s: %v", rec.ID, err)
+			}
+			result.Skipped++
+		}
+	}
+
 	a.logger.Printf("syncPush: accepted=%d skipped=%d", result.Accepted, result.Skipped)
 	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: result})
 }
@@ -274,6 +306,16 @@ func (a *app) handleSyncPull(w http.ResponseWriter, r *http.Request) {
 		a.logger.Printf("syncPull attachments: %v", err)
 	} else {
 		data.Attachments = att
+	}
+	if whs, err := pullWarehouses(ctx, a.db, since); err != nil {
+		a.logger.Printf("syncPull warehouses: %v", err)
+	} else {
+		data.Warehouses = whs
+	}
+	if movs, err := pullStockMovements(ctx, a.db, since); err != nil {
+		a.logger.Printf("syncPull stock_movements: %v", err)
+	} else {
+		data.StockMovements = movs
 	}
 
 	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: data})
@@ -419,17 +461,18 @@ func pushItem(ctx context.Context, db *sql.DB, rec itemSyncRecord) (bool, error)
 	// Пересчитываем на сервере: клиент мог прислать percent с устаревшей суммой.
 	mode, percent, cost := resolveCost(rec.CostMode, rec.CostPercent, rec.Price, rec.CostPrice)
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO items (id, name, type, price, cost_price, cost_mode, cost_percent, is_active, updated_at, deleted_at, is_deleted, device_id, version, created_at, client_updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO items (id, name, type, price, cost_price, cost_mode, cost_percent, purchase_price, is_active, updated_at, deleted_at, is_deleted, device_id, version, created_at, client_updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		  name=excluded.name, type=excluded.type, price=excluded.price,
 		  cost_price=excluded.cost_price, cost_mode=excluded.cost_mode,
-		  cost_percent=excluded.cost_percent, is_active=excluded.is_active,
+		  cost_percent=excluded.cost_percent, purchase_price=excluded.purchase_price,
+		  is_active=excluded.is_active,
 		  updated_at=excluded.updated_at, deleted_at=excluded.deleted_at,
 		  is_deleted=excluded.is_deleted, device_id=excluded.device_id,
 		  version=excluded.version,
 		  client_updated_at=excluded.client_updated_at`,
-		rec.ID, rec.Name, normalizeItemType(rec.Type), rec.Price, cost, mode, percent, boolToInt(rec.IsActive),
+		rec.ID, rec.Name, normalizeItemType(rec.Type), rec.Price, cost, mode, percent, rec.PurchasePrice, boolToInt(rec.IsActive),
 		serverNow, deletedAt, rec.IsDeleted,
 		nullableString(rec.DeviceID), rec.Version, serverNow, clientAt,
 	)
@@ -682,7 +725,7 @@ SELECT id, owner_id, name, type, gender, birth_date, age, COALESCE(breed,''),
 FROM pets`
 
 func pullItems(ctx context.Context, db *sql.DB, since time.Time) ([]Item, error) {
-	q := `SELECT id, name, type, price, COALESCE(cost_price,0), COALESCE(cost_mode,'fixed'), COALESCE(cost_percent,0), is_active, created_at, updated_at, deleted_at, is_deleted, COALESCE(device_id,''), COALESCE(version,1) FROM items`
+	q := `SELECT id, name, type, price, COALESCE(cost_price,0), COALESCE(cost_mode,'fixed'), COALESCE(cost_percent,0), COALESCE(purchase_price,0), is_active, created_at, updated_at, deleted_at, is_deleted, COALESCE(device_id,''), COALESCE(version,1) FROM items`
 	var rows *sql.Rows
 	var err error
 	if !since.IsZero() {
@@ -857,6 +900,140 @@ func pullAttachments(ctx context.Context, db *sql.DB, since time.Time) ([]Attach
 			continue
 		}
 		list = append(list, at)
+	}
+	return list, rows.Err()
+}
+
+// ─── Склад: push/pull ─────────────────────────────────────────────────────────
+
+func pushWarehouse(ctx context.Context, db *sql.DB, rec warehouseSyncRecord) (bool, error) {
+	if rec.ID == "" {
+		return false, fmt.Errorf("empty id")
+	}
+	wins, err := clientWinsVersion(ctx, db, "warehouses", rec.ID, rec.UpdatedAt, rec.Version)
+	if err != nil || !wins {
+		return false, err
+	}
+	serverNow := T(nowUTC())
+	clientAt := Tp(parseSyncTimePtr(&rec.UpdatedAt))
+	deletedAt := Tp(parseSyncTimePtr(rec.DeletedAt))
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO warehouses (id, name, is_default, updated_at, deleted_at, is_deleted, device_id, version, created_at, client_updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+		  name=excluded.name, is_default=excluded.is_default,
+		  updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, is_deleted=excluded.is_deleted,
+		  device_id=excluded.device_id, version=excluded.version, client_updated_at=excluded.client_updated_at`,
+		rec.ID, rec.Name, rec.IsDefault, serverNow, deletedAt, rec.IsDeleted,
+		nullableString(rec.DeviceID), rec.Version, serverNow, clientAt,
+	)
+	return err == nil, err
+}
+
+func pushStockMovement(ctx context.Context, db *sql.DB, rec stockMovementSyncRecord) (bool, error) {
+	if rec.ID == "" {
+		return false, fmt.Errorf("empty id")
+	}
+	wins, err := clientWinsVersion(ctx, db, "stock_movements", rec.ID, rec.UpdatedAt, rec.Version)
+	if err != nil || !wins {
+		return false, err
+	}
+	serverNow := T(nowUTC())
+	clientAt := Tp(parseSyncTimePtr(&rec.UpdatedAt))
+	deletedAt := Tp(parseSyncTimePtr(rec.DeletedAt))
+	occurredAt := Tp(parseSyncTimePtr(&rec.OccurredAt))
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO stock_movements (id, warehouse_id, item_id, kind, qty, purchase_price, retail_price,
+		                             reason, note, occurred_at, updated_at, deleted_at, is_deleted,
+		                             device_id, version, created_at, client_updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+		  warehouse_id=excluded.warehouse_id, item_id=excluded.item_id, kind=excluded.kind,
+		  qty=excluded.qty, purchase_price=excluded.purchase_price, retail_price=excluded.retail_price,
+		  reason=excluded.reason, note=excluded.note, occurred_at=excluded.occurred_at,
+		  updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, is_deleted=excluded.is_deleted,
+		  device_id=excluded.device_id, version=excluded.version, client_updated_at=excluded.client_updated_at`,
+		rec.ID, rec.WarehouseID, rec.ItemID, rec.Kind, rec.Qty, rec.PurchasePrice, rec.RetailPrice,
+		nullableString(rec.Reason), nullableString(rec.Note), occurredAt,
+		serverNow, deletedAt, rec.IsDeleted, nullableString(rec.DeviceID), rec.Version, serverNow, clientAt,
+	)
+	return err == nil, err
+}
+
+func pullWarehouses(ctx context.Context, db *sql.DB, since time.Time) ([]Warehouse, error) {
+	q := `SELECT id, name, COALESCE(is_default,0), created_at, updated_at, deleted_at, is_deleted,
+	             COALESCE(device_id,''), COALESCE(version,1) FROM warehouses`
+	var rows *sql.Rows
+	var err error
+	if !since.IsZero() {
+		q += ` WHERE updated_at > ?`
+		rows, err = db.QueryContext(ctx, q, T(since))
+	} else {
+		rows, err = db.QueryContext(ctx, q)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	list := []Warehouse{}
+	for rows.Next() {
+		var w Warehouse
+		var created, updated timeScanner
+		var deleted timeScanner
+		if err := rows.Scan(&w.ID, &w.Name, &w.IsDefault, &created, &updated, &deleted,
+			&w.IsDeleted, &w.DeviceID, &w.Version); err != nil {
+			return nil, err
+		}
+		if created.t != nil {
+			w.CreatedAt = *created.t
+		}
+		if updated.t != nil {
+			w.UpdatedAt = *updated.t
+		}
+		w.DeletedAt = deleted.t
+		list = append(list, w)
+	}
+	return list, rows.Err()
+}
+
+func pullStockMovements(ctx context.Context, db *sql.DB, since time.Time) ([]StockMovement, error) {
+	q := `SELECT id, warehouse_id, item_id, COALESCE(kind,'receipt'), COALESCE(qty,0),
+	             COALESCE(purchase_price,0), COALESCE(retail_price,0), COALESCE(reason,''), COALESCE(note,''),
+	             occurred_at, created_at, updated_at, deleted_at, is_deleted,
+	             COALESCE(device_id,''), COALESCE(version,1) FROM stock_movements`
+	var rows *sql.Rows
+	var err error
+	if !since.IsZero() {
+		q += ` WHERE updated_at > ?`
+		rows, err = db.QueryContext(ctx, q, T(since))
+	} else {
+		rows, err = db.QueryContext(ctx, q)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	list := []StockMovement{}
+	for rows.Next() {
+		var m StockMovement
+		var occurred, created, updated, deleted timeScanner
+		if err := rows.Scan(&m.ID, &m.WarehouseID, &m.ItemID, &m.Kind, &m.Qty,
+			&m.PurchasePrice, &m.RetailPrice, &m.Reason, &m.Note,
+			&occurred, &created, &updated, &deleted, &m.IsDeleted, &m.DeviceID, &m.Version); err != nil {
+			return nil, err
+		}
+		if occurred.t != nil {
+			s := occurred.t.Format(time.RFC3339)
+			m.OccurredAt = &s
+		}
+		if created.t != nil {
+			m.CreatedAt = *created.t
+		}
+		if updated.t != nil {
+			m.UpdatedAt = *updated.t
+		}
+		m.DeletedAt = deleted.t
+		list = append(list, m)
 	}
 	return list, rows.Err()
 }

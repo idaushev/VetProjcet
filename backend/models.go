@@ -25,6 +25,7 @@ type Item struct {
 	// При percent CostPrice пересчитывается автоматически при каждой смене цены.
 	CostMode    string  `json:"cost_mode"`
 	CostPercent float64 `json:"cost_percent"`
+	PurchasePrice float64 `json:"purchase_price"` // закупочная (для склада); розница = Price
 	IsActive    bool    `json:"is_active"`
 	SyncMeta
 }
@@ -198,6 +199,7 @@ type itemPayload struct {
 	// продолжает слать только cost_price и работает как раньше.
 	CostMode    string  `json:"cost_mode,omitempty"`
 	CostPercent float64 `json:"cost_percent,omitempty"`
+	PurchasePrice float64 `json:"purchase_price,omitempty"`
 	IsActive    *bool   `json:"is_active,omitempty"`
 }
 
@@ -347,6 +349,8 @@ type syncPushPayload struct {
 	Vaccinations []vaccinationSyncRecord `json:"vaccinations"`
 	Staff       []staffSyncRecord      `json:"staff"`
 	Appointments []appointmentSyncRecord `json:"appointments"`
+	Warehouses     []warehouseSyncRecord     `json:"warehouses"`
+	StockMovements []stockMovementSyncRecord `json:"stock_movements"`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -406,12 +410,65 @@ type itemSyncRecord struct {
 	// resolveCost подставит fixed и сохранит присланный cost_price.
 	CostMode    string  `json:"cost_mode"`
 	CostPercent float64 `json:"cost_percent"`
+	PurchasePrice float64 `json:"purchase_price"`
 	IsActive    bool    `json:"is_active"`
 	UpdatedAt   string  `json:"updated_at"`
 	DeletedAt *string `json:"deleted_at"`
 	IsDeleted int     `json:"is_deleted"`
 	DeviceID  string  `json:"device_id"`
 	Version   int     `json:"version"`
+}
+
+// ─── Склад ───────────────────────────────────────────────────────────────────
+
+type Warehouse struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	IsDefault int    `json:"is_default"`
+	SyncMeta
+}
+
+type StockMovement struct {
+	ID            string  `json:"id"`
+	WarehouseID   string  `json:"warehouse_id"`
+	ItemID        string  `json:"item_id"`
+	Kind          string  `json:"kind"`
+	Qty           float64 `json:"qty"`
+	PurchasePrice float64 `json:"purchase_price"`
+	RetailPrice   float64 `json:"retail_price"`
+	Reason        string  `json:"reason"`
+	Note          string  `json:"note"`
+	OccurredAt    *string `json:"occurred_at"`
+	SyncMeta
+}
+
+type warehouseSyncRecord struct {
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	IsDefault int     `json:"is_default"`
+	UpdatedAt string  `json:"updated_at"`
+	DeletedAt *string `json:"deleted_at"`
+	IsDeleted int     `json:"is_deleted"`
+	DeviceID  string  `json:"device_id"`
+	Version   int     `json:"version"`
+}
+
+type stockMovementSyncRecord struct {
+	ID            string  `json:"id"`
+	WarehouseID   string  `json:"warehouse_id"`
+	ItemID        string  `json:"item_id"`
+	Kind          string  `json:"kind"`
+	Qty           float64 `json:"qty"`
+	PurchasePrice float64 `json:"purchase_price"`
+	RetailPrice   float64 `json:"retail_price"`
+	Reason        string  `json:"reason"`
+	Note          string  `json:"note"`
+	OccurredAt    string  `json:"occurred_at"`
+	UpdatedAt     string  `json:"updated_at"`
+	DeletedAt     *string `json:"deleted_at"`
+	IsDeleted     int     `json:"is_deleted"`
+	DeviceID      string  `json:"device_id"`
+	Version       int     `json:"version"`
 }
 
 type visitSyncRecord struct {
@@ -536,5 +593,7 @@ type syncPullData struct {
 	// по /attachments/{id}/file и только при наличии сети.
 	Attachments  []Attachment  `json:"attachments"`
 	Appointments []Appointment `json:"appointments"`
+	Warehouses     []Warehouse     `json:"warehouses"`
+	StockMovements []StockMovement `json:"stock_movements"`
 	ServerTime   time.Time     `json:"server_time"`
 }

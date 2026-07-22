@@ -155,6 +155,9 @@ CREATE TABLE IF NOT EXISTS items (
     -- cost_mode: fixed — кассовая задана суммой | percent — доля от цены
     cost_mode    TEXT NOT NULL DEFAULT 'fixed' CHECK(cost_mode IN ('fixed','percent')),
     cost_percent REAL NOT NULL DEFAULT 0,
+    -- purchase_price — закупочная цена для склада (розница = price). Обновляется
+    -- при поступлении и при изменении цен. Кассовая (cost_price) — отдельно.
+    purchase_price REAL NOT NULL DEFAULT 0,
     is_active  INTEGER NOT NULL DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -293,6 +296,50 @@ CREATE INDEX IF NOT EXISTS idx_vacc_date      ON vaccinations(administered_at);
 CREATE INDEX IF NOT EXISTS idx_vacc_next_due  ON vaccinations(next_due_at);
 CREATE INDEX IF NOT EXISTS idx_vacc_updated   ON vaccinations(updated_at);
 CREATE INDEX IF NOT EXISTS idx_vacc_deleted   ON vaccinations(is_deleted);
+
+-- ── Склад (опциональный модуль) ────────────────────────────────────────
+-- Склады. Если ни одного нет — сервер заводит дефолтный «Склад ветклиники».
+CREATE TABLE IF NOT EXISTS warehouses (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME,
+    is_deleted INTEGER NOT NULL DEFAULT 0,
+    device_id  TEXT,
+    version    INTEGER NOT NULL DEFAULT 1,
+    client_updated_at DATETIME
+);
+
+-- Движения склада — append-only журнал. Остаток = SUM(qty) по (склад, позиция).
+-- Ledger, а не изменяемый счётчик: два устройства офлайн лишь дописывают свои
+-- движения, они сливаются объединением без конфликта потери остатка.
+CREATE TABLE IF NOT EXISTS stock_movements (
+    id             TEXT PRIMARY KEY,
+    warehouse_id   TEXT NOT NULL,
+    item_id        TEXT NOT NULL,
+    -- kind: receipt(поступление,+) | writeoff(списание,−) | sale(продажа,−) |
+    --       price(смена цен, qty=0) | adjust(корректировка/инвентаризация)
+    kind           TEXT NOT NULL DEFAULT 'receipt',
+    qty            REAL NOT NULL DEFAULT 0,   -- знак = направление: приход>0, расход<0
+    purchase_price REAL NOT NULL DEFAULT 0,   -- закупочная (snapshot на момент движения)
+    retail_price   REAL NOT NULL DEFAULT 0,   -- розничная (для продажи — цена реализации)
+    reason         TEXT,                      -- причина списания/корректировки
+    note           TEXT,
+    occurred_at    DATETIME,                  -- дата операции (может отличаться от created_at)
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME,
+    is_deleted INTEGER NOT NULL DEFAULT 0,
+    device_id  TEXT,
+    version    INTEGER NOT NULL DEFAULT 1,
+    client_updated_at DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_stockmov_wh      ON stock_movements(warehouse_id);
+CREATE INDEX IF NOT EXISTS idx_stockmov_item    ON stock_movements(item_id);
+CREATE INDEX IF NOT EXISTS idx_stockmov_updated ON stock_movements(updated_at);
+CREATE INDEX IF NOT EXISTS idx_stockmov_deleted ON stock_movements(is_deleted);
 `
 
 // ─── Миграции ────────────────────────────────────────────────────────────────
@@ -344,6 +391,7 @@ var migrations = []string{
 	`ALTER TABLE items ADD COLUMN cost_price REAL DEFAULT 0`,
 	`ALTER TABLE items ADD COLUMN cost_mode TEXT NOT NULL DEFAULT 'fixed'`,
 	`ALTER TABLE items ADD COLUMN cost_percent REAL NOT NULL DEFAULT 0`,
+	`ALTER TABLE items ADD COLUMN purchase_price REAL NOT NULL DEFAULT 0`,
 	`CREATE INDEX IF NOT EXISTS idx_items_updated ON items(updated_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_items_deleted ON items(is_deleted)`,
 
@@ -599,7 +647,26 @@ func openDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("run migrations: %w", err)
 	}
 
+	seedDefaultWarehouse(ctx, db)
+
 	return db, nil
+}
+
+// seedDefaultWarehouse заводит «Склад ветклиники», если складов ещё нет.
+// Требование ТЗ: при одном складе он есть по умолчанию. Строка синкается
+// клиентам; видна только при включённом модуле склада.
+func seedDefaultWarehouse(ctx context.Context, db *sql.DB) {
+	var n int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM warehouses WHERE is_deleted=0`).Scan(&n); err != nil || n > 0 {
+		return
+	}
+	id, err := newUUID()
+	if err != nil {
+		return
+	}
+	_, _ = db.ExecContext(ctx,
+		`INSERT INTO warehouses (id, name, is_default, device_id, version) VALUES (?, 'Склад ветклиники', 1, 'server', 1)`,
+		id)
 }
 
 func runMigrations(ctx context.Context, db *sql.DB) error {
