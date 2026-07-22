@@ -136,6 +136,7 @@
   var DASH_ROWS = 5;
 
   async function initDashboard() {
+    refreshModules();  // гейтим раздел «Склад» по флагу модуля
     try {
       var d = await loadAll();
       var today = astanaTodayStr();
@@ -2768,6 +2769,25 @@
 
     setupSettingsTabs();
     setupThemeSwitch();
+
+    // Тумблер модуля склада (админ). Читает /settings/modules, пишет
+    // /settings/warehouse, обновляет навигацию.
+    var whChk = el('s-module-warehouse');
+    if (whChk && window.VetAuth && VetAuth.user() && VetAuth.user().role === 'admin') {
+      var _whApi = async function(method, body) {
+        var base = (window.VetAppConfig && window.VetAppConfig.apiBase) || '';
+        var nf = window.__nativeFetch || window.fetch.bind(window);
+        var res = await nf(base + (method==='GET'?'/settings/modules':'/settings/warehouse'), {
+          method: method, headers: { 'Content-Type':'application/json', 'X-Auth-Token': (VetAuth.token && VetAuth.token())||'' },
+          body: body ? JSON.stringify(body) : undefined });
+        return (await res.json()).data || {};
+      };
+      _whApi('GET').then(function(d){ whChk.checked = !!d.warehouse; }).catch(function(){});
+      whChk.onchange = async function() {
+        try { await _whApi('PUT', { enabled: whChk.checked }); refreshModules(); UI.toast(whChk.checked?'Модуль склада включён':'Модуль склада выключен','ok'); }
+        catch(e) { UI.toast('Не удалось изменить: '+(e&&e.message||e),'err'); whChk.checked=!whChk.checked; }
+      };
+    }
 
     // R7: неразрушающее «Обновить с сервера» (полный pull) — отдельно от
     // пугающего «Сбросить локальные данные».
@@ -5603,9 +5623,323 @@ ${visit.notes ? `<div class="section">
       'report-upcoming':  initReportUpcoming,
       'report-noshows':   initReportNoShows,
       'settings':         initSettings,
+      'warehouse':        initWarehouse,
     };
     var fn = map[page];
     if (fn) fn();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // СКЛАД (опциональный модуль)
+  // ═══════════════════════════════════════════════════════════════════════
+  var _whStores = [], _whItems = [], _whMoves = [];
+  var _whTab = 'stock';
+  var _whStockWarehouse = ''; // '' = все склады
+  var _whMoveKind = 'all';
+
+  // Флаг модуля: показываем/прячем раздел «Склад». Тянем с сервера (онлайн),
+  // кэшируем в localStorage — офлайн берём последнее известное значение.
+  async function refreshModules() {
+    var enabled = false;
+    try {
+      var base = (window.VetAppConfig && window.VetAppConfig.apiBase) || '';
+      var nf = window.__nativeFetch || window.fetch.bind(window);
+      var res = await nf(base + '/settings/modules', { headers: { 'X-Auth-Token': (window.VetAuth && VetAuth.token && VetAuth.token()) || '' } });
+      var j = await res.json();
+      enabled = !!(j && j.data && j.data.warehouse);
+      localStorage.setItem('vet-mod-warehouse', enabled ? '1' : '0');
+    } catch(e) {
+      enabled = localStorage.getItem('vet-mod-warehouse') === '1';
+    }
+    applyWarehouseModuleUI(enabled);
+    return enabled;
+  }
+  function applyWarehouseModuleUI(enabled) {
+    document.body.classList.toggle('mod-warehouse-on', enabled);
+    var grp = document.getElementById('ssg-warehouse');
+    if (grp) grp.style.display = enabled ? '' : 'none';
+  }
+
+  function _whName(map, id) { var x = map[id]; return x ? x.name : '—'; }
+
+  // Остаток = SUM(qty) движений по (склад, позиция). Ledger — единственный
+  // источник правды, изменяемого счётчика нет (офлайн-безопасно).
+  function _whComputeStock() {
+    var stock = {}; // key "wh|item" -> qty
+    _whMoves.forEach(function(m){
+      if (m.is_deleted) return;
+      var k = m.warehouse_id + '|' + m.item_id;
+      stock[k] = (stock[k] || 0) + (Number(m.qty) || 0);
+    });
+    return stock;
+  }
+
+  async function initWarehouse() {
+    // Загружаем локально (офлайн-first).
+    _whStores = (await window.VetDB.getAll('warehouses')).filter(function(w){ return !w.is_deleted; })
+                 .sort(function(a,b){ return (b.is_default||0)-(a.is_default||0) || (a.name||'').localeCompare(b.name||'','ru'); });
+    _whItems  = (await window.VetDB.getAll('items')).filter(function(i){ return !i.is_deleted; })
+                 .sort(function(a,b){ return (a.name||'').localeCompare(b.name||'','ru'); });
+    _whMoves  = (await window.VetDB.getAll('stock_movements')).filter(function(m){ return !m.is_deleted; });
+
+    // Вкладки
+    document.querySelectorAll('#wh-tabs .settings-tab').forEach(function(tab){
+      tab.onclick = function(){
+        _whTab = tab.dataset.whtab;
+        document.querySelectorAll('#wh-tabs .settings-tab').forEach(function(t){ t.classList.toggle('active', t===tab); });
+        document.querySelectorAll('#page-warehouse .settings-panel').forEach(function(p){
+          p.style.display = (p.dataset.whpanel===_whTab) ? '' : 'none';
+        });
+        renderWhTab();
+      };
+    });
+    // Склад-фильтр остатков
+    var whSel = document.getElementById('wh-stock-warehouse');
+    if (whSel) {
+      whSel.innerHTML = '<option value="">Все склады</option>'
+        + _whStores.map(function(w){ return '<option value="'+esc(w.id)+'">'+esc(w.name)+'</option>'; }).join('');
+      whSel.value = _whStockWarehouse;
+      whSel.onchange = function(){ _whStockWarehouse = whSel.value; renderWhStock(); };
+    }
+    setupSearch('wh-stock-search', function(){ renderWhStock(); });
+    setupSearch('wh-moves-search', function(){ renderWhMoves(); });
+    // Фильтр видов движений
+    document.querySelectorAll('#wh-moves-filter .filter-btn').forEach(function(b){
+      b.onclick = function(){
+        document.querySelectorAll('#wh-moves-filter .filter-btn').forEach(function(x){ x.classList.remove('active'); });
+        b.classList.add('active'); _whMoveKind = b.dataset.mkind; renderWhMoves();
+      };
+    });
+    // Кнопки операций
+    var r=document.getElementById('wh-btn-receipt'); if(r) r.onclick=function(){ whMovementForm('receipt'); };
+    var wo=document.getElementById('wh-btn-writeoff'); if(wo) wo.onclick=function(){ whMovementForm('writeoff'); };
+    var sa=document.getElementById('wh-btn-sale'); if(sa) sa.onclick=function(){ whMovementForm('sale'); };
+    var as=document.getElementById('wh-btn-add-store'); if(as) as.onclick=function(){ whStoreForm(null); };
+
+    renderWhTab();
+  }
+
+  function renderWhTab() {
+    if (_whTab === 'stock')  renderWhStock();
+    else if (_whTab === 'moves') renderWhMoves();
+    else if (_whTab === 'stores') renderWhStores();
+  }
+
+  function renderWhStock() {
+    var el = document.getElementById('wh-stock-list'); if (!el) return;
+    var q = ((document.getElementById('wh-stock-search')||{}).value || '').toLowerCase();
+    var itemsMap = buildMap(_whItems);
+    var stock = _whComputeStock();
+    // Собираем по позициям: если выбран склад — по нему, иначе суммарно.
+    var rows = _whItems.filter(function(it){ return !q || (it.name||'').toLowerCase().includes(q); }).map(function(it){
+      var qty = 0;
+      if (_whStockWarehouse) qty = stock[_whStockWarehouse + '|' + it.id] || 0;
+      else _whStores.forEach(function(w){ qty += stock[w.id + '|' + it.id] || 0; });
+      return { it: it, qty: qty };
+    }).filter(function(r){ return r.qty !== 0 || !q; }); // при поиске показываем и нулевые
+    // Сортировка: сначала с остатком, потом по имени
+    rows.sort(function(a,b){ return (b.qty>0)-(a.qty>0) || a.it.name.localeCompare(b.it.name,'ru'); });
+
+    if (!rows.length) { el.innerHTML = q ? searchEmpty('wh-stock-search') : emptyState('Остатков нет — оформите поступление', '+ Поступление', "document.getElementById('wh-btn-receipt').click()", 'box'); return; }
+    el.innerHTML = rows.map(function(r){
+      var it=r.it; var low = r.qty<=0;
+      return '<div class="erow" onclick="VetPages.whItemMoves(\''+it.id+'\')">'
+        + '<div class="erow-body">'
+        + '<div class="erow-title">'+esc(it.name)+' '+(it.type==='drug'?'<span class="chip-nochip" style="color:var(--blue);background:var(--blue-dim);border-color:var(--blue-border);">препарат</span>':'')+'</div>'
+        + '<div class="erow-sub">Закупка '+Number(it.purchase_price||0).toFixed(0)+' ₸ · Розница '+Number(it.price||0).toFixed(0)+' ₸</div>'
+        + '</div>'
+        + '<div class="erow-right">'
+        + '<span class="erow-amount" style="color:'+(low?'var(--danger)':'var(--accent)')+';">'+r.qty+' шт</span>'
+        + '<div class="erow-actions">'
+        + '<button class="btn btn-icon" title="Изменить цены" aria-label="Изменить цены" onclick="event.stopPropagation();VetPages.whPriceForm(\''+it.id+'\')">'+UI.icon('tag','')+'</button>'
+        + '</div></div></div>';
+    }).join('');
+  }
+
+  var WH_KIND = { receipt:{label:'Поступление',cls:'badge-active'}, writeoff:{label:'Списание',cls:'badge-deceased'}, sale:{label:'Продажа',cls:'badge-active'}, price:{label:'Цены',cls:'badge-inactive'}, adjust:{label:'Корректировка',cls:'badge-inactive'} };
+
+  function renderWhMoves() {
+    var el = document.getElementById('wh-moves-list'); if (!el) return;
+    var q = ((document.getElementById('wh-moves-search')||{}).value || '').toLowerCase();
+    var itemsMap = buildMap(_whItems), storesMap = buildMap(_whStores);
+    var list = _whMoves.filter(function(m){
+      if (_whMoveKind !== 'all' && m.kind !== _whMoveKind) return false;
+      if (q) { var it = itemsMap[m.item_id]; if (!it || !(it.name||'').toLowerCase().includes(q)) return false; }
+      return true;
+    }).sort(function(a,b){ var da=a.occurred_at||a.created_at||'', db=b.occurred_at||b.created_at||''; return da<db?1:-1; }).slice(0,200);
+    if (!list.length) { el.innerHTML = emptyState('Движений нет', null, null, 'clipboard'); return; }
+    el.innerHTML = list.map(function(m){
+      var it = itemsMap[m.item_id] || {}; var k = WH_KIND[m.kind] || {label:m.kind,cls:'badge-inactive'};
+      var when = (m.occurred_at||m.created_at||'').slice(0,10);
+      var sign = m.qty>0?'+':''; var priceInfo = '';
+      if (m.kind==='receipt') priceInfo = 'закупка '+Number(m.purchase_price||0).toFixed(0)+' ₸';
+      else if (m.kind==='sale') priceInfo = 'розница '+Number(m.retail_price||0).toFixed(0)+' ₸ · выручка '+Number(Math.abs(m.qty)*(m.retail_price||0)).toFixed(0)+' ₸';
+      else if (m.kind==='price') priceInfo = 'закупка '+Number(m.purchase_price||0).toFixed(0)+' / розница '+Number(m.retail_price||0).toFixed(0)+' ₸';
+      else if (m.reason) priceInfo = esc(m.reason);
+      return '<div class="erow">'
+        + '<div class="erow-body">'
+        + '<div class="erow-title">'+esc(it.name||'—')+' <span class="badge '+k.cls+'">'+k.label+'</span></div>'
+        + '<div class="erow-sub">'+esc(_whName(storesMap, m.warehouse_id))+' · '+when+(priceInfo?' · '+priceInfo:'')+'</div>'
+        + '</div>'
+        + '<div class="erow-right">'
+        + (m.kind!=='price'?'<span class="erow-amount">'+sign+m.qty+' шт</span>':'')
+        + '<div class="erow-actions">'
+        + '<button class="btn btn-icon danger" title="Удалить движение" aria-label="Удалить" onclick="VetPages.whDeleteMove(\''+m.id+'\')">'+UI.icon('trash','')+'</button>'
+        + '</div></div></div>';
+    }).join('');
+  }
+
+  function renderWhStores() {
+    var el = document.getElementById('wh-stores-list'); if (!el) return;
+    var stock = _whComputeStock();
+    el.innerHTML = _whStores.map(function(w){
+      var positions = 0; _whItems.forEach(function(it){ if ((stock[w.id+'|'+it.id]||0)!==0) positions++; });
+      return '<div class="erow">'
+        + '<div class="erow-body"><div class="erow-title">'+esc(w.name)+(w.is_default?' <span class="badge badge-active">по умолчанию</span>':'')+'</div>'
+        + '<div class="erow-sub">Позиций с остатком: '+positions+'</div></div>'
+        + '<div class="erow-right"><div class="erow-actions">'
+        + '<button class="btn btn-icon" title="Переименовать" aria-label="Переименовать" onclick="VetPages.whStoreEdit(\''+w.id+'\')">'+UI.icon('edit','')+'</button>'
+        + (_whStores.length>1 && !w.is_default ? '<button class="btn btn-icon danger" title="Удалить" aria-label="Удалить" onclick="VetPages.whStoreDelete(\''+w.id+'\')">'+UI.icon('trash','')+'</button>' : '')
+        + '</div></div></div>';
+    }).join('');
+  }
+
+  // ── Форма движения (поступление / списание / продажа) ──────────────
+  function whMovementForm(kind) {
+    if (!_whStores.length) { UI.toast('Сначала добавьте склад', 'warn'); return; }
+    var titleMap = { receipt:'Поступление на склад', writeoff:'Списание со склада', sale:'Продажа со склада' };
+    var itemOpts = _whItems.map(function(it){ return '<option value="'+esc(it.id)+'">'+esc(it.name)+'</option>'; }).join('');
+    var whOpts = _whStores.map(function(w){ return '<option value="'+esc(w.id)+'"'+(w.is_default?' selected':'')+'>'+esc(w.name)+'</option>'; }).join('');
+    var today = new Date().toISOString().slice(0,10);
+    var priceLabel = kind==='receipt' ? 'Закупочная цена, ₸' : (kind==='sale' ? 'Цена продажи, ₸' : '');
+    var body = '<div class="form-grid">'
+      + '<div class="form-group form-span-2"><label class="form-label">Позиция <span class="form-req">*</span></label><select id="wh-f-item" class="form-select">'+itemOpts+'</select></div>'
+      + '<div class="form-group"><label class="form-label">Склад</label><select id="wh-f-wh" class="form-select">'+whOpts+'</select></div>'
+      + '<div class="form-group"><label class="form-label">Количество, шт <span class="form-req">*</span></label><input id="wh-f-qty" class="form-input" type="number" min="0.01" step="1" value="1"></div>'
+      + (priceLabel ? '<div class="form-group"><label class="form-label">'+priceLabel+'</label><input id="wh-f-price" class="form-input" type="number" min="0" step="1" value="0"></div>' : '')
+      + (kind==='writeoff' ? '<div class="form-group form-span-2"><label class="form-label">Причина</label><input id="wh-f-reason" class="form-input" placeholder="Брак, срок годности, порча..."></div>' : '')
+      + '<div class="form-group"><label class="form-label">Дата</label><input id="wh-f-date" class="form-input" type="date" value="'+today+'"></div>'
+      + '<div class="form-group form-span-2"><label class="form-label">Примечание</label><input id="wh-f-note" class="form-input"></div>'
+      + '</div>';
+    // Автоподстановка цены при выборе позиции
+    UI.showModal({ title: titleMap[kind], bodyHTML: body, size:'lg', saveLabel:'Сохранить',
+      afterOpen: function(){
+        var sel=document.getElementById('wh-f-item'); var pr=document.getElementById('wh-f-price');
+        function fill(){ var it=_whItems.find(function(x){return x.id===sel.value;}); if(it&&pr){ pr.value = kind==='receipt' ? (it.purchase_price||0) : (it.price||0); } }
+        if(sel){ sel.onchange=fill; fill(); }
+      },
+      onSave: async function(){
+        var itemId=(document.getElementById('wh-f-item')||{}).value;
+        var whId=(document.getElementById('wh-f-wh')||{}).value;
+        var qty=parseFloat((document.getElementById('wh-f-qty')||{}).value)||0;
+        if(!itemId){ UI.toast('Выберите позицию','err'); return; }
+        if(qty<=0){ UI.toast('Количество должно быть больше 0','err'); return; }
+        var price=parseFloat((document.getElementById('wh-f-price')||{}).value)||0;
+        var it=_whItems.find(function(x){return x.id===itemId;})||{};
+        var signedQty = kind==='receipt' ? qty : -qty;
+        // Проверка остатка при расходе (мягко).
+        if (kind!=='receipt') {
+          var stock=_whComputeStock(); var have=stock[whId+'|'+itemId]||0;
+          if (qty>have) {
+            var ok=await UI.confirm('Недостаточно остатка','На складе '+have+' шт, списываете '+qty+' шт. Уйти в минус?',{yes:'Всё равно',no:'Отмена'});
+            if(!ok) return;
+          }
+        }
+        var rec = {
+          id: window.VetDB.uuid(),
+          warehouse_id: whId, item_id: itemId, kind: kind, qty: signedQty,
+          purchase_price: kind==='receipt' ? price : (it.purchase_price||0),
+          retail_price: kind==='sale' ? price : (it.price||0),
+          reason: (document.getElementById('wh-f-reason')||{}).value || '',
+          note: (document.getElementById('wh-f-note')||{}).value || '',
+          occurred_at: (document.getElementById('wh-f-date')||{}).value || new Date().toISOString().slice(0,10),
+        };
+        await window.VetDB.save('stock_movements', rec);
+        // Поступление обновляет закупочную цену позиции.
+        if (kind==='receipt' && price>0 && Number(it.purchase_price||0)!==price) {
+          var full=await window.VetDB.getById('items', itemId);
+          if (full) { full.purchase_price = price; await window.VetDB.save('items', full); }
+        }
+        UI.toast(titleMap[kind]+' сохранено','ok'); UI.hideModal();
+        if (window.VetSync && VetSync.syncAll) VetSync.syncAll();
+        await initWarehouse();
+      }
+    });
+  }
+
+  // ── Изменение цен позиции (закупка + розница) ──────────────────────
+  function whPriceForm(itemId) {
+    var it=_whItems.find(function(x){return x.id===itemId;}); if(!it) return;
+    var body='<div class="form-grid">'
+      + '<div class="form-group form-span-2"><label class="form-label">Позиция</label><input class="form-input" value="'+esc(it.name)+'" disabled></div>'
+      + '<div class="form-group"><label class="form-label">Закупочная, ₸</label><input id="wh-p-purchase" class="form-input" type="number" min="0" step="1" value="'+Number(it.purchase_price||0)+'"></div>'
+      + '<div class="form-group"><label class="form-label">Розничная, ₸</label><input id="wh-p-retail" class="form-input" type="number" min="0" step="1" value="'+Number(it.price||0)+'"></div>'
+      + '</div>';
+    UI.showModal({ title:'Изменение цен', bodyHTML:body, saveLabel:'Сохранить', onSave: async function(){
+      var pu=parseFloat((document.getElementById('wh-p-purchase')||{}).value)||0;
+      var rt=parseFloat((document.getElementById('wh-p-retail')||{}).value)||0;
+      var full=await window.VetDB.getById('items', itemId); if(!full){ UI.hideModal(); return; }
+      var changed = Number(full.purchase_price||0)!==pu || Number(full.price||0)!==rt;
+      full.purchase_price=pu; full.price=rt;
+      await window.VetDB.save('items', full);
+      if (changed) {
+        // Фиксируем изменение цен в журнале движений (qty=0).
+        await window.VetDB.save('stock_movements', {
+          id: window.VetDB.uuid(),
+          warehouse_id:(_whStores[0]||{}).id||'', item_id:itemId, kind:'price', qty:0,
+          purchase_price:pu, retail_price:rt, occurred_at:new Date().toISOString().slice(0,10),
+        });
+      }
+      UI.toast('Цены обновлены','ok'); UI.hideModal();
+      if (window.VetSync && VetSync.syncAll) VetSync.syncAll();
+      await initWarehouse();
+    }});
+  }
+
+  // ── Склады: добавить / переименовать / удалить ─────────────────────
+  function whStoreForm(store) {
+    var body='<div class="form-group"><label class="form-label">Название склада <span class="form-req">*</span></label>'
+      + '<input id="wh-store-name" class="form-input" value="'+esc(store?store.name:'')+'" placeholder="Напр. Аптека, Хирургия"></div>';
+    UI.showModal({ title: store?'Переименовать склад':'Новый склад', bodyHTML:body, saveLabel:'Сохранить', onSave: async function(){
+      var name=((document.getElementById('wh-store-name')||{}).value||'').trim();
+      if(!name){ UI.toast('Введите название','err'); return; }
+      if (store) { var full=await window.VetDB.getById('warehouses', store.id); full.name=name; await window.VetDB.save('warehouses', full); }
+      else { await window.VetDB.save('warehouses', { id: window.VetDB.uuid(), name:name, is_default:0 }); }
+      UI.toast('Сохранено','ok'); UI.hideModal();
+      if (window.VetSync && VetSync.syncAll) VetSync.syncAll();
+      await initWarehouse();
+    }});
+  }
+  function whStoreEdit(id) { var w=_whStores.find(function(x){return x.id===id;}); if(w) whStoreForm(w); }
+  async function whStoreDelete(id) {
+    var w=_whStores.find(function(x){return x.id===id;}); if(!w) return;
+    if (w.is_default) { UI.toast('Нельзя удалить склад по умолчанию','warn'); return; }
+    if (_whStores.length<=1) { UI.toast('Нельзя удалить единственный склад','warn'); return; }
+    var ok=await UI.confirm('Удалить склад?','«'+w.name+'» будет удалён. Движения по нему останутся в журнале.',{yes:'Удалить',no:'Отмена'});
+    if(!ok) return;
+    await window.VetDB.softDelete('warehouses', id);
+    UI.toast('Склад удалён','ok');
+    if (window.VetSync && VetSync.syncAll) VetSync.syncAll();
+    await initWarehouse();
+  }
+  async function whDeleteMove(id) {
+    var ok=await UI.confirm('Удалить движение?','Остаток пересчитается. Действие необратимо.',{yes:'Удалить',no:'Отмена'});
+    if(!ok) return;
+    await window.VetDB.softDelete('stock_movements', id);
+    UI.toast('Движение удалено','ok');
+    if (window.VetSync && VetSync.syncAll) VetSync.syncAll();
+    await initWarehouse();
+  }
+  // Клик по позиции в остатках → её движения (фильтр журнала по имени).
+  function whItemMoves(itemId) {
+    var it=_whItems.find(function(x){return x.id===itemId;}); if(!it) return;
+    _whTab='moves';
+    document.querySelectorAll('#wh-tabs .settings-tab').forEach(function(t){ t.classList.toggle('active', t.dataset.whtab==='moves'); });
+    document.querySelectorAll('#page-warehouse .settings-panel').forEach(function(p){ p.style.display=(p.dataset.whpanel==='moves')?'':'none'; });
+    var s=document.getElementById('wh-moves-search'); if(s){ s.value=it.name; }
+    _whMoveKind='all';
+    document.querySelectorAll('#wh-moves-filter .filter-btn').forEach(function(x){ x.classList.toggle('active', x.dataset.mkind==='all'); });
+    renderWhMoves();
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -5638,6 +5972,12 @@ ${visit.notes ? `<div class="section">
     printVisitCard:     printVisitCard,
     newVisitForPet:     newVisitForPet,
     newVisitForOwner:   newVisitForOwner,
+    refreshModules:     refreshModules,
+    whPriceForm:        whPriceForm,
+    whStoreEdit:        whStoreEdit,
+    whStoreDelete:      whStoreDelete,
+    whDeleteMove:       whDeleteMove,
+    whItemMoves:        whItemMoves,
     addOwner:           addOwner,
     _ownersShowMore:    _ownersShowMore,
     _petsShowMore:      _petsShowMore,

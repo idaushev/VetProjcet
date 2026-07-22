@@ -48,6 +48,37 @@ func (a *app) remindersEnabled() bool {
 	return a.getSetting("reminders_enabled", "1") != "0"
 }
 
+// warehouseEnabled — включён ли модуль склада. По умолчанию выключен
+// (опциональный модуль: клиника может им не пользоваться).
+func (a *app) warehouseEnabled() bool {
+	return a.getSetting("warehouse_enabled", "0") == "1"
+}
+
+// handleGetModules отдаёт состояние опциональных модулей ЛЮБОМУ вошедшему —
+// нужно всем ролям, чтобы решить, показывать ли раздел в меню.
+func (a *app) handleGetModules(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: map[string]interface{}{
+		"warehouse": a.warehouseEnabled(),
+	}})
+}
+
+// handlePutWarehouseModule включает/выключает модуль склада — только админ.
+func (a *app) handlePutWarehouseModule(w http.ResponseWriter, r *http.Request) {
+	var p struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := decodeJSON(r, &p); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if p.Enabled {
+		a.setSetting("warehouse_enabled", "1")
+	} else {
+		a.setSetting("warehouse_enabled", "0")
+	}
+	a.handleGetModules(w, r)
+}
+
 // ─── HTTP ────────────────────────────────────────────────────────────────────
 
 // handleGetTelegramSettings отдаёт текущие настройки. Токен наружу не отдаём

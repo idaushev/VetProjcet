@@ -250,6 +250,22 @@
         </ul>
       </div>
 
+      <!-- Группа: Склад (опциональный модуль; скрыта, пока не включён) -->
+      <div class="ss-group module-warehouse" id="ssg-warehouse" style="display:none;">
+        <div class="sidebar-section-label ss-label" onclick="toggleSSGroup('ssg-warehouse')">
+          <span class="nav-text">Склад</span>
+          <span class="ss-arrow">▾</span>
+        </div>
+        <ul class="nav-list ss-body">
+          <li>
+            <a class="nav-item" data-page="warehouse" href="#warehouse" title="Склад">
+              <i data-icon="box" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Склад</span>
+            </a>
+          </li>
+        </ul>
+      </div>
+
       <!-- Настройки — всегда в низу навигации (Пользователи внутри, вкладкой) -->
       <div class="ss-group" id="ssg-settings">
         <ul class="nav-list ss-body" style="padding-top:0">
@@ -687,6 +703,66 @@
         </div>
       </section>
 
+      <!-- Warehouse (опциональный модуль склада) -->
+      <section class="page" id="page-warehouse">
+        <div class="page-header">
+          <h1 class="page-title">Склад</h1>
+          <div class="page-actions">
+            <button class="btn btn-primary" id="wh-btn-receipt">+ Поступление</button>
+            <button class="btn btn-ghost" id="wh-btn-writeoff">Списание</button>
+            <button class="btn btn-ghost" id="wh-btn-sale">Продажа</button>
+          </div>
+        </div>
+        <div class="settings-tabs" id="wh-tabs">
+          <button class="settings-tab active" data-whtab="stock">Остатки</button>
+          <button class="settings-tab" data-whtab="moves">Движения</button>
+          <button class="settings-tab" data-whtab="stores">Склады</button>
+        </div>
+        <div class="page-inner">
+          <div class="settings-panel active" data-whpanel="stock">
+            <div class="toolbar" style="padding-left:0;padding-right:0;">
+              <div class="toolbar-search">
+                <i data-icon="search" data-icon-size="18" class="toolbar-search-icon"></i>
+                <input type="search" class="search-input" id="wh-stock-search" aria-label="Поиск по остаткам" placeholder="Поиск позиции...">
+              </div>
+              <select class="filter-select" id="wh-stock-warehouse" aria-label="Склад" style="max-width:var(--ctl-w-md);"></select>
+            </div>
+            <div id="wh-stock-list" class="entity-list"></div>
+          </div>
+          <div class="settings-panel" data-whpanel="moves" style="display:none;">
+            <div class="toolbar" style="padding-left:0;padding-right:0;">
+              <div class="toolbar-search">
+                <i data-icon="search" data-icon-size="18" class="toolbar-search-icon"></i>
+                <input type="search" class="search-input" id="wh-moves-search" aria-label="Поиск по движениям" placeholder="Поиск позиции...">
+              </div>
+              <div id="wh-moves-filter" class="flex-gap" role="group" aria-label="Вид движения">
+                <button class="filter-btn active" data-mkind="all">Все</button>
+                <button class="filter-btn" data-mkind="receipt">Поступления</button>
+                <button class="filter-btn" data-mkind="writeoff">Списания</button>
+                <button class="filter-btn" data-mkind="sale">Продажи</button>
+                <button class="filter-btn" data-mkind="price">Цены</button>
+              </div>
+            </div>
+            <div id="wh-moves-list" class="entity-list"></div>
+          </div>
+          <div class="settings-panel" data-whpanel="stores" style="display:none;">
+            <div class="card" style="max-width:680px;">
+              <div class="card-header">
+                <span class="card-title">Склады</span>
+                <button class="btn btn-sm btn-primary" id="wh-btn-add-store">+ Склад</button>
+              </div>
+              <div class="card-body" style="padding:16px 20px;">
+                <div class="text-sm text-muted" style="margin-bottom:10px;">
+                  Если склад один — это «Склад ветклиники» по умолчанию. Можно
+                  добавить ещё; удалить последний нельзя.
+                </div>
+                <div id="wh-stores-list" class="entity-list"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- Users (админка) -->
       <!-- Settings -->
       <section class="page" id="page-settings">
@@ -758,6 +834,13 @@
                     <button type="button" class="filter-btn" data-theme-mode="auto">Системная</button>
                   </div>
                   <div class="form-hint">Тёмная тема — на устройстве, где вы её включили; на других остаётся своя.</div>
+                </div>
+                <div class="form-group admin-only" style="margin-top:16px;">
+                  <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                    <input type="checkbox" id="s-module-warehouse" style="width:18px;height:18px;">
+                    Модуль склада (учёт товаров: поступление, списание, продажа, цены)
+                  </label>
+                  <div class="form-hint">Опционально. Включите, если ведёте складской учёт. Появится раздел «Склад».</div>
                 </div>
                 <div style="margin-top:20px;">
                   <button class="btn btn-primary" id="btn-save-settings">Сохранить настройки</button>
@@ -1038,7 +1121,7 @@
   // Если запущено через иконку (start_url = "/?pwa=1") — hash пустой → dashboard
   // Если пользователь открыл прямую ссылку с хэшем — навигируем туда
   var validPages = ['dashboard','schedule','owners','pets','visits','vaccinations','items','staff',
-                    'chips','report-daily','report-revenue','report-upcoming','report-noshows','settings'];
+                    'chips','report-daily','report-revenue','report-upcoming','report-noshows','settings','warehouse'];
 
   // ── Сворачиваемые группы сайдбара ──────────────────────────────────
   function toggleSSGroup(id) {
