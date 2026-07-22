@@ -716,6 +716,7 @@
         <div class="settings-tabs" id="wh-tabs">
           <button class="settings-tab active" data-whtab="stock">Остатки</button>
           <button class="settings-tab" data-whtab="moves">Движения</button>
+          <button class="settings-tab" data-whtab="report">Отчёт</button>
           <button class="settings-tab" data-whtab="stores">Склады</button>
         </div>
         <div class="page-inner">
@@ -744,6 +745,25 @@
               </div>
             </div>
             <div id="wh-moves-list" class="entity-list"></div>
+          </div>
+          <div class="settings-panel" data-whpanel="report" style="display:none;">
+            <div class="report-controls">
+              <div class="form-group">
+                <label class="form-label">С</label>
+                <input type="date" id="wh-rep-from" class="form-input" style="width:var(--ctl-w-sm);">
+              </div>
+              <div class="form-group">
+                <label class="form-label">По</label>
+                <input type="date" id="wh-rep-to" class="form-input" style="width:var(--ctl-w-sm);">
+              </div>
+              <div class="revenue-presets">
+                <button class="btn btn-sm btn-ghost" data-wrep="week">Неделя</button>
+                <button class="btn btn-sm btn-ghost" data-wrep="month">Месяц</button>
+                <button class="btn btn-sm btn-ghost" data-wrep="prev-month">Пред. месяц</button>
+              </div>
+              <select class="filter-select" id="wh-rep-warehouse" aria-label="Склад" style="max-width:var(--ctl-w-md);"></select>
+            </div>
+            <div id="wh-report-content"></div>
           </div>
           <div class="settings-panel" data-whpanel="stores" style="display:none;">
             <div class="card" style="max-width:680px;">

@@ -156,6 +156,15 @@ func (u *User) tableLevel(table string) int {
 	if u == nil || u.Role == "admin" {
 		return permLevels["edit"]
 	}
+	// Роль склада (продавец/кладовщик) изолирована: доступ только к складу
+	// и каталогу цен, к медицинским данным — ничего. Изоляция на сервере,
+	// а не только в UI: даже подделанный push мед-таблиц будет отклонён.
+	if u.Role == "warehouse" {
+		if table == "warehouse" || table == "items" {
+			return permLevels["edit"]
+		}
+		return permLevels["none"]
+	}
 	ps := u.permsParsed()
 	if ps.Tables == nil {
 		return permLevels["edit"]
@@ -171,7 +180,7 @@ func (u *User) tableLevel(table string) int {
 	return n
 }
 
-var validRoles = map[string]bool{"admin": true, "doctor": true, "reception": true}
+var validRoles = map[string]bool{"admin": true, "doctor": true, "reception": true, "warehouse": true}
 
 // ─── Контекст текущего пользователя ─────────────────────────────────────────
 

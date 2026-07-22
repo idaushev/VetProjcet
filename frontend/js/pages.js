@@ -4467,6 +4467,7 @@ ${visit.notes ? `<div class="section">
     { v: 'admin',     l: 'Администратор' },
     { v: 'doctor',    l: 'Врач' },
     { v: 'reception', l: 'Регистратор' },
+    { v: 'warehouse', l: 'Склад (продавец)' },
   ];
   var _users = [];
 
@@ -5636,6 +5637,7 @@ ${visit.notes ? `<div class="section">
   var _whTab = 'stock';
   var _whStockWarehouse = ''; // '' = все склады
   var _whMoveKind = 'all';
+  var _whRepWarehouse = '', _whRepFrom = '', _whRepTo = '';
 
   // Флаг модуля: показываем/прячем раздел «Склад». Тянем с сервера (онлайн),
   // кэшируем в localStorage — офлайн берём последнее известное значение.
@@ -5716,12 +5718,94 @@ ${visit.notes ? `<div class="section">
     var sa=document.getElementById('wh-btn-sale'); if(sa) sa.onclick=function(){ whMovementForm('sale'); };
     var as=document.getElementById('wh-btn-add-store'); if(as) as.onclick=function(){ whStoreForm(null); };
 
+    // Отчёт: период (по умолчанию текущий месяц) + пресеты + склад
+    var repFrom=document.getElementById('wh-rep-from'), repTo=document.getElementById('wh-rep-to');
+    if (repFrom && !_whRepFrom) {
+      var now=new Date();
+      _whRepFrom = localDateStr(new Date(now.getFullYear(), now.getMonth(), 1));
+      _whRepTo   = localDateStr(now);
+    }
+    if (repFrom) { repFrom.value=_whRepFrom; repFrom.onchange=function(){ _whRepFrom=repFrom.value; renderWhReport(); }; }
+    if (repTo)   { repTo.value=_whRepTo;     repTo.onchange=function(){ _whRepTo=repTo.value; renderWhReport(); }; }
+    document.querySelectorAll('#page-warehouse [data-wrep]').forEach(function(btn){
+      btn.onclick=function(){
+        var n=new Date(), f, t=n;
+        if (btn.dataset.wrep==='week') f=new Date(n.getTime()-6*86400000);
+        else if (btn.dataset.wrep==='month') f=new Date(n.getFullYear(), n.getMonth(), 1);
+        else if (btn.dataset.wrep==='prev-month') { f=new Date(n.getFullYear(), n.getMonth()-1, 1); t=new Date(n.getFullYear(), n.getMonth(), 0); }
+        _whRepFrom=localDateStr(f); _whRepTo=localDateStr(t);
+        if(repFrom) repFrom.value=_whRepFrom; if(repTo) repTo.value=_whRepTo;
+        renderWhReport();
+      };
+    });
+    var repWh=document.getElementById('wh-rep-warehouse');
+    if (repWh) {
+      repWh.innerHTML='<option value="">Все склады</option>'+_whStores.map(function(w){return '<option value="'+esc(w.id)+'">'+esc(w.name)+'</option>';}).join('');
+      repWh.value=_whRepWarehouse; repWh.onchange=function(){ _whRepWarehouse=repWh.value; renderWhReport(); };
+    }
+
     renderWhTab();
+  }
+
+  function renderWhReport() {
+    var el = document.getElementById('wh-report-content'); if (!el) return;
+    var from=_whRepFrom, to=_whRepTo;
+    if (!from || !to) { el.innerHTML = emptyState('Укажите период'); return; }
+    if (from > to) { el.innerHTML = emptyState('Дата начала позже даты конца'); return; }
+    var itemsMap = buildMap(_whItems);
+    // Движения периода (по occurred_at или created_at), опционально по складу.
+    var movs = _whMoves.filter(function(m){
+      if (m.is_deleted) return false;
+      if (_whRepWarehouse && m.warehouse_id !== _whRepWarehouse) return false;
+      var d = (m.occurred_at || m.created_at || '').slice(0,10);
+      return d >= from && d <= to;
+    });
+    var recQty=0, recSum=0, woQty=0, woSum=0, saleQty=0, revenue=0, cogs=0;
+    var byItemSale = {}; // item_id -> {qty, revenue}
+    movs.forEach(function(m){
+      var q=Math.abs(Number(m.qty)||0);
+      if (m.kind==='receipt') { recQty+=q; recSum+=q*(Number(m.purchase_price)||0); }
+      else if (m.kind==='writeoff') { woQty+=q; woSum+=q*(Number(m.purchase_price)||0); }
+      else if (m.kind==='sale') {
+        saleQty+=q; var rev=q*(Number(m.retail_price)||0); revenue+=rev; cogs+=q*(Number(m.purchase_price)||0);
+        var s=byItemSale[m.item_id]=byItemSale[m.item_id]||{qty:0,rev:0}; s.qty+=q; s.rev+=rev;
+      }
+    });
+    var margin = revenue - cogs;
+    function tg(n){ return Number(n||0).toFixed(0) + ' ₸'; }
+
+    var tiles = '<div class="revenue-tiles">'
+      + tile('Выручка от продаж', tg(revenue), 'accent')
+      + tile('Себестоимость проданного', tg(cogs), 'muted')
+      + tile('Маржа', tg(margin), margin>=0?'accent':'danger')
+      + tile('Продано, шт', String(saleQty), 'muted')
+      + tile('Поступило на сумму', tg(recSum), 'blue')
+      + tile('Списано на сумму', tg(woSum), 'warn')
+      + '</div>';
+
+    // Топ продаж
+    var top = Object.keys(byItemSale).map(function(id){ return {id:id, q:byItemSale[id].qty, rev:byItemSale[id].rev}; })
+                .sort(function(a,b){ return b.rev-a.rev; }).slice(0,10);
+    var topHTML='';
+    if (top.length) {
+      topHTML = '<div class="report-wrap" style="margin-top:16px;"><div class="report-header"><h2>Топ продаж</h2></div>'
+        + '<table class="history-table"><thead><tr><th>Позиция</th><th style="text-align:right;">Продано</th><th style="text-align:right;">Выручка</th></tr></thead><tbody>'
+        + top.map(function(t){ var it=itemsMap[t.id]||{}; return '<tr><td>'+esc(it.name||'—')+'</td><td style="text-align:right;">'+t.q+' шт</td><td style="text-align:right;">'+tg(t.rev)+'</td></tr>'; }).join('')
+        + '</tbody></table></div>';
+    }
+    if (!movs.length) { el.innerHTML = emptyState('За период движений нет', null, null, 'box'); return; }
+    el.innerHTML = tiles + topHTML;
+
+    function tile(label, val, tone) {
+      var color = tone==='accent'?'var(--accent)':tone==='danger'?'var(--danger)':tone==='blue'?'var(--blue)':tone==='warn'?'var(--warn)':'var(--text)';
+      return '<div class="revenue-tile"><div class="revenue-tile-value" style="color:'+color+';">'+esc(val)+'</div><div class="revenue-tile-label">'+esc(label)+'</div></div>';
+    }
   }
 
   function renderWhTab() {
     if (_whTab === 'stock')  renderWhStock();
     else if (_whTab === 'moves') renderWhMoves();
+    else if (_whTab === 'report') renderWhReport();
     else if (_whTab === 'stores') renderWhStores();
   }
 

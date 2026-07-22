@@ -141,6 +141,9 @@
     var u = user();
     if (!u) return false;
     if (u.role === "admin") return true;
+    // Роль склада изолирована: только склад и каталог (цены). Всё
+    // медицинское — запрещено (совпадает с серверным tableLevel).
+    if (u.role === "warehouse") return table === "warehouse" || table === "items";
     var p = u.permissions || {};
     var lvl = p.tables && p.tables[table];
     var have = PERM_ORDER[lvl] !== undefined ? PERM_ORDER[lvl] : 3;
@@ -169,9 +172,27 @@
     document.body.dataset.role = u ? u.role : "";
     var nameEl = document.getElementById("current-user-name");
     var roleEl = document.getElementById("current-user-role");
-    var labels = { admin: "Администратор", doctor: "Врач", reception: "Регистратор" };
+    var labels = { admin: "Администратор", doctor: "Врач", reception: "Регистратор", warehouse: "Склад" };
     if (nameEl && u) nameEl.textContent = u.display_name;
     if (roleEl && u) roleEl.textContent = labels[u.role] || u.role;
+
+    // Роль склада — изолированный вход: видит только Склад и Каталог.
+    // Прячем клинические группы и настройки, форсим раздел «Склад»,
+    // приземляем на него. Прочая логика ниже к нему не применяется.
+    if (u && u.role === "warehouse") {
+      document.querySelectorAll(".nav-item[data-page]").forEach(function (a) {
+        var keep = (a.dataset.page === "warehouse" || a.dataset.page === "items");
+        var target = a.closest("li") || a;
+        target.style.display = keep ? "" : "none";
+      });
+      ["ssg-clinic", "ssg-analytics", "ssg-settings"].forEach(function (id) {
+        var g = document.getElementById(id); if (g) g.style.display = "none";
+      });
+      var whg = document.getElementById("ssg-warehouse"); if (whg) whg.style.display = "";
+      document.body.classList.add("role-warehouse");
+      if (window.navigate) navigate("warehouse");
+      return;
+    }
 
     // Разделы без доступа (none) убираем из меню целиком —
     // «если нет доступа, категории не отображать».

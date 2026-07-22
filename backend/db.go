@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS users (
     password_salt TEXT NOT NULL,          -- hex
     display_name  TEXT NOT NULL,
     role          TEXT NOT NULL DEFAULT 'doctor'
-                  CHECK(role IN ('admin','doctor','reception')),
+                  CHECK(role IN ('admin','doctor','reception','warehouse')),
     staff_id      TEXT,                   -- необязательная ссылка на clinic_staff
     permissions   TEXT,                   -- JSON прав: таблицы, суммы; пусто = всё разрешено
     is_active     INTEGER NOT NULL DEFAULT 1,
@@ -647,9 +647,45 @@ func openDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("run migrations: %w", err)
 	}
 
+	migrateUsersRoleCheck(ctx, db)
 	seedDefaultWarehouse(ctx, db)
 
 	return db, nil
+}
+
+// migrateUsersRoleCheck расширяет CHECK на роли (добавляет 'warehouse').
+// SQLite не умеет менять CHECK через ALTER — пересобираем таблицу. Идемпотентно:
+// делаем только если текущая схема не допускает 'warehouse'.
+func migrateUsersRoleCheck(ctx context.Context, db *sql.DB) {
+	var ddl string
+	if err := db.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE type='table' AND name='users'`).Scan(&ddl); err != nil {
+		return
+	}
+	if strings.Contains(ddl, "warehouse") {
+		return // уже расширено
+	}
+	stmts := []string{
+		`PRAGMA foreign_keys=off`,
+		`CREATE TABLE users_new (
+		    id TEXT PRIMARY KEY, login TEXT NOT NULL UNIQUE,
+		    password_hash TEXT NOT NULL, password_salt TEXT NOT NULL,
+		    display_name TEXT NOT NULL,
+		    role TEXT NOT NULL DEFAULT 'doctor' CHECK(role IN ('admin','doctor','reception','warehouse')),
+		    staff_id TEXT, permissions TEXT, is_active INTEGER NOT NULL DEFAULT 1,
+		    created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`,
+		`INSERT INTO users_new (id, login, password_hash, password_salt, display_name, role, staff_id, permissions, is_active, created_at, updated_at)
+		 SELECT id, login, password_hash, password_salt, display_name, role, staff_id, permissions, is_active, created_at, updated_at FROM users`,
+		`DROP TABLE users`,
+		`ALTER TABLE users_new RENAME TO users`,
+		`PRAGMA foreign_keys=on`,
+	}
+	for _, s := range stmts {
+		if _, err := db.ExecContext(ctx, s); err != nil {
+			// Частичный сбой не должен ронять старт: логируем неявно и выходим.
+			db.ExecContext(ctx, `DROP TABLE IF EXISTS users_new`)
+			return
+		}
+	}
 }
 
 // seedDefaultWarehouse заводит «Склад ветклиники», если складов ещё нет.
