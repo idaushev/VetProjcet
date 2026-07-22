@@ -2807,3 +2807,8 @@ body[data-role="admin"] .settings-tab.admin-only { display: inline-flex; }
 .schd-cell:not(.has) { cursor: pointer; }
 .schd-cell:not(.has):hover { background: var(--bg-hover); }
 .schd-cell .appt-card { margin: 0; }
+
+/* Элементы модуля склада вне самого раздела (быстрые ссылки и т.п.):
+   видны только при включённом модуле. Класс mod-warehouse-on на body
+   ставит applyWarehouseModuleUI() после чтения /settings/modules. */
+body:not(.mod-warehouse-on) .needs-mod-warehouse { display: none !important; }

@@ -191,6 +191,17 @@
               <span class="nav-text">Чипирование</span>
             </a>
           </li>
+          <!-- Кабинет владельца — ОТДЕЛЬНОЕ приложение (portal.html) со своим
+               входом по телефону, а не страница SPA. Поэтому без data-page:
+               роутер его не трогает, открываем в новой вкладке, чтобы не
+               выбрасывать врача из смены. Роль склада его не видит (auth.js). -->
+          <li>
+            <a class="nav-item" id="nav-portal-link" href="/portal" target="_blank" rel="noopener"
+               title="Открыть кабинет владельца в новой вкладке">
+              <i data-icon="user" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Кабинет владельца ↗</span>
+            </a>
+          </li>
         </ul>
       </div>
 
@@ -331,6 +342,18 @@
         <div class="page-header">
           <h1 class="page-title">Обзор</h1>
           <div class="page-actions">
+            <!-- Быстрый переход в склад: сама страница SPA, поэтому navigate().
+                 Кнопка живёт только при включённом модуле — гейт через
+                 body.mod-warehouse-on (его ставит applyWarehouseModuleUI). -->
+            <a class="btn btn-ghost needs-mod-warehouse" href="#warehouse"
+               onclick="event.preventDefault();navigate('warehouse');" title="Открыть склад">
+              Склад ↗
+            </a>
+            <!-- Кабинет владельца — отдельное приложение, новая вкладка. -->
+            <a class="btn btn-ghost" id="dash-portal-link" href="/portal" target="_blank" rel="noopener"
+               title="Открыть кабинет владельца в новой вкладке">
+              Кабинет владельца ↗
+            </a>
             <button class="btn btn-primary" onclick="VetPages.init('visits');navigate('visits');setTimeout(function(){document.getElementById('btn-add-visit').click();},200)">
               + Новый приём
             </button>
@@ -1109,6 +1132,10 @@
 
   document.querySelectorAll('.nav-item').forEach(function (link) {
     link.addEventListener('click', function (e) {
+      // Пункты без data-page — внешние ссылки (кабинет владельца открывается
+      // в новой вкладке). Их отдаём браузеру: не перехватываем и не зовём
+      // navigate(undefined), иначе ссылка просто не сработает.
+      if (!this.dataset.page) return;
       e.preventDefault();
       navigate(this.dataset.page);
     });
