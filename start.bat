@@ -26,7 +26,7 @@ if not exist "backend.exe" (
 if not exist "data" mkdir data
 
 if not exist "data\cert.pem" (
-    echo [ERROR] TLS certificate not found (data\cert.pem).
+    echo [ERROR] TLS certificate not found: data\cert.pem
     echo Generate it: go run .\scripts\gen_cert\
     pause
     exit /b 1

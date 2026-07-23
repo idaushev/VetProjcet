@@ -16,7 +16,7 @@ if not exist "backend.exe" (
     exit /b 1
 )
 if not exist "data\cert.pem" (
-    echo [ERROR] TLS certificate not found (prod\data\cert.pem).
+    echo [ERROR] TLS certificate not found: prod\data\cert.pem
     echo Copy cert.pem and key.pem into prod\data.
     pause
     exit /b 1
