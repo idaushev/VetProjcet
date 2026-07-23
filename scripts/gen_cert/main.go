@@ -11,6 +11,10 @@
 //	data/cert.pem       — серверный сертификат, подписан корневым CA
 //	data/key.pem        — приватный ключ сервера
 //
+// Серверный сертификат один на оба окружения — тестовое (start.bat, порт 8444)
+// и боевое (prod/start.bat, порт 8443): сертификат привязан к именам и IP, а не
+// к портам. Копия для боевого сервера кладётся в prod/data автоматически.
+//
 // Корневой CA создаётся один раз и переиспользуется при последующих запусках.
 // Поэтому при смене IP сервера достаточно перевыпустить серверный сертификат —
 // переустанавливать корневой на планшете не нужно.
@@ -39,6 +43,14 @@ const (
 	certPath     = "data/cert.pem"
 	keyPath      = "data/key.pem"
 
+	// Боевой сервер запускается из prod/ и читает сертификат из своей
+	// папки data. Оба сервера (тестовый 8444 и боевой 8443) работают с
+	// одним и тем же сертификатом: сертификат привязан к адресам, а не к
+	// портам. Чтобы после перевыпуска не забывать копировать файлы руками,
+	// зеркалим их в prod/data — если эта папка существует.
+	prodCertPath = "prod/data/cert.pem"
+	prodKeyPath  = "prod/data/key.pem"
+
 	rootValidity = 10 * 365 * 24 * time.Hour // 10 лет
 	certValidity = 825 * 24 * time.Hour      // 825 дней — предел, который принимают мобильные браузеры
 )
@@ -60,7 +72,12 @@ func main() {
 		fatalf("серверный сертификат: %v", err)
 	}
 
-	report(created, ips, dnsNames, rootCert.NotAfter)
+	mirrored, err := mirrorToProd()
+	if err != nil {
+		fatalf("копирование в prod/data: %v", err)
+	}
+
+	report(created, mirrored, ips, dnsNames, rootCert.NotAfter)
 }
 
 // loadOrCreateCA читает корневой CA с диска, а если его нет — создаёт новый.
@@ -255,6 +272,37 @@ func localIPs() []net.IP {
 	return ips
 }
 
+// mirrorToProd копирует свежий серверный сертификат в prod/data.
+// Если папки prod/data нет (боевое окружение ещё не развёрнуто), молча
+// пропускаем — это не ошибка. Возвращает true, если файлы скопированы.
+func mirrorToProd() (bool, error) {
+	if _, err := os.Stat("prod/data"); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	if err := copyFile(certPath, prodCertPath, 0o644); err != nil {
+		return false, err
+	}
+	if err := copyFile(keyPath, prodKeyPath, 0o600); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func copyFile(src, dst string, perm os.FileMode) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("чтение %s: %w", src, err)
+	}
+	if err := os.WriteFile(dst, data, perm); err != nil {
+		return fmt.Errorf("запись %s: %w", dst, err)
+	}
+	return nil
+}
+
 func randomSerial() (*big.Int, error) {
 	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
@@ -276,7 +324,7 @@ func writePEM(path, blockType string, der []byte, perm os.FileMode) error {
 	return nil
 }
 
-func report(caCreated bool, ips []net.IP, dnsNames []string, caExpiry time.Time) {
+func report(caCreated, mirrored bool, ips []net.IP, dnsNames []string, caExpiry time.Time) {
 	fmt.Println()
 	fmt.Println("✅ Сертификаты выпущены")
 	fmt.Println()
@@ -300,6 +348,9 @@ func report(caCreated bool, ips []net.IP, dnsNames []string, caExpiry time.Time)
 	fmt.Println("Серверный сертификат:")
 	fmt.Printf("  %s  — сертификат\n", certPath)
 	fmt.Printf("  %s   — приватный ключ\n", keyPath)
+	if mirrored {
+		fmt.Printf("  скопирован в %s и %s (боевой сервер)\n", prodCertPath, prodKeyPath)
+	}
 	fmt.Println()
 	fmt.Println("Адреса в сертификате:")
 	for _, name := range dnsNames {
@@ -309,9 +360,9 @@ func report(caCreated bool, ips []net.IP, dnsNames []string, caExpiry time.Time)
 		fmt.Printf("  ✓ %s\n", ip)
 	}
 	fmt.Println()
-	fmt.Println("Дальше:")
-	fmt.Println("  Windows: scripts\\start-https.bat")
-	fmt.Println("  Linux:   bash scripts/start-https.sh")
+	fmt.Println("Дальше (оба сервера могут работать одновременно):")
+	fmt.Println("  тестовый: start.bat          → https://<IP>:8444")
+	fmt.Println("  боевой:   prod\\start.bat     → https://<IP>:8443")
 	fmt.Println()
 	fmt.Println("Если IP сервера сменился — просто запустите gen_cert снова.")
 }
