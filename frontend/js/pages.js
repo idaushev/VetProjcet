@@ -5664,6 +5664,14 @@ ${visit.notes ? `<div class="section">
 
   function _whName(map, id) { var x = map[id]; return x ? x.name : '—'; }
 
+  // Склад пишет в items напрямую (VetDB), минуя перехватчик fetch в app.js,
+  // — его кэш об этом не знает, и «Каталог» показывал бы старые цены и не
+  // видел позицию, заведённую в поступлении, до перезагрузки страницы.
+  function _whCatalogChanged() {
+    if (window._syncCacheInvalidate) window._syncCacheInvalidate('items');
+    window.dispatchEvent(new CustomEvent('vetdata:changed', { detail: { store: 'items' } }));
+  }
+
   // Остаток = SUM(qty) движений по (склад, позиция). Ledger — единственный
   // источник правды, изменяемого счётчика нет (офлайн-безопасно).
   function _whComputeStock() {
@@ -5686,14 +5694,7 @@ ${visit.notes ? `<div class="section">
 
     // Вкладки
     document.querySelectorAll('#wh-tabs .settings-tab').forEach(function(tab){
-      tab.onclick = function(){
-        _whTab = tab.dataset.whtab;
-        document.querySelectorAll('#wh-tabs .settings-tab').forEach(function(t){ t.classList.toggle('active', t===tab); });
-        document.querySelectorAll('#page-warehouse .settings-panel').forEach(function(p){
-          p.style.display = (p.dataset.whpanel===_whTab) ? '' : 'none';
-        });
-        renderWhTab();
-      };
+      tab.onclick = function(){ whShowTab(tab.dataset.whtab); };
     });
     // Склад-фильтр остатков
     var whSel = document.getElementById('wh-stock-warehouse');
@@ -5716,6 +5717,7 @@ ${visit.notes ? `<div class="section">
     var r=document.getElementById('wh-btn-receipt'); if(r) r.onclick=function(){ whMovementForm('receipt'); };
     var wo=document.getElementById('wh-btn-writeoff'); if(wo) wo.onclick=function(){ whMovementForm('writeoff'); };
     var sa=document.getElementById('wh-btn-sale'); if(sa) sa.onclick=function(){ whMovementForm('sale'); };
+    var pc=document.getElementById('wh-btn-price'); if(pc) pc.onclick=function(){ whPriceForm(null); };
     var as=document.getElementById('wh-btn-add-store'); if(as) as.onclick=function(){ whStoreForm(null); };
 
     // Отчёт: период (по умолчанию текущий месяц) + пресеты + склад
@@ -5744,7 +5746,34 @@ ${visit.notes ? `<div class="section">
       repWh.value=_whRepWarehouse; repWh.onchange=function(){ _whRepWarehouse=repWh.value; renderWhReport(); };
     }
 
+    // Вкладку, выбранную до перерисовки (в т.ч. пунктом сайдбара), нужно
+    // восстановить — иначе после каждой операции открывались бы «Остатки».
+    whShowTab(_whTab);
+  }
+
+  // Переключение вкладки склада: панели, кнопки-вкладки и подсветка пунктов
+  // сайдбара — все четыре ведут на #warehouse, различаются только вкладкой.
+  function whShowTab(tab) {
+    _whTab = tab || 'stock';
+    document.querySelectorAll('#wh-tabs .settings-tab').forEach(function(t){ t.classList.toggle('active', t.dataset.whtab===_whTab); });
+    document.querySelectorAll('#page-warehouse .settings-panel').forEach(function(p){ p.style.display = (p.dataset.whpanel===_whTab) ? '' : 'none'; });
+    document.querySelectorAll('.nav-item[data-whtab]').forEach(function(a){
+      var on = a.dataset.whtab===_whTab;
+      a.classList.toggle('active', on);
+      a.setAttribute('aria-current', on ? 'page' : 'false');
+    });
     renderWhTab();
+  }
+  function whCurrentTab() { return _whTab; }
+
+  // Вызывается из пункта сайдбара. Страница могла быть ещё не отрисована
+  // (navigate → VetPages.init → initWarehouse асинхронный), поэтому просто
+  // запоминаем вкладку: initWarehouse откроет её сам в конце.
+  function whOpenTab(tab) {
+    _whTab = tab || 'stock';
+    if (document.getElementById('page-warehouse') && document.getElementById('page-warehouse').classList.contains('active')) {
+      whShowTab(_whTab);
+    }
   }
 
   function renderWhReport() {
@@ -5891,13 +5920,34 @@ ${visit.notes ? `<div class="section">
   // ── Форма движения (поступление / списание / продажа) ──────────────
   function whMovementForm(kind) {
     if (!_whStores.length) { UI.toast('Сначала добавьте склад', 'warn'); return; }
+    // Списывать и продавать нечего, пока каталог пуст. В поступлении это не
+    // помеха: позицию заводят прямо в документе.
+    if (!_whItems.length && kind!=='receipt') { UI.toast('Каталог пуст — сначала оформите поступление','warn'); return; }
     var titleMap = { receipt:'Поступление на склад', writeoff:'Списание со склада', sale:'Продажа со склада' };
     var itemOpts = _whItems.map(function(it){ return '<option value="'+esc(it.id)+'">'+esc(it.name)+'</option>'; }).join('');
     var whOpts = _whStores.map(function(w){ return '<option value="'+esc(w.id)+'"'+(w.is_default?' selected':'')+'>'+esc(w.name)+'</option>'; }).join('');
     var today = new Date().toISOString().slice(0,10);
     var priceLabel = kind==='receipt' ? 'Закупочная цена, ₸' : (kind==='sale' ? 'Цена продажи, ₸' : '');
+    // В поступлении товар часто приходит новый — его заводят прямо здесь.
+    // Отдельной модалкой это сделать нельзя (UI.showModal одна на всё
+    // приложение и затрёт наполовину заполненное поступление), поэтому
+    // форма новой позиции разворачивается прямо внутри документа.
+    var newItemBlock = kind!=='receipt' ? '' :
+        '<div class="form-group form-span-2"><button type="button" class="btn btn-ghost btn-sm" id="wh-f-newitem-toggle">+ Новая позиция</button></div>'
+      + '<div class="form-group form-span-2" id="wh-f-newitem" style="display:none;">'
+      +   '<div class="card" style="padding:14px;border:1px solid var(--border);border-radius:var(--r-lg);">'
+      +     '<div class="form-grid">'
+      +       '<div class="form-group form-span-2"><label class="form-label">Название <span class="form-req">*</span></label><input id="wh-f-ni-name" class="form-input" placeholder="Напр. Дротаверин 2 мл"></div>'
+      +       '<div class="form-group"><label class="form-label">Тип</label><select id="wh-f-ni-type" class="form-select"><option value="drug" selected>Препарат</option><option value="service">Услуга</option></select></div>'
+      +       '<div class="form-group"><label class="form-label">Закупочная, ₸</label><input id="wh-f-ni-purchase" class="form-input" type="number" min="0" step="1" value="0"></div>'
+      +       '<div class="form-group"><label class="form-label">Розничная, ₸</label><input id="wh-f-ni-retail" class="form-input" type="number" min="0" step="1" value="0"></div>'
+      +       '<div class="form-group" style="align-self:end;"><button type="button" class="btn btn-primary btn-sm" id="wh-f-ni-create">Создать позицию</button></div>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
     var body = '<div class="form-grid">'
       + '<div class="form-group form-span-2"><label class="form-label">Позиция <span class="form-req">*</span></label><select id="wh-f-item" class="form-select">'+itemOpts+'</select></div>'
+      + newItemBlock
       + '<div class="form-group"><label class="form-label">Склад</label><select id="wh-f-wh" class="form-select">'+whOpts+'</select></div>'
       + '<div class="form-group"><label class="form-label">Количество, шт <span class="form-req">*</span></label><input id="wh-f-qty" class="form-input" type="number" min="0.01" step="1" value="1"></div>'
       + (priceLabel ? '<div class="form-group"><label class="form-label">'+priceLabel+'</label><input id="wh-f-price" class="form-input" type="number" min="0" step="1" value="0"></div>' : '')
@@ -5911,6 +5961,53 @@ ${visit.notes ? `<div class="section">
         var sel=document.getElementById('wh-f-item'); var pr=document.getElementById('wh-f-price');
         function fill(){ var it=_whItems.find(function(x){return x.id===sel.value;}); if(it&&pr){ pr.value = kind==='receipt' ? (it.purchase_price||0) : (it.price||0); } }
         if(sel){ sel.onchange=fill; fill(); }
+
+        var toggle=document.getElementById('wh-f-newitem-toggle');
+        var block=document.getElementById('wh-f-newitem');
+        if (toggle && block) {
+          // Каталог пуст — разворачиваем сразу: выбирать не из чего.
+          if (!_whItems.length) block.style.display='';
+          toggle.onclick=function(){
+            var open = block.style.display==='none';
+            block.style.display = open ? '' : 'none';
+            toggle.textContent = open ? 'Отмена' : '+ Новая позиция';
+            if (open) { var n=document.getElementById('wh-f-ni-name'); if(n) n.focus(); }
+          };
+        }
+        var create=document.getElementById('wh-f-ni-create');
+        if (create) create.onclick=async function(){
+          var name=((document.getElementById('wh-f-ni-name')||{}).value||'').trim();
+          if(!name){ UI.toast('Введите название позиции','err'); return; }
+          if (_whItems.some(function(x){ return (x.name||'').toLowerCase()===name.toLowerCase(); })) {
+            UI.toast('Позиция с таким названием уже есть','err'); return;
+          }
+          var purchase=parseFloat((document.getElementById('wh-f-ni-purchase')||{}).value)||0;
+          var retail=parseFloat((document.getElementById('wh-f-ni-retail')||{}).value)||0;
+          create.disabled=true;
+          try {
+            // is_active обязателен: сервер отдаёт каталог только с is_active=1,
+            // а в JSON отсутствующее поле приезжает как false — позиция ушла бы
+            // на сервер и пропала из каталога.
+            var rec = await window.VetDB.save('items', {
+              id: window.VetDB.uuid(), name:name, type:(document.getElementById('wh-f-ni-type')||{}).value||'drug',
+              price:retail, purchase_price:purchase,
+              cost_price:0, cost_mode:'fixed', cost_percent:0, is_active:true,
+            });
+            _whItems.push(rec);
+            _whItems.sort(function(a,b){ return (a.name||'').localeCompare(b.name||'','ru'); });
+            if (sel) {
+              sel.innerHTML=_whItems.map(function(x){ return '<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>'; }).join('');
+              sel.value=rec.id; fill();
+            }
+            if (block) block.style.display='none';
+            if (toggle) toggle.textContent='+ Новая позиция';
+            ['wh-f-ni-name','wh-f-ni-purchase','wh-f-ni-retail'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value = id==='wh-f-ni-name' ? '' : '0'; });
+            _whCatalogChanged();
+            UI.toast('Позиция создана','ok');
+            if (window.VetSync && VetSync.syncAll) VetSync.syncAll();
+          } catch(e) { UI.toast('Не удалось создать позицию: '+((e&&e.message)||e),'err'); }
+          create.disabled=false;
+        };
       },
       onSave: async function(){
         var itemId=(document.getElementById('wh-f-item')||{}).value;
@@ -5942,7 +6039,7 @@ ${visit.notes ? `<div class="section">
         // Поступление обновляет закупочную цену позиции.
         if (kind==='receipt' && price>0 && Number(it.purchase_price||0)!==price) {
           var full=await window.VetDB.getById('items', itemId);
-          if (full) { full.purchase_price = price; await window.VetDB.save('items', full); }
+          if (full) { full.purchase_price = price; await window.VetDB.save('items', full); _whCatalogChanged(); }
         }
         UI.toast(titleMap[kind]+' сохранено','ok'); UI.hideModal();
         if (window.VetSync && VetSync.syncAll) VetSync.syncAll();
@@ -5951,33 +6048,57 @@ ${visit.notes ? `<div class="section">
     });
   }
 
-  // ── Изменение цен позиции (закупка + розница) ──────────────────────
+  // ── Документ «Изменение цен» (закупка + розница) ───────────────────
+  // itemId задан — правим цены конкретной позиции (кнопка в остатках).
+  // itemId пуст — документ создаётся с нуля: позиция выбирается в форме.
   function whPriceForm(itemId) {
-    var it=_whItems.find(function(x){return x.id===itemId;}); if(!it) return;
+    if (!_whItems.length) { UI.toast('Каталог пуст — сначала добавьте позицию','warn'); return; }
+    var it = itemId ? _whItems.find(function(x){return x.id===itemId;}) : null;
+    if (itemId && !it) return;
+    var today=new Date().toISOString().slice(0,10);
+    var picker = it
+      ? '<input class="form-input" value="'+esc(it.name)+'" disabled>'
+      : '<select id="wh-p-item" class="form-select">'+_whItems.map(function(x){ return '<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>'; }).join('')+'</select>';
+    var base = it || _whItems[0];
     var body='<div class="form-grid">'
-      + '<div class="form-group form-span-2"><label class="form-label">Позиция</label><input class="form-input" value="'+esc(it.name)+'" disabled></div>'
-      + '<div class="form-group"><label class="form-label">Закупочная, ₸</label><input id="wh-p-purchase" class="form-input" type="number" min="0" step="1" value="'+Number(it.purchase_price||0)+'"></div>'
-      + '<div class="form-group"><label class="form-label">Розничная, ₸</label><input id="wh-p-retail" class="form-input" type="number" min="0" step="1" value="'+Number(it.price||0)+'"></div>'
+      + '<div class="form-group form-span-2"><label class="form-label">Позиция <span class="form-req">*</span></label>'+picker+'</div>'
+      + '<div class="form-group"><label class="form-label">Закупочная, ₸</label><input id="wh-p-purchase" class="form-input" type="number" min="0" step="1" value="'+Number(base.purchase_price||0)+'"></div>'
+      + '<div class="form-group"><label class="form-label">Розничная, ₸</label><input id="wh-p-retail" class="form-input" type="number" min="0" step="1" value="'+Number(base.price||0)+'"></div>'
+      + '<div class="form-group"><label class="form-label">Дата</label><input id="wh-p-date" class="form-input" type="date" value="'+today+'"></div>'
+      + '<div class="form-group form-span-2"><div class="form-hint">Цены общие для всех складов — это цены позиции в каталоге. Изменение попадёт в журнал движений (вид «Цены»).</div></div>'
       + '</div>';
-    UI.showModal({ title:'Изменение цен', bodyHTML:body, saveLabel:'Сохранить', onSave: async function(){
-      var pu=parseFloat((document.getElementById('wh-p-purchase')||{}).value)||0;
-      var rt=parseFloat((document.getElementById('wh-p-retail')||{}).value)||0;
-      var full=await window.VetDB.getById('items', itemId); if(!full){ UI.hideModal(); return; }
-      var changed = Number(full.purchase_price||0)!==pu || Number(full.price||0)!==rt;
-      full.purchase_price=pu; full.price=rt;
-      await window.VetDB.save('items', full);
-      if (changed) {
+    UI.showModal({ title:'Изменение цен', bodyHTML:body, saveLabel:'Сохранить',
+      afterOpen: function(){
+        // Выбрали другую позицию — подставляем её текущие цены.
+        var sel=document.getElementById('wh-p-item'); if(!sel) return;
+        sel.onchange=function(){
+          var x=_whItems.find(function(y){return y.id===sel.value;})||{};
+          var pu=document.getElementById('wh-p-purchase'), rt=document.getElementById('wh-p-retail');
+          if(pu) pu.value=Number(x.purchase_price||0); if(rt) rt.value=Number(x.price||0);
+        };
+      },
+      onSave: async function(){
+        var id = itemId || (document.getElementById('wh-p-item')||{}).value;
+        if(!id){ UI.toast('Выберите позицию','err'); return; }
+        var pu=parseFloat((document.getElementById('wh-p-purchase')||{}).value)||0;
+        var rt=parseFloat((document.getElementById('wh-p-retail')||{}).value)||0;
+        var full=await window.VetDB.getById('items', id); if(!full){ UI.hideModal(); return; }
+        var changed = Number(full.purchase_price||0)!==pu || Number(full.price||0)!==rt;
+        if (!changed) { UI.toast('Цены не изменились','warn'); return; }
+        full.purchase_price=pu; full.price=rt;
+        await window.VetDB.save('items', full);
+        _whCatalogChanged();
         // Фиксируем изменение цен в журнале движений (qty=0).
         await window.VetDB.save('stock_movements', {
           id: window.VetDB.uuid(),
-          warehouse_id:(_whStores[0]||{}).id||'', item_id:itemId, kind:'price', qty:0,
-          purchase_price:pu, retail_price:rt, occurred_at:new Date().toISOString().slice(0,10),
+          warehouse_id:(_whStores[0]||{}).id||'', item_id:id, kind:'price', qty:0,
+          purchase_price:pu, retail_price:rt,
+          occurred_at:(document.getElementById('wh-p-date')||{}).value || new Date().toISOString().slice(0,10),
         });
-      }
-      UI.toast('Цены обновлены','ok'); UI.hideModal();
-      if (window.VetSync && VetSync.syncAll) VetSync.syncAll();
-      await initWarehouse();
-    }});
+        UI.toast('Цены обновлены','ok'); UI.hideModal();
+        if (window.VetSync && VetSync.syncAll) VetSync.syncAll();
+        await initWarehouse();
+      }});
   }
 
   // ── Склады: добавить / переименовать / удалить ─────────────────────
@@ -6017,13 +6138,10 @@ ${visit.notes ? `<div class="section">
   // Клик по позиции в остатках → её движения (фильтр журнала по имени).
   function whItemMoves(itemId) {
     var it=_whItems.find(function(x){return x.id===itemId;}); if(!it) return;
-    _whTab='moves';
-    document.querySelectorAll('#wh-tabs .settings-tab').forEach(function(t){ t.classList.toggle('active', t.dataset.whtab==='moves'); });
-    document.querySelectorAll('#page-warehouse .settings-panel').forEach(function(p){ p.style.display=(p.dataset.whpanel==='moves')?'':'none'; });
     var s=document.getElementById('wh-moves-search'); if(s){ s.value=it.name; }
     _whMoveKind='all';
     document.querySelectorAll('#wh-moves-filter .filter-btn').forEach(function(x){ x.classList.toggle('active', x.dataset.mkind==='all'); });
-    renderWhMoves();
+    whShowTab('moves');
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -6062,6 +6180,8 @@ ${visit.notes ? `<div class="section">
     whStoreDelete:      whStoreDelete,
     whDeleteMove:       whDeleteMove,
     whItemMoves:        whItemMoves,
+    whOpenTab:          whOpenTab,
+    whCurrentTab:       whCurrentTab,
     addOwner:           addOwner,
     _ownersShowMore:    _ownersShowMore,
     _petsShowMore:      _petsShowMore,

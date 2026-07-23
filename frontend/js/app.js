@@ -500,6 +500,10 @@
     // Сервер ставит status='active' при создании; локальный слой обязан
     // делать то же, иначе питомец невидим в списках до первой синхронизации.
     if (storeName === "pets" && !body.status) body.status = "active";
+    // То же для каталога: сервер ставит is_active=1 и отдаёт /items только с
+    // ним. Отсутствующее поле приезжает в Go как false — позиция, заведённая
+    // офлайн, синхронизировалась и пропадала из каталога.
+    if (storeName === "items" && body.is_active === undefined) body.is_active = true;
     var record = await window.VetDB.save(storeName, Object.assign({ id: window.VetDB.uuid() }, body));
     await refreshStore(storeName);
     emitChange(storeName);

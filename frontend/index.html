@@ -267,11 +267,34 @@
           <span class="nav-text">Склад</span>
           <span class="ss-arrow">▾</span>
         </div>
+        <!-- Пункты ведут на одну страницу (page-warehouse), но открывают
+             разные вкладки: data-whtab передаётся в VetPages.whOpenTab.
+             Отдельный пункт на вкладку нужен потому, что раньше в группе
+             «Склад» лежал единственный пункт «Склад» — категория с одним
+             дублирующим пунктом, из которой не было видно, что внутри. -->
         <ul class="nav-list ss-body">
           <li>
-            <a class="nav-item" data-page="warehouse" href="#warehouse" title="Склад">
+            <a class="nav-item" data-page="warehouse" data-whtab="stock" href="#warehouse" title="Остатки на складе">
               <i data-icon="box" data-icon-size="22" class="nav-icon"></i>
-              <span class="nav-text">Склад</span>
+              <span class="nav-text">Остатки</span>
+            </a>
+          </li>
+          <li>
+            <a class="nav-item" data-page="warehouse" data-whtab="moves" href="#warehouse" title="Движения: поступления, списания, продажи, цены">
+              <i data-icon="clipboard" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Движения</span>
+            </a>
+          </li>
+          <li>
+            <a class="nav-item" data-page="warehouse" data-whtab="report" href="#warehouse" title="Отчёт по складу">
+              <i data-icon="chart" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Отчёт по складу</span>
+            </a>
+          </li>
+          <li>
+            <a class="nav-item" data-page="warehouse" data-whtab="stores" href="#warehouse" title="Список складов">
+              <i data-icon="hospital" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Склады</span>
             </a>
           </li>
         </ul>
@@ -734,6 +757,7 @@
             <button class="btn btn-primary" id="wh-btn-receipt">+ Поступление</button>
             <button class="btn btn-ghost" id="wh-btn-writeoff">Списание</button>
             <button class="btn btn-ghost" id="wh-btn-sale">Продажа</button>
+            <button class="btn btn-ghost" id="wh-btn-price">Изменение цен</button>
           </div>
         </div>
         <div class="settings-tabs" id="wh-tabs">
@@ -1104,7 +1128,12 @@
     currentPage = page;
     document.querySelectorAll('.page').forEach(function (p) { p.classList.remove('active'); });
     document.querySelectorAll('.nav-item').forEach(function (n) {
+      // Пункты склада ведут на одну страницу, но в разные вкладки: подсвечиваем
+      // только ту, что открыта сейчас, иначе загорались бы все четыре.
       var isCur = n.dataset.page === page;
+      if (isCur && n.dataset.whtab) {
+        isCur = n.dataset.whtab === (window.VetPages && VetPages.whCurrentTab ? VetPages.whCurrentTab() : '');
+      }
       n.classList.toggle('active', isCur);
       n.setAttribute('aria-current', isCur ? 'page' : 'false');
     });
@@ -1138,6 +1167,12 @@
       if (!this.dataset.page) return;
       e.preventDefault();
       navigate(this.dataset.page);
+      // Пункты склада дополнительно открывают свою вкладку. Зовём ПОСЛЕ
+      // navigate и всегда: если страница уже открыта, navigate выходит рано
+      // (currentPage === page), и вкладка сама бы не переключилась.
+      if (this.dataset.whtab && window.VetPages && VetPages.whOpenTab) {
+        VetPages.whOpenTab(this.dataset.whtab);
+      }
     });
   });
 
