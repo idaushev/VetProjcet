@@ -48,35 +48,15 @@ func (a *app) remindersEnabled() bool {
 	return a.getSetting("reminders_enabled", "1") != "0"
 }
 
-// ─── Реестр опциональных модулей ─────────────────────────────────────────────
+// ─── Опциональные модули: гейт и API ─────────────────────────────────────────
 //
-// Единая точка правды о том, какие модули существуют, как хранится их флаг и
-// какие между ними зависимости. Гейт (moduleEnabled) и API (handleGetModules/
-// handlePutModule) читают отсюда, чтобы добавить модуль в одном месте.
+// Реестр модулей (ключи, зависимости, схема) живёт в modules.go — moduleRegistry.
+// Здесь только рантайм-часть: гейт moduleEnabled и HTTP (moduleStates/handlePut).
 //
-// Зависимость здесь «мягкая»: без неё модуль работает ХУЖЕ, но не ломается.
-// Портал без телеграма живёт — коды владельцам сотрудник выдаёт вручную, бот
-// лишь автоматизирует выдачу паролей. Поэтому включение без зависимости не
-// блокируем, а возвращаем предупреждение. См. docs/MODULES.md.
-type moduleDef struct {
-	key       string
-	dependsOn []string
-}
-
-var moduleDefs = []moduleDef{
-	{key: "telegram"},
-	{key: "portal", dependsOn: []string{"telegram"}},
-	{key: "warehouse"},
-}
-
-func findModuleDef(key string) (moduleDef, bool) {
-	for _, d := range moduleDefs {
-		if d.key == key {
-			return d, true
-		}
-	}
-	return moduleDef{}, false
-}
+// Зависимость «мягкая»: без неё модуль работает ХУЖЕ, но не ломается. Портал
+// без телеграма живёт — коды владельцам сотрудник выдаёт вручную, бот лишь
+// автоматизирует выдачу паролей. Поэтому включение без зависимости не блокируем,
+// а возвращаем предупреждение. См. docs/MODULES.md.
 
 // moduleEnabled — единый гейт «включён ли модуль». Телеграм особый: он
 // «включён» тогда, когда задан токен бота (тумблера нет, управляется токеном).
@@ -110,11 +90,11 @@ func (a *app) requireModule(key string, fn http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// moduleStates — карта «модуль → включён» для всех известных модулей.
+// moduleStates — карта «модуль → включён» для всех модулей реестра.
 func (a *app) moduleStates() map[string]interface{} {
-	m := make(map[string]interface{}, len(moduleDefs))
-	for _, d := range moduleDefs {
-		m[d.key] = a.moduleEnabled(d.key)
+	m := make(map[string]interface{}, len(moduleRegistry))
+	for _, mod := range moduleRegistry {
+		m[mod.Key()] = a.moduleEnabled(mod.Key())
 	}
 	return m
 }
@@ -131,7 +111,7 @@ func (a *app) handleGetModules(w http.ResponseWriter, r *http.Request) {
 // зависимости кладём предупреждение в data._warnings, но не отклоняем.
 func (a *app) handlePutModule(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
-	def, ok := findModuleDef(key)
+	mod, ok := findModule(key)
 	if !ok {
 		writeError(w, http.StatusNotFound, "неизвестный модуль")
 		return
@@ -151,7 +131,7 @@ func (a *app) handlePutModule(w http.ResponseWriter, r *http.Request) {
 
 	var warnings []string
 	if p.Enabled {
-		for _, dep := range def.dependsOn {
+		for _, dep := range mod.DependsOn() {
 			if !a.moduleEnabled(dep) {
 				warnings = append(warnings, moduleDepWarning(key, dep))
 			}

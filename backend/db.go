@@ -391,7 +391,8 @@ var migrations = []string{
 	`ALTER TABLE items ADD COLUMN cost_price REAL DEFAULT 0`,
 	`ALTER TABLE items ADD COLUMN cost_mode TEXT NOT NULL DEFAULT 'fixed'`,
 	`ALTER TABLE items ADD COLUMN cost_percent REAL NOT NULL DEFAULT 0`,
-	`ALTER TABLE items ADD COLUMN purchase_price REAL NOT NULL DEFAULT 0`,
+	// items.purchase_price переехал в warehouseModule.Migrations() (M1.1) —
+	// это дельта модуля склада на ядровой таблице.
 	`CREATE INDEX IF NOT EXISTS idx_items_updated ON items(updated_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_items_deleted ON items(is_deleted)`,
 
@@ -706,7 +707,10 @@ func seedDefaultWarehouse(ctx context.Context, db *sql.DB) {
 }
 
 func runMigrations(ctx context.Context, db *sql.DB) error {
-	for _, q := range migrations {
+	// Миграции ядра, затем миграции модулей (по реестру). Одинаковая
+	// идемпотентная терпимость: дубль колонки/таблицы — не ошибка.
+	all := append(append([]string{}, migrations...), moduleMigrations()...)
+	for _, q := range all {
 		if _, err := db.ExecContext(ctx, q); err != nil {
 			msg := strings.ToLower(err.Error())
 			// Идемпотентные ошибки — игнорируем
