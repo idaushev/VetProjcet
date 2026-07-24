@@ -97,6 +97,19 @@ func (a *app) moduleEnabled(key string) bool {
 // warehouseEnabled — совместимость со старыми вызовами (склад-хендлеры).
 func (a *app) warehouseEnabled() bool { return a.moduleEnabled("warehouse") }
 
+// requireModule — middleware: при выключенном модуле отдаёт 404, как будто
+// эндпоинта нет (не раскрываем существование выключенного функционала).
+// Оборачивает уже собранный хендлер: requireModule("portal", requireAuth(fn)).
+func (a *app) requireModule(key string, fn http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !a.moduleEnabled(key) {
+			writeError(w, http.StatusNotFound, "Модуль отключён")
+			return
+		}
+		fn(w, r)
+	}
+}
+
 // moduleStates — карта «модуль → включён» для всех известных модулей.
 func (a *app) moduleStates() map[string]interface{} {
 	m := make(map[string]interface{}, len(moduleDefs))
