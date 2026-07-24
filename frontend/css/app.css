@@ -2810,5 +2810,21 @@ body[data-role="admin"] .settings-tab.admin-only { display: inline-flex; }
 
 /* Элементы модуля склада вне самого раздела (быстрые ссылки и т.п.):
    видны только при включённом модуле. Класс mod-warehouse-on на body
-   ставит applyWarehouseModuleUI() после чтения /settings/modules. */
+   ставит applyModuleUI() после чтения /settings/modules.
+   Склад — opt-in (по умолчанию выкл): показываем при наличии -on.
+   Портал — opt-out (по умолчанию вкл): прячем при наличии -off, чтобы
+   ссылка не мигала до загрузки статуса модулей. */
 body:not(.mod-warehouse-on) .needs-mod-warehouse { display: none !important; }
+body.mod-portal-off .needs-mod-portal { display: none !important; }
+
+/* Строки списка модулей в настройках */
+.module-row {
+  display: flex; align-items: flex-start;
+  padding: 16px 0; border-bottom: 1px solid var(--border);
+}
+.module-row:last-child { border-bottom: 0; }
+.module-toggle { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; width: 100%; }
+.module-toggle input[type="checkbox"] { width: 20px; height: 20px; margin-top: 2px; flex: 0 0 auto; }
+.module-row-main { display: flex; flex-direction: column; gap: 3px; }
+.module-row-title { font-weight: 600; font-size: var(--fs-md); display: flex; align-items: center; gap: 8px; }
+.module-row-desc { font-size: var(--fs-sm); color: var(--text-2); line-height: 1.4; }

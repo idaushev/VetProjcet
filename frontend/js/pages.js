@@ -2770,24 +2770,10 @@
     setupSettingsTabs();
     setupThemeSwitch();
 
-    // Тумблер модуля склада (админ). Читает /settings/modules, пишет
-    // /settings/warehouse, обновляет навигацию.
-    var whChk = el('s-module-warehouse');
-    if (whChk && window.VetAuth && VetAuth.user() && VetAuth.user().role === 'admin') {
-      var _whApi = async function(method, body) {
-        var base = (window.VetAppConfig && window.VetAppConfig.apiBase) || '';
-        var nf = window.__nativeFetch || window.fetch.bind(window);
-        var res = await nf(base + (method==='GET'?'/settings/modules':'/settings/warehouse'), {
-          method: method, headers: { 'Content-Type':'application/json', 'X-Auth-Token': (VetAuth.token && VetAuth.token())||'' },
-          body: body ? JSON.stringify(body) : undefined });
-        return (await res.json()).data || {};
-      };
-      _whApi('GET').then(function(d){ whChk.checked = !!d.warehouse; }).catch(function(){});
-      whChk.onchange = async function() {
-        try { await _whApi('PUT', { enabled: whChk.checked }); refreshModules(); UI.toast(whChk.checked?'Модуль склада включён':'Модуль склада выключен','ok'); }
-        catch(e) { UI.toast('Не удалось изменить: '+(e&&e.message||e),'err'); whChk.checked=!whChk.checked; }
-      };
-    }
+    // Вкладка «Модули» (админ): тумблеры склада и портала пишут единый
+    // PUT /settings/module/{key}; телеграм только показываем (управляется
+    // токеном). Мягкие зависимости приходят в data._warnings — показываем.
+    initModulesTab();
 
     // R7: неразрушающее «Обновить с сервера» (полный pull) — отдельно от
     // пугающего «Сбросить локальные данные».
@@ -2859,6 +2845,55 @@
     var j = await res.json().catch(function(){ return {}; });
     if (!res.ok || j.status !== 'ok') throw new Error((j && j.message) || ('HTTP ' + res.status));
     return j.data;
+  }
+
+  // initModulesTab — вкладка «Модули» настроек (только админ). Тумблеры
+  // склада и портала пишут единый PUT /settings/module/{key}; телеграм
+  // только отображаем (управляется токеном). Мягкие зависимости приходят
+  // в data._warnings — показываем тостами.
+  function initModulesTab() {
+    var el = function(id){ return document.getElementById(id); };
+    var u = window.VetAuth && VetAuth.user();
+    if (!u || u.role !== 'admin') return;
+    var base = (window.VetAppConfig && window.VetAppConfig.apiBase) || '';
+    var nf = window.__nativeFetch || window.fetch.bind(window);
+    var tok = function(){ return (window.VetAuth && VetAuth.token && VetAuth.token()) || ''; };
+
+    // Начальное состояние тумблеров и статуса телеграма.
+    nf(base + '/settings/modules', { headers: { 'X-Auth-Token': tok() } })
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        var d = (j && j.data) || {};
+        if (el('s-module-warehouse')) el('s-module-warehouse').checked = !!d.warehouse;
+        if (el('s-module-portal'))    el('s-module-portal').checked = ('portal' in d) ? !!d.portal : true;
+        var tg = el('s-module-telegram-status');
+        if (tg) { tg.textContent = d.telegram ? 'Подключён' : 'Не настроен'; tg.className = 'badge ' + (d.telegram ? 'badge-active' : 'badge-inactive'); }
+      }).catch(function(){});
+
+    function wire(key, chk, label) {
+      if (!chk) return;
+      chk.onchange = async function() {
+        var want = chk.checked;
+        try {
+          var res = await nf(base + '/settings/module/' + key, {
+            method: 'PUT',
+            headers: { 'Content-Type':'application/json', 'X-Auth-Token': tok() },
+            body: JSON.stringify({ enabled: want })
+          });
+          var j = await res.json();
+          if (!res.ok || (j && j.status === 'error')) throw new Error((j && j.message) || 'ошибка');
+          await refreshModules();
+          UI.toast(label + (want ? ' включён' : ' выключен'), 'ok');
+          var warns = j && j.data && j.data._warnings;
+          if (warns && warns.length) warns.forEach(function(wn){ UI.toast(wn, 'warn', 6000); });
+        } catch(e) {
+          UI.toast('Не удалось изменить: ' + (e && e.message || e), 'err');
+          chk.checked = !want; // откат галки к прежнему состоянию
+        }
+      };
+    }
+    wire('warehouse', el('s-module-warehouse'), 'Модуль склада');
+    wire('portal',    el('s-module-portal'),    'Кабинет владельца');
   }
 
   async function initTelegramSettings() {
@@ -5641,25 +5676,35 @@ ${visit.notes ? `<div class="section">
 
   // Флаг модуля: показываем/прячем раздел «Склад». Тянем с сервера (онлайн),
   // кэшируем в localStorage — офлайн берём последнее известное значение.
+  // refreshModules читает состояние всех опциональных модулей и гейтит
+  // навигацию. Склад по умолчанию выкл, портал — вкл. Кэш в localStorage,
+  // чтобы офлайн-загрузка не мигала разделами. Возвращает карту состояний.
   async function refreshModules() {
-    var enabled = false;
+    var states = { warehouse: false, portal: true };
     try {
       var base = (window.VetAppConfig && window.VetAppConfig.apiBase) || '';
       var nf = window.__nativeFetch || window.fetch.bind(window);
       var res = await nf(base + '/settings/modules', { headers: { 'X-Auth-Token': (window.VetAuth && VetAuth.token && VetAuth.token()) || '' } });
       var j = await res.json();
-      enabled = !!(j && j.data && j.data.warehouse);
-      localStorage.setItem('vet-mod-warehouse', enabled ? '1' : '0');
+      var d = (j && j.data) || {};
+      states.warehouse = !!d.warehouse;
+      states.portal    = ('portal' in d) ? !!d.portal : true;
+      localStorage.setItem('vet-mod-warehouse', states.warehouse ? '1' : '0');
+      localStorage.setItem('vet-mod-portal',    states.portal    ? '1' : '0');
     } catch(e) {
-      enabled = localStorage.getItem('vet-mod-warehouse') === '1';
+      states.warehouse = localStorage.getItem('vet-mod-warehouse') === '1';
+      states.portal    = localStorage.getItem('vet-mod-portal') !== '0'; // дефолт вкл
     }
-    applyWarehouseModuleUI(enabled);
-    return enabled;
+    applyModuleUI(states);
+    return states;
   }
-  function applyWarehouseModuleUI(enabled) {
-    document.body.classList.toggle('mod-warehouse-on', enabled);
+  function applyModuleUI(states) {
+    // Склад: opt-in — класс -on показывает раздел и быстрые ссылки.
+    document.body.classList.toggle('mod-warehouse-on', !!states.warehouse);
     var grp = document.getElementById('ssg-warehouse');
-    if (grp) grp.style.display = enabled ? '' : 'none';
+    if (grp) grp.style.display = states.warehouse ? '' : 'none';
+    // Портал: opt-out — класс -off прячет ссылки (по умолчанию показаны).
+    document.body.classList.toggle('mod-portal-off', !states.portal);
   }
 
   function _whName(map, id) { var x = map[id]; return x ? x.name : '—'; }

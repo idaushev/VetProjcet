@@ -196,7 +196,7 @@
                роутер его не трогает, открываем в новой вкладке, чтобы не
                выбрасывать врача из смены. Роль склада его не видит (auth.js). -->
           <li>
-            <a class="nav-item" id="nav-portal-link" href="/portal" target="_blank" rel="noopener"
+            <a class="nav-item needs-mod-portal" id="nav-portal-link" href="/portal" target="_blank" rel="noopener"
                title="Открыть кабинет владельца в новой вкладке">
               <i data-icon="user" data-icon-size="22" class="nav-icon"></i>
               <span class="nav-text">Кабинет владельца ↗</span>
@@ -373,7 +373,7 @@
               Склад ↗
             </a>
             <!-- Кабинет владельца — отдельное приложение, новая вкладка. -->
-            <a class="btn btn-ghost" id="dash-portal-link" href="/portal" target="_blank" rel="noopener"
+            <a class="btn btn-ghost needs-mod-portal" id="dash-portal-link" href="/portal" target="_blank" rel="noopener"
                title="Открыть кабинет владельца в новой вкладке">
               Кабинет владельца ↗
             </a>
@@ -839,6 +839,7 @@
         <!-- Вкладки настроек -->
         <div class="settings-tabs" id="settings-tabs">
           <button class="settings-tab active" data-stab="clinic">Клиника</button>
+          <button class="settings-tab admin-only" data-stab="modules">Модули</button>
           <button class="settings-tab admin-only" data-stab="telegram">Телеграм и уведомления</button>
           <button class="settings-tab admin-only" data-stab="users">Пользователи</button>
           <button class="settings-tab" data-stab="data">Данные</button>
@@ -902,17 +903,50 @@
                   </div>
                   <div class="form-hint">Тёмная тема — на устройстве, где вы её включили; на других остаётся своя.</div>
                 </div>
-                <div class="form-group admin-only" style="margin-top:16px;">
-                  <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-                    <input type="checkbox" id="s-module-warehouse" style="width:18px;height:18px;">
-                    Модуль склада (учёт товаров: поступление, списание, продажа, цены)
-                  </label>
-                  <div class="form-hint">Опционально. Включите, если ведёте складской учёт. Появится раздел «Склад».</div>
-                </div>
                 <div style="margin-top:20px;">
                   <button class="btn btn-primary" id="btn-save-settings">Сохранить настройки</button>
                   <span id="settings-saved-msg" style="display:none;margin-left:12px;color:var(--accent);font-weight:600;font-size:.9rem;">✓ Сохранено</span>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Вкладка: Модули ──────────────────────────────────────── -->
+          <!-- Опциональные модули: включаются помодульно по потребности.
+               Тумблеры пишут PUT /settings/module/{key}; телеграм здесь
+               только показывается (управляется вводом токена рядом). -->
+          <div class="settings-panel admin-only" data-spanel="modules" style="display:none;">
+            <div class="card" style="max-width:680px;">
+              <div class="card-header"><span class="card-title">Опциональные модули</span></div>
+              <div class="card-body" style="padding:8px 20px;">
+
+                <div class="module-row">
+                  <label class="module-toggle">
+                    <input type="checkbox" id="s-module-warehouse">
+                    <span class="module-row-main">
+                      <span class="module-row-title">Склад</span>
+                      <span class="module-row-desc">Учёт товаров: поступление, списание, продажа, цены. Появится раздел «Склад» и роль продавца.</span>
+                    </span>
+                  </label>
+                </div>
+
+                <div class="module-row">
+                  <label class="module-toggle">
+                    <input type="checkbox" id="s-module-portal">
+                    <span class="module-row-main">
+                      <span class="module-row-title">Кабинет владельца</span>
+                      <span class="module-row-desc">Веб-кабинет для владельцев (вход по телефону): питомцы, приёмы, запись. Ссылка «Кабинет владельца» в меню.</span>
+                    </span>
+                  </label>
+                </div>
+
+                <div class="module-row">
+                  <span class="module-row-main">
+                    <span class="module-row-title">Телеграм-бот <span id="s-module-telegram-status" class="badge">—</span></span>
+                    <span class="module-row-desc">Управляется вводом токена во вкладке «Телеграм и уведомления». Нужен боту напоминаний и автоматической выдаче паролей кабинета.</span>
+                  </span>
+                </div>
+
               </div>
             </div>
           </div>
