@@ -62,166 +62,11 @@ func (a *app) handleSyncPush(w http.ResponseWriter, r *http.Request) {
 		return pushUser == nil || pushUser.tableLevel(table) >= permLevels["create"]
 	}
 
-	// Порядок важен для FK: owners → pets → items → visits → visit_items → vaccinations → staff
-	if len(payload.Owners) > 0 && !canPush("owners") {
-		result.Skipped += len(payload.Owners)
-		a.logger.Printf("syncPush owners: отклонено, у %s нет права записи", pushUserID)
-		payload.Owners = nil
-	}
-	for _, rec := range payload.Owners {
-		if ok, err := pushOwner(ctx, a.db, rec); ok {
-			a.stampAuthor(ctx, "owners", rec.ID, pushUserID)
-			result.Accepted++
-		} else {
-			if err != nil {
-				a.logger.Printf("syncPush owner %s: %v", rec.ID, err)
-			}
-			result.Skipped++
-		}
-	}
-	if len(payload.Pets) > 0 && !canPush("pets") {
-		result.Skipped += len(payload.Pets)
-		a.logger.Printf("syncPush pets: отклонено, у %s нет права записи", pushUserID)
-		payload.Pets = nil
-	}
-	for _, rec := range payload.Pets {
-		if ok, err := pushPet(ctx, a.db, rec); ok {
-			a.stampAuthor(ctx, "pets", rec.ID, pushUserID)
-			result.Accepted++
-		} else {
-			if err != nil {
-				a.logger.Printf("syncPush pet %s: %v", rec.ID, err)
-			}
-			result.Skipped++
-		}
-	}
-	if len(payload.Items) > 0 && !canPush("items") {
-		result.Skipped += len(payload.Items)
-		a.logger.Printf("syncPush items: отклонено, у %s нет права записи", pushUserID)
-		payload.Items = nil
-	}
-	for _, rec := range payload.Items {
-		if ok, err := pushItem(ctx, a.db, rec); ok {
-			a.stampAuthor(ctx, "items", rec.ID, pushUserID)
-			result.Accepted++
-		} else {
-			if err != nil {
-				a.logger.Printf("syncPush item %s: %v", rec.ID, err)
-			}
-			result.Skipped++
-		}
-	}
-	if len(payload.Visits) > 0 && !canPush("visits") {
-		result.Skipped += len(payload.Visits)
-		a.logger.Printf("syncPush visits: отклонено, у %s нет права записи", pushUserID)
-		payload.Visits = nil
-	}
-	for _, rec := range payload.Visits {
-		if ok, err := pushVisit(ctx, a.db, rec); ok {
-			a.stampAuthor(ctx, "visits", rec.ID, pushUserID)
-			result.Accepted++
-		} else {
-			if err != nil {
-				a.logger.Printf("syncPush visit %s: %v", rec.ID, err)
-			}
-			result.Skipped++
-		}
-	}
-	if len(payload.VisitItems) > 0 && !canPush("visits") {
-		result.Skipped += len(payload.VisitItems)
-		a.logger.Printf("syncPush visititems: отклонено, у %s нет права записи", pushUserID)
-		payload.VisitItems = nil
-	}
-	for _, rec := range payload.VisitItems {
-		if ok, err := pushVisitItem(ctx, a.db, rec); ok {
-			a.stampAuthor(ctx, "visit_items", rec.ID, pushUserID)
-			result.Accepted++
-		} else {
-			if err != nil {
-				a.logger.Printf("syncPush visit_item %s: %v", rec.ID, err)
-			}
-			result.Skipped++
-		}
-	}
-	if len(payload.Vaccinations) > 0 && !canPush("vaccinations") {
-		result.Skipped += len(payload.Vaccinations)
-		a.logger.Printf("syncPush vaccinations: отклонено, у %s нет права записи", pushUserID)
-		payload.Vaccinations = nil
-	}
-	for _, rec := range payload.Vaccinations {
-		if ok, err := pushVaccination(ctx, a.db, rec); ok {
-			a.stampAuthor(ctx, "vaccinations", rec.ID, pushUserID)
-			result.Accepted++
-		} else {
-			if err != nil {
-				a.logger.Printf("syncPush vaccination %s: %v", rec.ID, err)
-			}
-			result.Skipped++
-		}
-	}
-	if len(payload.Staff) > 0 && !canPush("staff") {
-		result.Skipped += len(payload.Staff)
-		a.logger.Printf("syncPush staff: отклонено, у %s нет права записи", pushUserID)
-		payload.Staff = nil
-	}
-	for _, rec := range payload.Staff {
-		if ok, err := pushStaff(ctx, a.db, rec); ok {
-			a.stampAuthor(ctx, "clinic_staff", rec.ID, pushUserID)
-			result.Accepted++
-		} else {
-			if err != nil {
-				a.logger.Printf("syncPush staff %s: %v", rec.ID, err)
-			}
-			result.Skipped++
-		}
-	}
-	// Записи расписания — под правами приёмов: кто ведёт приёмы, тот и записывает.
-	if len(payload.Appointments) > 0 && !canPush("visits") {
-		result.Skipped += len(payload.Appointments)
-		a.logger.Printf("syncPush appointments: отклонено, у %s нет права записи", pushUserID)
-		payload.Appointments = nil
-	}
-	for _, rec := range payload.Appointments {
-		if ok, err := pushAppointment(ctx, a.db, rec); ok {
-			a.stampAuthor(ctx, "appointments", rec.ID, pushUserID)
-			result.Accepted++
-		} else {
-			if err != nil {
-				a.logger.Printf("syncPush appointment %s: %v", rec.ID, err)
-			}
-			result.Skipped++
-		}
-	}
-
-	// ── Склад ── права по виртуальной таблице "warehouse" (роль/право продавца).
-	if len(payload.Warehouses) > 0 && !canPush("warehouse") {
-		result.Skipped += len(payload.Warehouses)
-		payload.Warehouses = nil
-	}
-	for _, rec := range payload.Warehouses {
-		if ok, err := pushWarehouse(ctx, a.db, rec); ok {
-			a.stampAuthor(ctx, "warehouses", rec.ID, pushUserID)
-			result.Accepted++
-		} else {
-			if err != nil {
-				a.logger.Printf("syncPush warehouse %s: %v", rec.ID, err)
-			}
-			result.Skipped++
-		}
-	}
-	if len(payload.StockMovements) > 0 && !canPush("warehouse") {
-		result.Skipped += len(payload.StockMovements)
-		payload.StockMovements = nil
-	}
-	for _, rec := range payload.StockMovements {
-		if ok, err := pushStockMovement(ctx, a.db, rec); ok {
-			a.stampAuthor(ctx, "stock_movements", rec.ID, pushUserID)
-			result.Accepted++
-		} else {
-			if err != nil {
-				a.logger.Printf("syncPush stockmovement %s: %v", rec.ID, err)
-			}
-			result.Skipped++
+	// Обобщённый диспетчер: идём по реестру сущностей (порядок = FK). Вся ручная
+	// логика — в pushX внутри замыканий реестра, см. sync_registry.go.
+	for _, e := range coreSyncEntities() {
+		if e.pushAll != nil {
+			e.pushAll(ctx, a, &payload, pushUserID, canPush, &result)
 		}
 	}
 
@@ -257,65 +102,22 @@ func (a *app) handleSyncPull(w http.ResponseWriter, r *http.Request) {
 		a.upsertDevice(ctx, deviceID)
 	}
 
-	data := syncPullData{ServerTime: nowUTC()}
+	// Ответ — карта «сущность → записи» + server_time. Клиент читает по ключу
+	// (data[store]), поэтому карта даёт тот же JSON, что прежняя структура —
+	// совместимо со старыми планшетами. Ключи и форма записей не меняются.
+	data := map[string]any{"server_time": nowUTC()}
 
-	// Загружаем каждый тип независимо: ошибка одного НЕ прерывает остальных.
-	// До этого любая scan-ошибка (например, неверный формат DATETIME в SQLite)
-	// возвращала 500, и клиент падал в pullFallbackLegacy (без is_deleted=1 записей).
-	if owners, err := pullOwners(ctx, a.db, since); err != nil {
-		a.logger.Printf("syncPull owners: %v", err)
-	} else {
-		data.Owners = owners
-	}
-	if pets, err := pullPets(ctx, a.db, since); err != nil {
-		a.logger.Printf("syncPull pets: %v", err)
-	} else {
-		data.Pets = pets
-	}
-	if items, err := pullItems(ctx, a.db, since); err != nil {
-		a.logger.Printf("syncPull items: %v", err)
-	} else {
-		data.Items = items
-	}
-	if visits, err := pullVisits(ctx, a.db, since); err != nil {
-		a.logger.Printf("syncPull visits: %v", err)
-	} else {
-		data.Visits = visits
-	}
-	if vis, err := pullVisitItems(ctx, a.db, since); err != nil {
-		a.logger.Printf("syncPull visit_items: %v", err)
-	} else {
-		data.VisitItems = vis
-	}
-	if vaccs, err := pullVaccinations(ctx, a.db, since); err != nil {
-		a.logger.Printf("syncPull vaccinations: %v", err)
-	} else {
-		data.Vaccinations = vaccs
-	}
-	if staff, err := pullStaff(ctx, a.db, since); err != nil {
-		a.logger.Printf("syncPull staff: %v", err)
-	} else {
-		data.Staff = staff
-	}
-	if appts, err := pullAppointments(ctx, a.db, since); err != nil {
-		a.logger.Printf("syncPull appointments: %v", err)
-	} else {
-		data.Appointments = appts
-	}
-	if att, err := pullAttachments(ctx, a.db, since); err != nil {
-		a.logger.Printf("syncPull attachments: %v", err)
-	} else {
-		data.Attachments = att
-	}
-	if whs, err := pullWarehouses(ctx, a.db, since); err != nil {
-		a.logger.Printf("syncPull warehouses: %v", err)
-	} else {
-		data.Warehouses = whs
-	}
-	if movs, err := pullStockMovements(ctx, a.db, since); err != nil {
-		a.logger.Printf("syncPull stock_movements: %v", err)
-	} else {
-		data.StockMovements = movs
+	// Загружаем каждую сущность независимо: ошибка одной НЕ прерывает остальные.
+	// (Раньше любая scan-ошибка роняла весь pull в 500.)
+	for _, e := range coreSyncEntities() {
+		if e.pull == nil {
+			continue
+		}
+		if v, err := e.pull(ctx, a.db, since); err != nil {
+			a.logger.Printf("syncPull %s: %v", e.Name, err)
+		} else {
+			data[e.Name] = v
+		}
 	}
 
 	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: data})

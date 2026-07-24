@@ -581,19 +581,6 @@ type syncPushResult struct {
 	Conflicts int `json:"conflicts"` // обработаны, но не приняты
 }
 
-type syncPullData struct {
-	Owners       []Owner       `json:"owners"`
-	Pets         []Pet         `json:"pets"`
-	Items        []Item        `json:"items"`
-	Visits       []Visit       `json:"visits"`
-	VisitItems   []VisitItem   `json:"visit_items"`
-	Vaccinations []Vaccination `json:"vaccinations"`
-	Staff        []Staff       `json:"staff"`
-	// Метаданные вложений едут в pull; сами файлы качаются отдельно
-	// по /attachments/{id}/file и только при наличии сети.
-	Attachments  []Attachment  `json:"attachments"`
-	Appointments []Appointment `json:"appointments"`
-	Warehouses     []Warehouse     `json:"warehouses"`
-	StockMovements []StockMovement `json:"stock_movements"`
-	ServerTime   time.Time     `json:"server_time"`
-}
+// Ответ pull теперь собирается картой в handleSyncPull по реестру
+// coreSyncEntities (см. sync_registry.go). Отдельная структура syncPullData
+// больше не нужна — ключи и форма записей те же, совместимость сохранена.
