@@ -99,11 +99,8 @@ func (a *app) routes() http.Handler {
 
 	// Админка пользователей — только администратор
 	mux.HandleFunc("GET /notifications", a.requireAdmin(a.handleNotifications))
-	// Настройки телеграма/уведомлений — редактирует администратор
-	mux.HandleFunc("GET /settings/telegram",       a.requireAdmin(a.handleGetTelegramSettings))
-	mux.HandleFunc("PUT /settings/telegram",       a.requireAdmin(a.handlePutTelegramSettings))
-	mux.HandleFunc("POST /settings/telegram/test", a.requireAdmin(a.handleTestTelegram))
-	// Опциональные модули: чтение — любой вошедший (для меню), запись — админ
+	// Опциональные модули: чтение — любой вошедший (для меню), запись — админ.
+	// Это управление модулями (ядро), а не маршруты самих модулей.
 	mux.HandleFunc("GET /settings/modules",        a.handleGetModules)
 	mux.HandleFunc("PUT /settings/module/{key}",   a.requireAdmin(a.handlePutModule))
 	mux.HandleFunc("PUT /settings/warehouse",      a.requireAdmin(a.handlePutWarehouseModule)) // старый маршрут, совместимость
@@ -112,9 +109,11 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("PUT /users/{id}",    a.requireAdmin(a.handleUserByID))
 	mux.HandleFunc("DELETE /users/{id}", a.requireAdmin(a.handleUserByID))
 
-	// Выдача владельцу пароля от портала вручную — только администратор.
-	// Гейт модуля портала: без него выдача кодов бессмысленна.
-	mux.HandleFunc("POST /owners/{id}/portal-code", a.requireModule("portal", a.requirePortalCodeAccess(a.handleIssuePortalCode)))
+	// Маршруты опциональных модулей (телеграм-настройки, портал). Каждый
+	// модуль регистрирует своё и сам гейтит по флагу (см. modules.go).
+	for _, m := range moduleRegistry {
+		m.RegisterRoutes(mux, a)
+	}
 
 	// Вложения (сканы УЗИ, рентген, анализы).
 	// Метод указываем явно, как и во всех маршрутах выше: без него шаблон
@@ -128,25 +127,6 @@ func (a *app) routes() http.Handler {
 	// Sync
 	mux.HandleFunc("POST /sync/push", a.handleSyncPush)
 	mux.HandleFunc("GET /sync/pull",  a.handleSyncPull)
-
-	// Портал владельцев: своя авторизация (X-Portal-Token), см. portal.go.
-	// Весь модуль гейтится флагом portal_enabled: при выключении — 404.
-	mux.HandleFunc("POST /portal/login",           a.requireModule("portal", a.handlePortalLogin))
-	mux.HandleFunc("GET /portal/bot-info",         a.requireModule("portal", a.handlePortalBotInfo))
-	mux.HandleFunc("GET /portal/me",               a.requireModule("portal", a.handlePortalMe))
-	mux.HandleFunc("GET /portal/pets",             a.requireModule("portal", a.handlePortalPets))
-	mux.HandleFunc("GET /portal/pets/{id}/visits", a.requireModule("portal", a.handlePortalPetVisits))
-	mux.HandleFunc("GET /portal/pets/{id}/vaccinations", a.requireModule("portal", a.handlePortalPetVaccinations))
-	mux.HandleFunc("GET /portal/appointments",     a.requireModule("portal", a.handlePortalAppointments))
-	mux.HandleFunc("POST /portal/book",            a.requireModule("portal", a.handlePortalBook))
-	mux.HandleFunc("PUT /portal/pets/{id}/photo",  a.requireModule("portal", a.handlePortalPetPhoto))
-	mux.HandleFunc("GET /portal", func(w http.ResponseWriter, r *http.Request) {
-		if !a.moduleEnabled("portal") {
-			http.Error(w, "Кабинет владельца отключён", http.StatusNotFound)
-			return
-		}
-		http.ServeFile(w, r, filepath.Join(a.frontend, "portal.html"))
-	})
 
 	// Static frontend
 	fileServer := http.FileServer(http.Dir(a.frontend))
