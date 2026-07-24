@@ -48,21 +48,124 @@ func (a *app) remindersEnabled() bool {
 	return a.getSetting("reminders_enabled", "1") != "0"
 }
 
-// warehouseEnabled — включён ли модуль склада. По умолчанию выключен
-// (опциональный модуль: клиника может им не пользоваться).
-func (a *app) warehouseEnabled() bool {
-	return a.getSetting("warehouse_enabled", "0") == "1"
+// ─── Реестр опциональных модулей ─────────────────────────────────────────────
+//
+// Единая точка правды о том, какие модули существуют, как хранится их флаг и
+// какие между ними зависимости. Гейт (moduleEnabled) и API (handleGetModules/
+// handlePutModule) читают отсюда, чтобы добавить модуль в одном месте.
+//
+// Зависимость здесь «мягкая»: без неё модуль работает ХУЖЕ, но не ломается.
+// Портал без телеграма живёт — коды владельцам сотрудник выдаёт вручную, бот
+// лишь автоматизирует выдачу паролей. Поэтому включение без зависимости не
+// блокируем, а возвращаем предупреждение. См. docs/MODULES.md.
+type moduleDef struct {
+	key       string
+	dependsOn []string
+}
+
+var moduleDefs = []moduleDef{
+	{key: "telegram"},
+	{key: "portal", dependsOn: []string{"telegram"}},
+	{key: "warehouse"},
+}
+
+func findModuleDef(key string) (moduleDef, bool) {
+	for _, d := range moduleDefs {
+		if d.key == key {
+			return d, true
+		}
+	}
+	return moduleDef{}, false
+}
+
+// moduleEnabled — единый гейт «включён ли модуль». Телеграм особый: он
+// «включён» тогда, когда задан токен бота (тумблера нет, управляется токеном).
+// Портал по умолчанию включён, склад — выключен (опциональная розница).
+func (a *app) moduleEnabled(key string) bool {
+	switch key {
+	case "telegram":
+		return a.tgToken() != ""
+	case "portal":
+		return a.getSetting("portal_enabled", "1") == "1"
+	case "warehouse":
+		return a.getSetting("warehouse_enabled", "0") == "1"
+	default:
+		return false
+	}
+}
+
+// warehouseEnabled — совместимость со старыми вызовами (склад-хендлеры).
+func (a *app) warehouseEnabled() bool { return a.moduleEnabled("warehouse") }
+
+// moduleStates — карта «модуль → включён» для всех известных модулей.
+func (a *app) moduleStates() map[string]interface{} {
+	m := make(map[string]interface{}, len(moduleDefs))
+	for _, d := range moduleDefs {
+		m[d.key] = a.moduleEnabled(d.key)
+	}
+	return m
 }
 
 // handleGetModules отдаёт состояние опциональных модулей ЛЮБОМУ вошедшему —
-// нужно всем ролям, чтобы решить, показывать ли раздел в меню.
+// нужно всем ролям, чтобы решить, показывать ли раздел в меню. Ключи плоские
+// булевы (обратная совместимость с фронтом, читающим data.warehouse).
 func (a *app) handleGetModules(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: map[string]interface{}{
-		"warehouse": a.warehouseEnabled(),
-	}})
+	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: a.moduleStates()})
 }
 
-// handlePutWarehouseModule включает/выключает модуль склада — только админ.
+// handlePutModule включает/выключает модуль по ключу — только админ.
+// PUT /settings/module/{key}. Зависимости «мягкие»: при включении без
+// зависимости кладём предупреждение в data._warnings, но не отклоняем.
+func (a *app) handlePutModule(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	def, ok := findModuleDef(key)
+	if !ok {
+		writeError(w, http.StatusNotFound, "неизвестный модуль")
+		return
+	}
+	// Телеграм включается вводом токена, а не тумблером модуля.
+	if key == "telegram" {
+		writeError(w, http.StatusBadRequest, "Телеграм включается вводом токена бота в настройках телеграма")
+		return
+	}
+	var p struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := decodeJSON(r, &p); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var warnings []string
+	if p.Enabled {
+		for _, dep := range def.dependsOn {
+			if !a.moduleEnabled(dep) {
+				warnings = append(warnings, moduleDepWarning(key, dep))
+			}
+		}
+		a.setSetting(key+"_enabled", "1")
+	} else {
+		a.setSetting(key+"_enabled", "0")
+	}
+
+	data := a.moduleStates()
+	if len(warnings) > 0 {
+		data["_warnings"] = warnings
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: data})
+}
+
+// moduleDepWarning — человекочитаемое предупреждение о невключённой мягкой
+// зависимости. Специализируем известные пары, иначе общая формулировка.
+func moduleDepWarning(key, dep string) string {
+	if key == "portal" && dep == "telegram" {
+		return "Телеграм-бот не настроен: одноразовые пароли владельцам придётся выдавать вручную из карточки владельца."
+	}
+	return "Модуль «" + key + "» использует «" + dep + "», который сейчас выключен — часть функций будет недоступна."
+}
+
+// handlePutWarehouseModule — старый маршрут PUT /settings/warehouse. Оставлен
+// для совместимости с уже установленными клиентами; делегирует общей логике.
 func (a *app) handlePutWarehouseModule(w http.ResponseWriter, r *http.Request) {
 	var p struct {
 		Enabled bool `json:"enabled"`

@@ -105,7 +105,8 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST /settings/telegram/test", a.requireAdmin(a.handleTestTelegram))
 	// Опциональные модули: чтение — любой вошедший (для меню), запись — админ
 	mux.HandleFunc("GET /settings/modules",        a.handleGetModules)
-	mux.HandleFunc("PUT /settings/warehouse",      a.requireAdmin(a.handlePutWarehouseModule))
+	mux.HandleFunc("PUT /settings/module/{key}",   a.requireAdmin(a.handlePutModule))
+	mux.HandleFunc("PUT /settings/warehouse",      a.requireAdmin(a.handlePutWarehouseModule)) // старый маршрут, совместимость
 	mux.HandleFunc("GET /users",         a.requireAdmin(a.handleUsers))
 	mux.HandleFunc("POST /users",        a.requireAdmin(a.handleUsers))
 	mux.HandleFunc("PUT /users/{id}",    a.requireAdmin(a.handleUserByID))
