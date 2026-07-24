@@ -14,6 +14,7 @@ type Module interface {
 	DependsOn() []string                     // «мягкие» зависимости (portal → telegram)
 	Migrations() []string                    // DDL модуля, идемпотентный (после схемы ядра)
 	RegisterRoutes(mux *http.ServeMux, a *app) // HTTP-маршруты модуля (гейт внутри)
+	Roles() []string                         // роли, которые вводит модуль (склад → "warehouse")
 }
 
 // moduleRegistry — единственный источник правды об опциональных модулях.
@@ -44,6 +45,16 @@ func moduleMigrations() []string {
 	return out
 }
 
+// moduleRoles — роли, которые вводят модули (для validRoles). Ядро о них не
+// знает: роль продавца существует только пока есть модуль склада.
+func moduleRoles() []string {
+	var out []string
+	for _, m := range moduleRegistry {
+		out = append(out, m.Roles()...)
+	}
+	return out
+}
+
 // ─── Телеграм ────────────────────────────────────────────────────────────────
 // Своих таблиц нет — использует таблицы ядра (owners/appointments/…).
 type telegramModule struct{}
@@ -51,6 +62,7 @@ type telegramModule struct{}
 func (telegramModule) Key() string         { return "telegram" }
 func (telegramModule) DependsOn() []string  { return nil }
 func (telegramModule) Migrations() []string { return nil }
+func (telegramModule) Roles() []string      { return nil }
 
 func (telegramModule) RegisterRoutes(mux *http.ServeMux, a *app) {
 	// НЕ гейтим модулем: через эти настройки задаётся токен, который и
@@ -67,6 +79,7 @@ type portalModule struct{}
 func (portalModule) Key() string         { return "portal" }
 func (portalModule) DependsOn() []string  { return []string{"telegram"} }
 func (portalModule) Migrations() []string { return nil }
+func (portalModule) Roles() []string      { return nil }
 
 func (portalModule) RegisterRoutes(mux *http.ServeMux, a *app) {
 	// Весь модуль гейтится флагом portal_enabled: при выключении — 404.
@@ -100,6 +113,7 @@ type warehouseModule struct{}
 
 func (warehouseModule) Key() string        { return "warehouse" }
 func (warehouseModule) DependsOn() []string { return nil }
+func (warehouseModule) Roles() []string     { return []string{"warehouse"} } // продавец/кладовщик
 func (warehouseModule) Migrations() []string {
 	return []string{
 		`ALTER TABLE items ADD COLUMN purchase_price REAL NOT NULL DEFAULT 0`,

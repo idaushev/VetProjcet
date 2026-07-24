@@ -180,7 +180,28 @@ func (u *User) tableLevel(table string) int {
 	return n
 }
 
-var validRoles = map[string]bool{"admin": true, "doctor": true, "reception": true, "warehouse": true}
+// coreRoles — роли ядра. Роли модулей (например, "warehouse" от склада)
+// добавляются из реестра, см. moduleRoles/buildValidRoles.
+var coreRoles = []string{"admin", "doctor", "reception"}
+
+// validRoles — множество допустимых ролей: ядро + роли модулей. Строится
+// один раз при инициализации пакета (Go гарантирует, что moduleRegistry
+// проинициализируется раньше — buildValidRoles на него ссылается).
+var validRoles = buildValidRoles()
+
+func buildValidRoles() map[string]bool {
+	m := make(map[string]bool, len(coreRoles)+len(moduleRegistry))
+	for _, r := range validRoleList() {
+		m[r] = true
+	}
+	return m
+}
+
+// validRoleList — допустимые роли в стабильном порядке (ядро, затем модули).
+// Для сообщений об ошибке: map неупорядочен, а список — детерминирован.
+func validRoleList() []string {
+	return append(append([]string{}, coreRoles...), moduleRoles()...)
+}
 
 // ─── Контекст текущего пользователя ─────────────────────────────────────────
 
@@ -499,7 +520,7 @@ func validateUserPayload(p userPayload, isCreate bool) error {
 		return errors.New("Укажите имя")
 	}
 	if !validRoles[p.Role] {
-		return errors.New("Роль: admin, doctor или reception")
+		return errors.New("Недопустимая роль. Разрешены: " + strings.Join(validRoleList(), ", "))
 	}
 	if isCreate && len(p.Password) < 6 {
 		return errors.New("Пароль не короче 6 символов")
