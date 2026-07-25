@@ -15,6 +15,7 @@ type Module interface {
 	Migrations() []string                    // DDL модуля, идемпотентный (после схемы ядра)
 	RegisterRoutes(mux *http.ServeMux, a *app) // HTTP-маршруты модуля (гейт внутри)
 	Roles() []string                         // роли, которые вводит модуль (склад → "warehouse")
+	SyncEntities() []syncEntity              // синкаемые сущности модуля (после ядра, порядок FK)
 }
 
 // moduleRegistry — единственный источник правды об опциональных модулях.
@@ -55,14 +56,27 @@ func moduleRoles() []string {
 	return out
 }
 
+// moduleSyncEntities — синкаемые сущности всех модулей по порядку регистрации.
+// Идут ПОСЛЕ сущностей ядра (см. syncEntities), поэтому FK на ядровые таблицы
+// (stock_movements → items) выполняются. Синкаются всегда, независимо от флага
+// модуля: данные не должны замирать при выключенном UI (см. docs/MODULES.md).
+func moduleSyncEntities() []syncEntity {
+	var out []syncEntity
+	for _, m := range moduleRegistry {
+		out = append(out, m.SyncEntities()...)
+	}
+	return out
+}
+
 // ─── Телеграм ────────────────────────────────────────────────────────────────
 // Своих таблиц нет — использует таблицы ядра (owners/appointments/…).
 type telegramModule struct{}
 
-func (telegramModule) Key() string         { return "telegram" }
-func (telegramModule) DependsOn() []string  { return nil }
-func (telegramModule) Migrations() []string { return nil }
-func (telegramModule) Roles() []string      { return nil }
+func (telegramModule) Key() string           { return "telegram" }
+func (telegramModule) DependsOn() []string    { return nil }
+func (telegramModule) Migrations() []string   { return nil }
+func (telegramModule) Roles() []string        { return nil }
+func (telegramModule) SyncEntities() []syncEntity { return nil }
 
 func (telegramModule) RegisterRoutes(mux *http.ServeMux, a *app) {
 	// НЕ гейтим модулем: через эти настройки задаётся токен, который и
@@ -76,10 +90,11 @@ func (telegramModule) RegisterRoutes(mux *http.ServeMux, a *app) {
 // Своих таблиц нет; зависит от телеграма (автовыдача паролей), мягко.
 type portalModule struct{}
 
-func (portalModule) Key() string         { return "portal" }
-func (portalModule) DependsOn() []string  { return []string{"telegram"} }
-func (portalModule) Migrations() []string { return nil }
-func (portalModule) Roles() []string      { return nil }
+func (portalModule) Key() string           { return "portal" }
+func (portalModule) DependsOn() []string    { return []string{"telegram"} }
+func (portalModule) Migrations() []string   { return nil }
+func (portalModule) Roles() []string        { return nil }
+func (portalModule) SyncEntities() []syncEntity { return nil }
 
 func (portalModule) RegisterRoutes(mux *http.ServeMux, a *app) {
 	// Весь модуль гейтится флагом portal_enabled: при выключении — 404.
@@ -119,6 +134,11 @@ func (warehouseModule) Migrations() []string {
 		`ALTER TABLE items ADD COLUMN purchase_price REAL NOT NULL DEFAULT 0`,
 	}
 }
+
+// SyncEntities — склады и движения. Определения замыканий (со своими
+// pushX/pullX) держим в sync_registry.go, где уже есть нужные импорты —
+// модуль лишь делегирует.
+func (warehouseModule) SyncEntities() []syncEntity { return warehouseSyncEntities() }
 
 func (warehouseModule) RegisterRoutes(mux *http.ServeMux, a *app) {
 	// Отдельных маршрутов нет: данные склада идут через общий /sync (гейт по

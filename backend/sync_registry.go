@@ -159,6 +159,19 @@ func coreSyncEntities() []syncEntity {
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullAppointments(ctx, db, since) },
 		},
 		{
+			Name:    "attachments", // только pull: метаданные вложений, файлы качаются отдельно
+			pushAll: nil,
+			pull:    func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullAttachments(ctx, db, since) },
+		},
+	}
+}
+
+// warehouseSyncEntities — синкаемые сущности модуля склада (объявляются через
+// warehouseModule.SyncEntities()). Права — по виртуальной таблице "warehouse".
+// Идут после ядра, поэтому FK stock_movements → items выполняется.
+func warehouseSyncEntities() []syncEntity {
+	return []syncEntity{
+		{
 			Name: "warehouses",
 			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
 				pushEntity(ctx, a, raw, "warehouses", "warehouse", "warehouses", uid, cp, pushWarehouse, res)
@@ -172,10 +185,12 @@ func coreSyncEntities() []syncEntity {
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullStockMovements(ctx, db, since) },
 		},
-		{
-			Name:    "attachments", // только pull: метаданные вложений, файлы качаются отдельно
-			pushAll: nil,
-			pull:    func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullAttachments(ctx, db, since) },
-		},
 	}
+}
+
+// syncEntities — полный упорядоченный список: сущности ядра, затем сущности
+// модулей (реестр). Порядок важен для push (внешние ключи). Диспетчеры
+// handleSyncPush/handleSyncPull идут по нему.
+func syncEntities() []syncEntity {
+	return append(coreSyncEntities(), moduleSyncEntities()...)
 }

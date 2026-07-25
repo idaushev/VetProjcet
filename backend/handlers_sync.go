@@ -72,7 +72,7 @@ func (a *app) handleSyncPush(w http.ResponseWriter, r *http.Request) {
 
 	// Обобщённый диспетчер: идём по реестру сущностей (порядок = FK). Вся ручная
 	// логика — в pushX внутри замыканий реестра, см. sync_registry.go.
-	for _, e := range coreSyncEntities() {
+	for _, e := range syncEntities() {
 		if e.pushAll != nil {
 			e.pushAll(ctx, a, raw, pushUserID, canPush, &result)
 		}
@@ -117,7 +117,7 @@ func (a *app) handleSyncPull(w http.ResponseWriter, r *http.Request) {
 
 	// Загружаем каждую сущность независимо: ошибка одной НЕ прерывает остальные.
 	// (Раньше любая scan-ошибка роняла весь pull в 500.)
-	for _, e := range coreSyncEntities() {
+	for _, e := range syncEntities() {
 		if e.pull == nil {
 			continue
 		}
