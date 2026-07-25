@@ -339,19 +339,10 @@ type visitFullResponse struct {
 
 // ─── Sync payloads ────────────────────────────────────────────────────────────
 
-type syncPushPayload struct {
-	DeviceID    string        `json:"device_id"`
-	Owners      []ownerSyncRecord      `json:"owners"`
-	Pets        []petSyncRecord        `json:"pets"`
-	Items       []itemSyncRecord       `json:"items"`
-	Visits      []visitSyncRecord      `json:"visits"`
-	VisitItems  []visitItemSyncRecord  `json:"visit_items"`
-	Vaccinations []vaccinationSyncRecord `json:"vaccinations"`
-	Staff       []staffSyncRecord      `json:"staff"`
-	Appointments []appointmentSyncRecord `json:"appointments"`
-	Warehouses     []warehouseSyncRecord     `json:"warehouses"`
-	StockMovements []stockMovementSyncRecord `json:"stock_movements"`
-}
+// Payload push декодируется в handleSyncPush как map[string]json.RawMessage:
+// каждую свою секцию декодирует сама сущность в pushEntity (sync_registry.go).
+// Отдельная структура syncPushPayload больше не нужна — ядро не перечисляет
+// сущности, их несёт реестр coreSyncEntities. Ключи на проводе те же.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sync records: все поля дат хранятся как string.

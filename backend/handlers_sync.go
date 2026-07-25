@@ -33,8 +33,12 @@ func (a *app) handleSyncPush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var payload syncPushPayload
-	if err := json.Unmarshal(body, &payload); err != nil {
+	// Сырой payload: карта «сущность → массив записей» + device_id. Ядро не
+	// знает поля сущностей — каждую свою секцию декодирует сама сущность в
+	// pushEntity (см. sync_registry.go). Так модуль добавляет сущность, не
+	// трогая структуры ядра. Формат на проводе прежний (те же ключи).
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
 		a.logger.Printf("syncPush decode: %v", err)
 		writeError(w, http.StatusBadRequest, "invalid json: "+err.Error())
 		return
@@ -43,8 +47,12 @@ func (a *app) handleSyncPush(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	if payload.DeviceID != "" {
-		a.upsertDevice(ctx, payload.DeviceID)
+	var deviceID string
+	if dj, ok := raw["device_id"]; ok {
+		_ = json.Unmarshal(dj, &deviceID) // необязательное поле
+	}
+	if deviceID != "" {
+		a.upsertDevice(ctx, deviceID)
 	}
 
 	var result syncPushResult
@@ -66,7 +74,7 @@ func (a *app) handleSyncPush(w http.ResponseWriter, r *http.Request) {
 	// логика — в pushX внутри замыканий реестра, см. sync_registry.go.
 	for _, e := range coreSyncEntities() {
 		if e.pushAll != nil {
-			e.pushAll(ctx, a, &payload, pushUserID, canPush, &result)
+			e.pushAll(ctx, a, raw, pushUserID, canPush, &result)
 		}
 	}
 
