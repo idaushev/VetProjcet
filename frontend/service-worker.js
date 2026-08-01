@@ -12,7 +12,7 @@
 
 // ── Версия ────────────────────────────────────────────────────────
 // Поднимайте при каждом деплое → старые кэши удалятся автоматически
-var APP_VERSION  = "2.58.0"; // M3.2: склад вынесен в modules/warehouse.js, общие хелперы через VetPagesCore
+var APP_VERSION  = "2.59.0"; // M3.2-fix: склад в modules/warehouse.js, алиас UI=VetUI
 var CACHE_APP    = "vet-app-"   + APP_VERSION;  // версионированные ресурсы
 var CACHE_FONTS  = "vet-fonts-1";               // шрифты (стабильный кэш)
 

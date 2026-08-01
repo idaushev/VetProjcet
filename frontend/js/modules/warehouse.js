@@ -9,7 +9,7 @@
  */
 (function () {
   "use strict";
-  var UI = window.UI, VetDB = window.VetDB, VetModules = window.VetModules;
+  var UI = window.VetUI, VetDB = window.VetDB, VetModules = window.VetModules;
   var C  = window.VetPagesCore || {};
   var esc = C.esc, buildMap = C.buildMap, emptyState = C.emptyState,
       searchEmpty = C.searchEmpty, setupSearch = C.setupSearch, localDateStr = C.localDateStr;
