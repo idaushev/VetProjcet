@@ -12,7 +12,7 @@
 
 // ── Версия ────────────────────────────────────────────────────────
 // Поднимайте при каждом деплое → старые кэши удалятся автоматически
-var APP_VERSION  = "2.56.0"; // M0.3: вкладка «Модули» в настройках (склад/портал/телеграм) + гейт навигации по модулям
+var APP_VERSION  = "2.57.0"; // M3.1: фронт-реестр VetModules — стораджи и гейт навигации из манифестов
 var CACHE_APP    = "vet-app-"   + APP_VERSION;  // версионированные ресурсы
 var CACHE_FONTS  = "vet-fonts-1";               // шрифты (стабильный кэш)
 
@@ -32,6 +32,7 @@ var PRECACHE = [
   "/vendor/fonts/inter-cyrillic-700.woff2",
   "/vendor/fonts/inter-latin-400.woff2",
   "/js/icons.js",
+  "/js/modules.js",
   "/js/auth.js",
   "/js/db.js",
   "/js/sync.js",

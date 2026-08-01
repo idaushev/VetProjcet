@@ -5676,34 +5676,41 @@ ${visit.notes ? `<div class="section">
 
   // Флаг модуля: показываем/прячем раздел «Склад». Тянем с сервера (онлайн),
   // кэшируем в localStorage — офлайн берём последнее известное значение.
-  // refreshModules читает состояние всех опциональных модулей и гейтит
-  // навигацию. Склад по умолчанию выкл, портал — вкл. Кэш в localStorage,
-  // чтобы офлайн-загрузка не мигала разделами. Возвращает карту состояний.
+  // refreshModules читает состояние опциональных модулей (GET /settings/modules)
+  // и гейтит навигацию по манифестам VetModules (M3.1). Список флагов и правила
+  // гейта — из реестра, ядро их не перечисляет. Кэш в localStorage, чтобы
+  // офлайн-загрузка не мигала разделами. Возвращает карту состояний по флагам.
+  function _moduleFlags() {
+    return (window.VetModules && VetModules.flags()) || ['warehouse', 'portal'];
+  }
   async function refreshModules() {
-    var states = { warehouse: false, portal: true };
+    var states = {};
+    _moduleFlags().forEach(function(f){ states[f] = window.VetModules ? VetModules.isDefaultOn(f) : (f === 'portal'); });
     try {
       var base = (window.VetAppConfig && window.VetAppConfig.apiBase) || '';
       var nf = window.__nativeFetch || window.fetch.bind(window);
       var res = await nf(base + '/settings/modules', { headers: { 'X-Auth-Token': (window.VetAuth && VetAuth.token && VetAuth.token()) || '' } });
       var j = await res.json();
       var d = (j && j.data) || {};
-      states.warehouse = !!d.warehouse;
-      states.portal    = ('portal' in d) ? !!d.portal : true;
-      localStorage.setItem('vet-mod-warehouse', states.warehouse ? '1' : '0');
-      localStorage.setItem('vet-mod-portal',    states.portal    ? '1' : '0');
+      _moduleFlags().forEach(function(f){
+        if (f in d) states[f] = !!d[f];
+        localStorage.setItem('vet-mod-' + f, states[f] ? '1' : '0');
+      });
     } catch(e) {
-      states.warehouse = localStorage.getItem('vet-mod-warehouse') === '1';
-      states.portal    = localStorage.getItem('vet-mod-portal') !== '0'; // дефолт вкл
+      _moduleFlags().forEach(function(f){
+        var v = localStorage.getItem('vet-mod-' + f);
+        states[f] = (window.VetModules && VetModules.isDefaultOn(f)) ? v !== '0' : v === '1';
+      });
     }
     applyModuleUI(states);
     return states;
   }
   function applyModuleUI(states) {
-    // Склад: opt-in — класс -on показывает раздел и быстрые ссылки.
+    if (window.VetModules) { VetModules.applyNav(states); return; }
+    // Фолбэк, если реестр не загрузился: прежнее поведение склад/портал.
     document.body.classList.toggle('mod-warehouse-on', !!states.warehouse);
     var grp = document.getElementById('ssg-warehouse');
     if (grp) grp.style.display = states.warehouse ? '' : 'none';
-    // Портал: opt-out — класс -off прячет ссылки (по умолчанию показаны).
     document.body.classList.toggle('mod-portal-off', !states.portal);
   }
 

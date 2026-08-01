@@ -34,14 +34,13 @@
 (function () {
   "use strict";
 
-  const STORE_ORDER = [
-    "owners", "pets", "items", "visits", "visit_items", "vaccinations", "staff", "appointments",
-    "warehouses", "stock_movements",
-    // attachments — метаданные вложений. Едут только с сервера (pull):
-    // само вложение создаётся загрузкой файла через POST /attachments,
-    // а не push-ом записи. Push для них не нужен.
-    "attachments"
-  ];
+  // Порядок важен для push (внешние ключи): ядро → стораджи модулей → attachments.
+  // Стораджи модулей берутся из VetModules (M3.1), склад после items.
+  // attachments — метаданные вложений, едут только с сервера (pull): само
+  // вложение создаётся загрузкой файла через POST /attachments, а не push-ом.
+  const CORE_STORE_ORDER = ["owners", "pets", "items", "visits", "visit_items", "vaccinations", "staff", "appointments"];
+  const MODULE_STORES = (window.VetModules && window.VetModules.stores()) || ["warehouses", "stock_movements"];
+  const STORE_ORDER = CORE_STORE_ORDER.concat(MODULE_STORES).concat(["attachments"]);
 
   // ── Backoff ───────────────────────────────────────────────────────────────
 
