@@ -12,7 +12,7 @@
 
 // ── Версия ────────────────────────────────────────────────────────
 // Поднимайте при каждом деплое → старые кэши удалятся автоматически
-var APP_VERSION  = "2.57.0"; // M3.1: фронт-реестр VetModules — стораджи и гейт навигации из манифестов
+var APP_VERSION  = "2.58.0"; // M3.2: склад вынесен в modules/warehouse.js, общие хелперы через VetPagesCore
 var CACHE_APP    = "vet-app-"   + APP_VERSION;  // версионированные ресурсы
 var CACHE_FONTS  = "vet-fonts-1";               // шрифты (стабильный кэш)
 
@@ -39,6 +39,7 @@ var PRECACHE = [
   "/js/app.js",
   "/js/ui.js",
   "/js/pages.js",
+  "/js/modules/warehouse.js",
   "/icons/icon.svg",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
