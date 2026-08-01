@@ -2363,11 +2363,42 @@
     return parseInt(parts[2]) + ' ' + months[parseInt(parts[1])-1] + ' ' + parts[0];
   }
 
+  // ── Сворачивание групп отчёта (сохраняется по клинике в localStorage) ──
+  function _rptCollapsed() {
+    try { return JSON.parse(localStorage.getItem('vet-rpt-collapsed') || '{}'); }
+    catch (e) { return {}; }
+  }
+  function _rptSetCollapsed(key, val) {
+    var o = _rptCollapsed(); o[key] = val;
+    try { localStorage.setItem('vet-rpt-collapsed', JSON.stringify(o)); } catch (e) {}
+  }
+  // Класс для свёрнутой группы при построении HTML.
+  function _rgClass(key) { return _rptCollapsed()[key] ? ' collapsed' : ''; }
+
+  // Делегированный клик по заголовку группы — сворачивает/разворачивает.
+  // Вешаем один раз на постоянный контейнер #report-content (его innerHTML
+  // меняется, но сам узел живёт — обработчик переживает перерисовки).
+  function _wireReportCollapse() {
+    var rc = document.getElementById('report-content');
+    if (!rc || rc._collapseWired) return;
+    rc._collapseWired = true;
+    rc.addEventListener('click', function (e) {
+      var t = e.target.closest ? e.target.closest('.report-group-title') : null;
+      if (!t) return;
+      var g = t.closest('.report-group'); if (!g) return;
+      var key = g.getAttribute('data-rgroup'); if (!key) return;
+      var nowCollapsed = !g.classList.contains('collapsed');
+      g.classList.toggle('collapsed', nowCollapsed);
+      _rptSetCollapsed(key, nowCollapsed);
+    });
+  }
+
   async function generateReport(dateStr) {
     if (!dateStr) { UI.toast('Выберите дату', 'warn'); return; }
 
     var el = document.getElementById('report-content');
     if (!el) return;
+    _wireReportCollapse();
     el.innerHTML = skeletonRows();
 
     try {
@@ -2487,8 +2518,15 @@
         };
       });
 
+      // Сохраняем позицию прокрутки: перерисовка отчёта (сворачивание групп,
+      // настройки, фоновое обновление) не должна швырять пользователя вверх.
+      var _scroller = document.querySelector('.main-content') || document.querySelector('main') || document.scrollingElement;
+      var _savedTop = _scroller ? _scroller.scrollTop : 0;
+
       el.innerHTML = buildReportHTML(dateStr, services, drugs, dayVisits, petsMap, ownersMap, staffMap, dayVisitItems, catalogMap, filterName,
         { count: noItemVisits.length, sum: noItemsSum }, discountRows);
+
+      if (_scroller && _savedTop) _scroller.scrollTop = _savedTop;
 
       setReportPrint('btn-print-report', true);
 
@@ -2516,12 +2554,12 @@
       }).join('');
     }
 
-    function groupHTML(title, rows) {
+    function groupHTML(title, rows, rgKey) {
       if (!rows.length) return '';
       var sumTotal = rows.reduce(function(s,r){ return s + r.total; }, 0);
       var sumCash  = rows.reduce(function(s,r){ return s + r.cashTotal; }, 0);
       var sumDiff  = sumTotal - sumCash;
-      return '<div class="report-group">'
+      return '<div class="report-group'+_rgClass(rgKey)+'" data-rgroup="'+rgKey+'">'
         + '<div class="report-group-title">' + esc(title) + ' <span style="font-weight:400;color:var(--text-3)">(' + rows.length + ' позиций)</span></div>'
         + '<table class="report-table">'
         + '<thead><tr>'
@@ -2599,7 +2637,7 @@
     }).sort(function(a, b) { return b.share - a.share; });
 
     var doctorsHTML = doctorRows.length
-      ? '<div class="report-group" style="margin-bottom:20px;">'
+      ? '<div class="report-group'+_rgClass('doctors')+'" data-rgroup="doctors" style="margin-bottom:20px;">'
         + '<div class="report-group-title">' + I('stethoscope') + ' Заработок по врачам</div>'
         + '<table class="report-table"><thead><tr>'
         + '<th>Врач</th><th class="num">Приёмов</th><th class="num">Выручка</th>'
@@ -2619,7 +2657,7 @@
 
     // Список приёмов за день
     var sortedVisits = dayVisits.slice().sort(function(a,b){ return (a.date||'') > (b.date||'') ? 1 : -1; });
-    var visitListHTML = '<div class="report-group" style="margin-bottom:20px;">'
+    var visitListHTML = '<div class="report-group'+_rgClass('visits')+'" data-rgroup="visits" style="margin-bottom:20px;">'
       + '<div class="report-group-title">Приёмы за день</div>'
       + '<table class="report-table"><thead><tr>'
       + '<th>Вр.</th><th>Животное</th><th>Владелец</th><th class="num">Тип</th>'
@@ -2670,7 +2708,7 @@
     discountRows = discountRows || [];
     var discountSum = discountRows.reduce(function(s,r){ return s + r.sum; }, 0);
     var discountsHTML = discountRows.length
-      ? '<div class="report-group" style="margin-bottom:20px;">'
+      ? '<div class="report-group'+_rgClass('discounts')+'" data-rgroup="discounts" style="margin-bottom:20px;">'
         + '<div class="report-group-title">' + I('cash') + ' Скидки <span style="font-weight:400;color:var(--text-3)">(' + discountRows.length + ' на ' + fmtMoney(discountSum) + ')</span></div>'
         + '<table class="report-table"><thead><tr><th>Врач</th><th>Животное</th><th class="num">Скидка</th><th>Причина</th></tr></thead><tbody>'
         + discountRows.map(function(r) {
@@ -2690,8 +2728,8 @@
       + visitListHTML
       + doctorsHTML
       + discountsHTML
-      + groupHTML('Услуги', services)
-      + groupHTML('Препараты', drugs)
+      + groupHTML('Услуги', services, 'services')
+      + groupHTML('Препараты', drugs, 'drugs')
       + '<div class="report-grand">'
       + '<div class="report-grand-row"><span>'+I('cash')+' Выручка по позициям</span><span>' + fmtMoney(grandTotal) + '</span></div>'
       + (grandDiscount ? '<div class="report-grand-row" style="color:var(--warn);"><span>Скидки</span><span>−' + fmtMoney(grandDiscount) + '</span></div>' : '')

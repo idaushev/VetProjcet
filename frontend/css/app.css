@@ -2037,6 +2037,18 @@ mark {
   background: var(--bg); color: var(--text-2);
   border-bottom: 1px solid var(--border);
 }
+/* Сворачивание групп отчёта: заголовок-переключатель + каретка. */
+.report-group[data-rgroup] > .report-group-title {
+  cursor: pointer; user-select: none; display: flex; align-items: center; gap: 8px;
+}
+.report-group[data-rgroup] > .report-group-title::before {
+  content: '▾'; font-size: .85em; color: var(--text-3);
+  transition: transform .15s ease; flex: 0 0 auto;
+}
+.report-group.collapsed > .report-group-title { border-bottom: 0; }
+.report-group.collapsed > .report-group-title::before { transform: rotate(-90deg); }
+.report-group.collapsed > .report-table,
+.report-group.collapsed > table { display: none; }
 
 .report-table {
   width: 100%; border-collapse: collapse;
