@@ -2829,6 +2829,15 @@ body[data-role="admin"] .settings-tab.admin-only { display: inline-flex; }
 body:not(.mod-warehouse-on) .needs-mod-warehouse { display: none !important; }
 body.mod-portal-off .needs-mod-portal { display: none !important; }
 
+/* Модалка настроек отчёта за день (шестерёнка) */
+.rs-sect { padding: 14px 0; border-bottom: 1px solid var(--border); }
+.rs-sect:last-child { border-bottom: 0; }
+.rs-sect-t { font-weight: 700; font-size: var(--fs-sm); color: var(--text-2); margin-bottom: 10px; text-transform: uppercase; letter-spacing: .5px; }
+.rs-checks { display: flex; flex-wrap: wrap; gap: 12px 20px; }
+.rs-check { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: var(--fs-md); }
+.rs-check input { width: 18px; height: 18px; }
+.rs-var { font-size: var(--fs-xs) !important; }
+
 /* Строки списка модулей в настройках */
 .module-row {
   display: flex; align-items: flex-start;

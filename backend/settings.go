@@ -157,6 +157,35 @@ func moduleDepWarning(key, dep string) string {
 	return "Модуль «" + key + "» использует «" + dep + "», который сейчас выключен — часть функций будет недоступна."
 }
 
+// ─── Конфиг отчёта за день ───────────────────────────────────────────────────
+//
+// Наименования итогов, выбор выводимых таблиц и формула «итога наличными врачу».
+// Клиниковый (одинаковый на всех устройствах) — храним одним JSON в
+// server_settings. Читают все вошедшие (для рендера отчёта), пишет только админ.
+
+func (a *app) handleGetReportConfig(w http.ResponseWriter, r *http.Request) {
+	raw := strings.TrimSpace(a.getSetting("report_daily_config", ""))
+	if raw == "" {
+		raw = "{}"
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: json.RawMessage(raw)})
+}
+
+func (a *app) handlePutReportConfig(w http.ResponseWriter, r *http.Request) {
+	var cfg map[string]interface{}
+	if err := decodeJSON(r, &cfg); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "marshal")
+		return
+	}
+	a.setSetting("report_daily_config", string(b))
+	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: json.RawMessage(b)})
+}
+
 // handlePutWarehouseModule — старый маршрут PUT /settings/warehouse. Оставлен
 // для совместимости с уже установленными клиентами; делегирует общей логике.
 func (a *app) handlePutWarehouseModule(w http.ResponseWriter, r *http.Request) {

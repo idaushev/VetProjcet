@@ -2072,6 +2072,9 @@
   }
 
   async function initReportDaily() {
+    // Клиниковый конфиг отчёта (наименования/таблицы/формула) — с сервера,
+    // чтобы наименования применились уже при первом построении.
+    await _reportConfigLoad();
     var dateInput = document.getElementById('report-date');
     if (dateInput && !dateInput.value) {
       dateInput.value = new Date().toISOString().slice(0, 10);
@@ -2393,6 +2396,133 @@
     });
   }
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // Настройки отчёта за день (наименования итогов, выбор таблиц, формула).
+  // Клиниковые: хранятся на сервере (server_settings), кэш в localStorage.
+  // ═══════════════════════════════════════════════════════════════════════
+  var REPORT_CFG_DEFAULTS = {
+    tables: { visits: true, doctors: true, services: true, drugs: true },
+    labels: {
+      revenue:   'Выручка по позициям',
+      discounts: 'Скидки',
+      received:  'Получено за день',
+      card:      'Оплата картой (безнал)',
+      cash:      'Наличные',
+      clinic:    'Доля клиники (касса)',
+      doctors:   'Заработок врачей',
+      settle:    'Итог расчёта',
+      settleSub: 'наличными врачу после сдачи кассы',
+    },
+    // Формула строки «Итог расчёта». Переменные: Доля врача, Доля клиники,
+    // Сумма, Наличные, Безналичные. По умолчанию = заработок врача − безнал.
+    formula: 'Доля врача - Безналичные',
+  };
+  var _reportCfg = null;              // текущий конфиг (после merge)
+  var _lastReportVars = null;         // значения переменных последнего отчёта (для предпросмотра формулы)
+
+  function _mergeReportCfg(o) {
+    o = o || {};
+    return {
+      tables:  Object.assign({}, REPORT_CFG_DEFAULTS.tables, o.tables || {}),
+      labels:  Object.assign({}, REPORT_CFG_DEFAULTS.labels, o.labels || {}),
+      formula: (typeof o.formula === 'string' && o.formula.trim()) ? o.formula : REPORT_CFG_DEFAULTS.formula,
+    };
+  }
+  function _reportConfig() {
+    if (_reportCfg) return _reportCfg;
+    var cached = {};
+    try { cached = JSON.parse(localStorage.getItem('vet-report-daily-config') || '{}'); } catch (e) {}
+    _reportCfg = _mergeReportCfg(cached);
+    return _reportCfg;
+  }
+  async function _reportConfigLoad() {
+    try {
+      var base = (window.VetAppConfig && VetAppConfig.apiBase) || '';
+      var nf = window.__nativeFetch || window.fetch.bind(window);
+      var res = await nf(base + '/settings/report-daily', { headers: { 'X-Auth-Token': (window.VetAuth && VetAuth.token && VetAuth.token()) || '' } });
+      var j = await res.json();
+      _reportCfg = _mergeReportCfg(j && j.data);
+      localStorage.setItem('vet-report-daily-config', JSON.stringify(_reportCfg));
+    } catch (e) { _reportConfig(); } // офлайн/ошибка — кэш или дефолты
+    return _reportCfg;
+  }
+  async function _reportConfigSave(cfg) {
+    _reportCfg = _mergeReportCfg(cfg);
+    try { localStorage.setItem('vet-report-daily-config', JSON.stringify(_reportCfg)); } catch (e) {}
+    var base = (window.VetAppConfig && VetAppConfig.apiBase) || '';
+    var nf = window.__nativeFetch || window.fetch.bind(window);
+    var res = await nf(base + '/settings/report-daily', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Auth-Token': (window.VetAuth && VetAuth.token && VetAuth.token()) || '' },
+      body: JSON.stringify(_reportCfg),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return _reportCfg;
+  }
+
+  // Безопасный вычислитель формул (без eval). Поддерживает + - * / ( ),
+  // унарный минус, сравнения (> < >= <= == !=), логические && || и тернар ?:.
+  // Переменные подставляются числами на этапе токенизации.
+  var _FORMULA_VARS = ['Доля врача', 'Доля клиники', 'Безналичные', 'Наличные', 'Сумма'];
+  function _evalReportFormula(expr, vars) {
+    var s = String(expr || ''), i = 0, toks = [];
+    function matchVar() {
+      for (var k = 0; k < _FORMULA_VARS.length; k++) {
+        var nm = _FORMULA_VARS[k];
+        if (s.substr(i, nm.length) === nm) { i += nm.length; return nm; }
+      }
+      return null;
+    }
+    while (i < s.length) {
+      var ch = s[i];
+      if (ch === ' ' || ch === '\t' || ch === '\n') { i++; continue; }
+      var vn = matchVar();
+      if (vn !== null) { toks.push({ t: 'num', v: Number(vars[vn]) || 0 }); continue; }
+      if ((ch >= '0' && ch <= '9') || ch === '.') {
+        var num = ''; while (i < s.length && ((s[i] >= '0' && s[i] <= '9') || s[i] === '.')) { num += s[i++]; }
+        toks.push({ t: 'num', v: parseFloat(num) || 0 }); continue;
+      }
+      var two = s.substr(i, 2);
+      if (['>=', '<=', '==', '!=', '&&', '||'].indexOf(two) >= 0) { toks.push({ t: 'op', v: two }); i += 2; continue; }
+      if ('+-*/()><?:'.indexOf(ch) >= 0) { toks.push({ t: 'op', v: ch }); i++; continue; }
+      throw new Error('Непонятный символ: «' + ch + '»');
+    }
+    var p = 0;
+    function peek() { return toks[p]; }
+    function next() { return toks[p++]; }
+    function expect(v) { var t = next(); if (!t || t.v !== v) throw new Error('Ожидалось «' + v + '»'); }
+    function pTernary() {
+      var c = pOr();
+      if (peek() && peek().v === '?') { next(); var a = pTernary(); expect(':'); var b = pTernary(); return c ? a : b; }
+      return c;
+    }
+    function pOr()  { var x = pAnd(); while (peek() && peek().v === '||') { next(); var y = pAnd(); x = (x || y) ? 1 : 0; } return x; }
+    function pAnd() { var x = pCmp(); while (peek() && peek().v === '&&') { next(); var y = pCmp(); x = (x && y) ? 1 : 0; } return x; }
+    function pCmp() {
+      var x = pAdd();
+      while (peek() && ['>', '<', '>=', '<=', '==', '!='].indexOf(peek().v) >= 0) {
+        var op = next().v, y = pAdd();
+        x = op === '>' ? (x > y ? 1 : 0) : op === '<' ? (x < y ? 1 : 0) : op === '>=' ? (x >= y ? 1 : 0)
+          : op === '<=' ? (x <= y ? 1 : 0) : op === '==' ? (x === y ? 1 : 0) : (x !== y ? 1 : 0);
+      }
+      return x;
+    }
+    function pAdd() { var x = pMul(); while (peek() && (peek().v === '+' || peek().v === '-')) { var op = next().v, y = pMul(); x = op === '+' ? x + y : x - y; } return x; }
+    function pMul() { var x = pUn();  while (peek() && (peek().v === '*' || peek().v === '/')) { var op = next().v, y = pUn();  x = op === '*' ? x * y : (y !== 0 ? x / y : 0); } return x; }
+    function pUn()  { if (peek() && peek().v === '-') { next(); return -pUn(); } if (peek() && peek().v === '+') { next(); return pUn(); } return pPrim(); }
+    function pPrim() {
+      var t = next();
+      if (!t) throw new Error('Неожиданный конец формулы');
+      if (t.t === 'num') return t.v;
+      if (t.v === '(') { var x = pTernary(); expect(')'); return x; }
+      throw new Error('Неожиданный символ «' + t.v + '»');
+    }
+    var result = pTernary();
+    if (p < toks.length) throw new Error('Лишние символы в конце');
+    if (!isFinite(result)) throw new Error('Результат не число');
+    return result;
+  }
+
   async function generateReport(dateStr) {
     if (!dateStr) { UI.toast('Выберите дату', 'warn'); return; }
 
@@ -2691,11 +2821,20 @@
       + '</tr></tfoot>'
       + '</table></div>';
 
-    // Итог расчёта: заработок (уже за вычетом скидок) минус безнал.
-    // Наличные собирает врач, карта уходит клинике напрямую — итог показывает,
-    // сколько наличных остаётся врачу после сдачи кассы (минус = врач доплачивает
-    // клинике / клиника должна врачу с безнала).
-    var settleTotal = (grandTotal - grandCash - grandDiscount) - grandCard;
+    // Итог расчёта — по настраиваемой формуле (шестерёнка). Переменные:
+    // Доля врача (заработок), Доля клиники (касса), Сумма (получено за день),
+    // Наличные, Безналичные. По умолчанию = Доля врача − Безналичные.
+    var _cfg = _reportConfig();
+    _lastReportVars = {
+      'Доля врача':   doctorShare,
+      'Доля клиники': grandCash,
+      'Сумма':        grandNet,
+      'Наличные':     grandCashPaid,
+      'Безналичные':  grandCard,
+    };
+    var settleTotal;
+    try { settleTotal = _evalReportFormula(_cfg.formula, _lastReportVars); }
+    catch (e) { settleTotal = doctorShare - grandCard; } // некорректная формула — дефолт
 
     var noItemsWarn = (noItems && noItems.count)
       ? '<div style="background:#fff8e6;border:1px solid #f0d48a;border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:.88rem;color:#8a6d1a;">'
@@ -2725,24 +2864,93 @@
       + '<span class="text-muted text-sm">Приёмов: ' + dayVisits.length + '</span>'
       + '</div>'
       + noItemsWarn
-      + visitListHTML
-      + doctorsHTML
+      + (_cfg.tables.visits  ? visitListHTML : '')
+      + (_cfg.tables.doctors ? doctorsHTML   : '')
       + discountsHTML
-      + groupHTML('Услуги', services, 'services')
-      + groupHTML('Препараты', drugs, 'drugs')
+      + (_cfg.tables.services ? groupHTML('Услуги', services, 'services') : '')
+      + (_cfg.tables.drugs    ? groupHTML('Препараты', drugs, 'drugs')     : '')
       + '<div class="report-grand">'
-      + '<div class="report-grand-row"><span>'+I('cash')+' Выручка по позициям</span><span>' + fmtMoney(grandTotal) + '</span></div>'
-      + (grandDiscount ? '<div class="report-grand-row" style="color:var(--warn);"><span>Скидки</span><span>−' + fmtMoney(grandDiscount) + '</span></div>' : '')
-      + '<div class="report-grand-row" style="font-size:1rem;"><span><b>Получено за день</b></span><span style="font-weight:900;">' + fmtMoney(grandNet) + '</span></div>'
-      + '<div class="report-grand-row" style="color:var(--blue);"><span>'+I('card')+' Оплата картой (безнал)</span><span>' + fmtMoney(grandCard) + '</span></div>'
-      + '<div class="report-grand-row"><span>'+I('cash')+' Наличные</span><span>' + fmtMoney(grandCashPaid) + '</span></div>'
-      + '<div class="report-grand-row" style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;"><span>'+I('hospital')+' Доля клиники (касса)</span><span>' + fmtMoney(grandCash) + '</span></div>'
-      + '<div class="report-grand-row grand-diff"><span>'+I('stethoscope')+' Заработок врачей</span><span style="color:var(--accent);font-weight:800;">' + fmtMoney(doctorShare) + '</span></div>'
+      + '<div class="report-grand-row"><span>'+I('cash')+' '+esc(_cfg.labels.revenue)+'</span><span>' + fmtMoney(grandTotal) + '</span></div>'
+      + (grandDiscount ? '<div class="report-grand-row" style="color:var(--warn);"><span>'+esc(_cfg.labels.discounts)+'</span><span>−' + fmtMoney(grandDiscount) + '</span></div>' : '')
+      + '<div class="report-grand-row" style="font-size:1rem;"><span><b>'+esc(_cfg.labels.received)+'</b></span><span style="font-weight:900;">' + fmtMoney(grandNet) + '</span></div>'
+      + '<div class="report-grand-row" style="color:var(--blue);"><span>'+I('card')+' '+esc(_cfg.labels.card)+'</span><span>' + fmtMoney(grandCard) + '</span></div>'
+      + '<div class="report-grand-row"><span>'+I('cash')+' '+esc(_cfg.labels.cash)+'</span><span>' + fmtMoney(grandCashPaid) + '</span></div>'
+      + '<div class="report-grand-row" style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;"><span>'+I('hospital')+' '+esc(_cfg.labels.clinic)+'</span><span>' + fmtMoney(grandCash) + '</span></div>'
+      + '<div class="report-grand-row grand-diff"><span>'+I('stethoscope')+' '+esc(_cfg.labels.doctors)+'</span><span style="color:var(--accent);font-weight:800;">' + fmtMoney(doctorShare) + '</span></div>'
       + '<div class="report-grand-row" style="border-top:2px solid var(--border);margin-top:8px;padding-top:10px;font-size:1rem;">'
-      + '<span><b>Итог расчёта</b> <span class="text-muted text-sm">наличными врачу после сдачи кассы</span></span>'
+      + '<span><b>'+esc(_cfg.labels.settle)+'</b>' + (_cfg.labels.settleSub ? ' <span class="text-muted text-sm">'+esc(_cfg.labels.settleSub)+'</span>' : '') + '</span>'
       + '<span style="font-weight:900;color:' + (settleTotal < 0 ? 'var(--danger, #dc3545)' : 'var(--text)') + ';">' + fmtMoney(settleTotal) + '</span></div>'
       + '</div>'
       + '</div>';
+  }
+
+  // Модалка настроек отчёта (шестерёнка): выбор таблиц, наименования итогов,
+  // формула итоговой строки с предпросмотром на данных текущего отчёта.
+  function openReportSettings() {
+    var cfg = _reportConfig(), L = cfg.labels, T = cfg.tables;
+    function chk(key, title) { return '<label class="rs-check"><input type="checkbox" data-rt="'+key+'"'+(T[key]?' checked':'')+'> '+esc(title)+'</label>'; }
+    function inp(key, title) { return '<div class="form-group"><label class="form-label">'+esc(title)+'</label><input class="form-input" data-rl="'+key+'" value="'+esc(L[key]||'')+'"></div>'; }
+    var varBtns = ['Доля врача','Доля клиники','Сумма','Наличные','Безналичные'].map(function(v){
+      return '<button type="button" class="btn btn-ghost btn-sm rs-var" data-var="'+esc(v)+'">'+esc(v)+'</button>';
+    }).join('');
+    var body =
+        '<div class="rs-sect"><div class="rs-sect-t">Показывать таблицы</div><div class="rs-checks">'
+      + chk('visits','Приёмы за день') + chk('doctors','Заработок по врачам')
+      + chk('services','Услуги') + chk('drugs','Препараты')
+      + '</div></div>'
+      + '<div class="rs-sect"><div class="rs-sect-t">Наименования итогов</div><div class="form-grid">'
+      + inp('revenue','Выручка по позициям') + inp('discounts','Скидки')
+      + inp('received','Получено за день') + inp('card','Оплата картой')
+      + inp('cash','Наличные') + inp('clinic','Доля клиники')
+      + inp('doctors','Заработок врачей')
+      + '</div></div>'
+      + '<div class="rs-sect"><div class="rs-sect-t">Итоговая строка</div><div class="form-grid">'
+      + inp('settle','Название итога') + inp('settleSub','Подпись (мелким)')
+      + '</div>'
+      + '<div class="form-group form-span-2" style="margin-top:10px;"><label class="form-label">Формула расчёта</label>'
+      + '<input class="form-input" id="rs-formula" value="'+esc(cfg.formula)+'" style="font-family:monospace;">'
+      + '<div class="form-hint" style="margin-top:6px;">Переменные (нажмите, чтобы вставить):</div>'
+      + '<div class="flex-gap" style="flex-wrap:wrap;margin:6px 0;">'+varBtns+'</div>'
+      + '<div class="form-hint">Операции: + − * / ( ) &gt; &lt; &gt;= &lt;= == != &amp;&amp; || ?:&nbsp;&nbsp;Пример: Доля врача &gt; 0 ? Доля врача - Безналичные : 0</div>'
+      + '<div id="rs-preview" style="margin-top:8px;font-weight:700;font-size:.9rem;"></div>'
+      + '</div></div>';
+    UI.showModal({
+      title: 'Настройки отчёта за день', size: 'lg', saveLabel: 'Сохранить',
+      bodyHTML: body,
+      afterOpen: function() {
+        var fInp = document.getElementById('rs-formula'), prev = document.getElementById('rs-preview');
+        function upd() {
+          var vars = _lastReportVars || { 'Доля врача':0,'Доля клиники':0,'Сумма':0,'Наличные':0,'Безналичные':0 };
+          try { prev.textContent = 'Предпросмотр: ' + fmtMoney(_evalReportFormula(fInp.value, vars)); prev.style.color = 'var(--accent)'; }
+          catch (e) { prev.textContent = 'Ошибка: ' + e.message; prev.style.color = 'var(--danger, #dc3545)'; }
+        }
+        if (fInp) fInp.addEventListener('input', upd);
+        document.querySelectorAll('.rs-var').forEach(function(b) {
+          b.addEventListener('click', function() {
+            var v = this.getAttribute('data-var');
+            var st = fInp.selectionStart != null ? fInp.selectionStart : fInp.value.length;
+            var en = fInp.selectionEnd != null ? fInp.selectionEnd : fInp.value.length;
+            fInp.value = fInp.value.slice(0, st) + v + fInp.value.slice(en);
+            fInp.focus(); var np = st + v.length; try { fInp.setSelectionRange(np, np); } catch (e) {}
+            upd();
+          });
+        });
+        upd();
+      },
+      onSave: async function() {
+        var newCfg = { tables: {}, labels: {}, formula: (document.getElementById('rs-formula').value || '').trim() };
+        document.querySelectorAll('[data-rt]').forEach(function(c) { newCfg.tables[c.getAttribute('data-rt')] = c.checked; });
+        document.querySelectorAll('[data-rl]').forEach(function(i) { newCfg.labels[i.getAttribute('data-rl')] = i.value; });
+        try { _evalReportFormula(newCfg.formula, { 'Доля врача':1,'Доля клиники':1,'Сумма':1,'Наличные':1,'Безналичные':1 }); }
+        catch (e) { UI.toast('Формула с ошибкой: ' + e.message, 'err'); return; }
+        try {
+          await _reportConfigSave(newCfg);
+          UI.hideModal();
+          UI.toast('Настройки отчёта сохранены', 'ok');
+          var d = document.getElementById('report-date'); if (d && d.value) generateReport(d.value);
+        } catch (e) { UI.toast('Не удалось сохранить: ' + (e && e.message || e), 'err'); }
+      },
+    });
   }
 
   function fmtQty(n) {
@@ -5783,6 +5991,7 @@ ${visit.notes ? `<div class="section">
     newVisitForPet:     newVisitForPet,
     newVisitForOwner:   newVisitForOwner,
     refreshModules:     refreshModules,
+    openReportSettings: openReportSettings,
     // whX-функции склада навешиваются из modules/warehouse.js (M3.2).
     addOwner:           addOwner,
     _ownersShowMore:    _ownersShowMore,

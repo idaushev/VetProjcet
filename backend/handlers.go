@@ -103,6 +103,9 @@ func (a *app) routes() http.Handler {
 	// Это управление модулями (ядро), а не маршруты самих модулей.
 	mux.HandleFunc("GET /settings/modules",        a.handleGetModules)
 	mux.HandleFunc("PUT /settings/module/{key}",   a.requireAdmin(a.handlePutModule))
+	// Конфиг отчёта за день: читают все вошедшие, пишет админ.
+	mux.HandleFunc("GET /settings/report-daily",   a.handleGetReportConfig)
+	mux.HandleFunc("PUT /settings/report-daily",   a.requireAdmin(a.handlePutReportConfig))
 	mux.HandleFunc("PUT /settings/warehouse",      a.requireAdmin(a.handlePutWarehouseModule)) // старый маршрут, совместимость
 	mux.HandleFunc("GET /users",         a.requireAdmin(a.handleUsers))
 	mux.HandleFunc("POST /users",        a.requireAdmin(a.handleUsers))
