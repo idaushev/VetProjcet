@@ -13,14 +13,41 @@ VetClinic Demo Seed v3
     3. python3 scripts/seed.py
 """
 
-import json, random, sys
+import json, random, sys, os, re
 from datetime import date, datetime, timedelta
 import urllib.request, urllib.error
 
-BASE_URL = "http://localhost:8080"
+# Куда сеять. Тестовый сервер: SEED_URL=http://localhost:8090 python scripts/seed.py
+BASE_URL = os.environ.get("SEED_URL", "http://localhost:8080").rstrip("/")
+TOKEN = ""       # токен админа; заполняется login()
 random.seed(7)   # другой seed → другие случайные значения
 
 # ── HTTP ──────────────────────────────────────────────────────────────────────
+
+def login():
+    """Авторизуемся админом: пароль из env SEED_PW или data/ADMIN-PASSWORD.txt."""
+    global TOKEN
+    pw = os.environ.get("SEED_PW", "")
+    if not pw:
+        pwfile = os.path.join(os.path.dirname(__file__), "..", "data", "ADMIN-PASSWORD.txt")
+        try:
+            with open(pwfile, encoding="utf-8") as f:
+                m = re.search(r"[A-Za-z0-9]{8,}", f.read())
+                pw = m.group(0) if m else ""
+        except Exception:
+            pass
+    if not pw:
+        print("  ✗ Нет пароля админа (env SEED_PW или data/ADMIN-PASSWORD.txt)")
+        sys.exit(1)
+    body = json.dumps({"login": "admin", "password": pw}).encode("utf-8")
+    req = urllib.request.Request(BASE_URL + "/auth/login", data=body,
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            TOKEN = json.loads(r.read().decode("utf-8"))["data"]["token"]
+    except Exception as ex:
+        print(f"  ✗ Логин не удался: {ex}")
+        sys.exit(1)
 
 def api(method, path, data=None):
     url = BASE_URL + path
@@ -28,7 +55,7 @@ def api(method, path, data=None):
     req = urllib.request.Request(
         url, data=body,
         headers={"Content-Type": "application/json; charset=utf-8",
-                 "X-Bypass-Local": "1"},
+                 "X-Bypass-Local": "1", "X-Auth-Token": TOKEN},
         method=method,
     )
     try:
@@ -240,7 +267,9 @@ def main():
     if not check_server():
         print("  ✗ Сервер не отвечает. Запустите: go run ./backend/")
         sys.exit(1)
-    print("  ✓ Сервер доступен\n")
+    print("  ✓ Сервер доступен")
+    login()
+    print("  ✓ Авторизованы админом\n")
 
     # ── 1. Персонал ──────────────────────────────────────────────────────
     print("👨‍⚕️  Персонал...")
