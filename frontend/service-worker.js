@@ -12,7 +12,7 @@
 
 // ── Версия ────────────────────────────────────────────────────────
 // Поднимайте при каждом деплое → старые кэши удалятся автоматически
-var APP_VERSION  = "2.61.0"; // отчёт за день: шестерёнка настроек (наименования, выбор таблиц, формула итога)
+var APP_VERSION  = "2.62.0"; // M4.1 телеграм-настройки вынесены в modules/telegram.js
 var CACHE_APP    = "vet-app-"   + APP_VERSION;  // версионированные ресурсы
 var CACHE_FONTS  = "vet-fonts-1";               // шрифты (стабильный кэш)
 
@@ -40,6 +40,7 @@ var PRECACHE = [
   "/js/ui.js",
   "/js/pages.js",
   "/js/modules/warehouse.js",
+  "/js/modules/telegram.js",
   "/icons/icon.svg",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
