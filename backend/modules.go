@@ -16,6 +16,9 @@ type Module interface {
 	RegisterRoutes(mux *http.ServeMux, a *app) // HTTP-маршруты модуля (гейт внутри)
 	Roles() []string                         // роли, которые вводит модуль (склад → "warehouse")
 	SyncEntities() []syncEntity              // синкаемые сущности модуля (после ядра, порядок FK)
+	// RolePermission — уровень доступа роли модуля к таблице ("edit"/"create"/
+	// "view"/"none"). handled=false, если модуль эту роль не вводит (решает ядро).
+	RolePermission(role, table string) (level string, handled bool)
 }
 
 // moduleRegistry — единственный источник правды об опциональных модулях.
@@ -68,6 +71,17 @@ func moduleSyncEntities() []syncEntity {
 	return out
 }
 
+// moduleRolePermission — уровень доступа роли модуля к таблице. Первый модуль,
+// который «признаёт» роль (handled=true), решает. Ядро о ролях модулей не знает.
+func moduleRolePermission(role, table string) (string, bool) {
+	for _, m := range moduleRegistry {
+		if lvl, ok := m.RolePermission(role, table); ok {
+			return lvl, true
+		}
+	}
+	return "", false
+}
+
 // ─── Телеграм ────────────────────────────────────────────────────────────────
 // Своих таблиц нет — использует таблицы ядра (owners/appointments/…).
 type telegramModule struct{}
@@ -77,6 +91,7 @@ func (telegramModule) DependsOn() []string    { return nil }
 func (telegramModule) Migrations() []string   { return nil }
 func (telegramModule) Roles() []string        { return nil }
 func (telegramModule) SyncEntities() []syncEntity { return nil }
+func (telegramModule) RolePermission(role, table string) (string, bool) { return "", false }
 
 func (telegramModule) RegisterRoutes(mux *http.ServeMux, a *app) {
 	// НЕ гейтим модулем: через эти настройки задаётся токен, который и
@@ -95,6 +110,7 @@ func (portalModule) DependsOn() []string    { return []string{"telegram"} }
 func (portalModule) Migrations() []string   { return nil }
 func (portalModule) Roles() []string        { return nil }
 func (portalModule) SyncEntities() []syncEntity { return nil }
+func (portalModule) RolePermission(role, table string) (string, bool) { return "", false }
 
 func (portalModule) RegisterRoutes(mux *http.ServeMux, a *app) {
 	// Весь модуль гейтится флагом portal_enabled: при выключении — 404.
@@ -139,6 +155,18 @@ func (warehouseModule) Migrations() []string {
 // pushX/pullX) держим в sync_registry.go, где уже есть нужные импорты —
 // модуль лишь делегирует.
 func (warehouseModule) SyncEntities() []syncEntity { return warehouseSyncEntities() }
+
+// RolePermission — изоляция роли продавца/кладовщика: доступ только к складу
+// ("warehouse") и каталогу цен ("items"), к медицинским данным — ничего.
+func (warehouseModule) RolePermission(role, table string) (string, bool) {
+	if role != "warehouse" {
+		return "", false
+	}
+	if table == "warehouse" || table == "items" {
+		return "edit", true
+	}
+	return "none", true
+}
 
 func (warehouseModule) RegisterRoutes(mux *http.ServeMux, a *app) {
 	// Отдельных маршрутов нет: данные склада идут через общий /sync (гейт по

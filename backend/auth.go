@@ -156,12 +156,12 @@ func (u *User) tableLevel(table string) int {
 	if u == nil || u.Role == "admin" {
 		return permLevels["edit"]
 	}
-	// Роль склада (продавец/кладовщик) изолирована: доступ только к складу
-	// и каталогу цен, к медицинским данным — ничего. Изоляция на сервере,
-	// а не только в UI: даже подделанный push мед-таблиц будет отклонён.
-	if u.Role == "warehouse" {
-		if table == "warehouse" || table == "items" {
-			return permLevels["edit"]
+	// Роли, введённые модулями (напр. «warehouse» от склада), сами задают свою
+	// изоляцию через RolePermission — ядро о них не знает. Изоляция на СЕРВЕРЕ,
+	// а не только в UI: даже подделанный push запрещённых таблиц отклонится.
+	if lvl, ok := moduleRolePermission(u.Role, table); ok {
+		if n, ok2 := permLevels[lvl]; ok2 {
+			return n
 		}
 		return permLevels["none"]
 	}
