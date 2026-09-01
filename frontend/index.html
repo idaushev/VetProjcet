@@ -849,9 +849,9 @@
 
           <!-- ── Вкладка: Клиника ─────────────────────────────────────── -->
           <div class="settings-panel active" data-spanel="clinic">
-            <div class="card" style="max-width:680px;">
+            <div class="card set-card">
               <div class="card-header"><span class="card-title">Реквизиты для печатных форм</span></div>
-              <div class="card-body" style="padding:20px;">
+              <div class="card-body">
                 <div class="form-grid">
                   <div class="form-group form-span-2">
                     <label class="form-label">Название клиники</label>
@@ -917,7 +917,7 @@
                Тумблеры пишут PUT /settings/module/{key}; телеграм здесь
                только показывается (управляется вводом токена рядом). -->
           <div class="settings-panel admin-only" data-spanel="modules" style="display:none;">
-            <div class="card" style="max-width:680px;">
+            <div class="card set-card">
               <div class="card-header"><span class="card-title">Опциональные модули</span></div>
               <div class="card-body" style="padding:8px 20px;">
 
@@ -954,12 +954,12 @@
 
           <!-- ── Вкладка: Телеграм и уведомления ──────────────────────── -->
           <div class="settings-panel admin-only" data-spanel="telegram" style="display:none;">
-            <div class="card" style="max-width:680px;">
+            <div class="card set-card">
               <div class="card-header">
                 <span class="card-title">Подключение телеграм-бота</span>
                 <span id="tg-status" class="badge">—</span>
               </div>
-              <div class="card-body" style="padding:20px;">
+              <div class="card-body">
                 <p style="font-size:.85rem;color:var(--text-2);margin:0 0 16px;">
                   Бот высылает владельцам пароли для входа в кабинет и напоминания
                   о приёмах и вакцинациях. Токен получите у <b>@BotFather</b> в телеграме.
@@ -999,12 +999,12 @@
             </div>
 
             <!-- Журнал напоминаний -->
-            <div class="card" style="max-width:680px;margin-top:16px;">
+            <div class="card set-card">
               <div class="card-header">
                 <span class="card-title">Журнал напоминаний</span>
                 <button class="btn btn-sm btn-ghost" onclick="VetPages.showNotificationsLog()">Открыть →</button>
               </div>
-              <div class="card-body" style="padding:20px;">
+              <div class="card-body">
                 <p style="font-size:.88rem;color:var(--text-2);margin:0;">
                   Что и когда бот отправил владельцам. Видно, дошло ли сообщение
                   и не отвалился ли бот.
@@ -1032,9 +1032,9 @@
 
           <!-- ── Вкладка: Данные ──────────────────────────────────────── -->
           <div class="settings-panel" data-spanel="data" style="display:none;">
-            <div class="card" style="max-width:680px;margin-bottom:16px;">
+            <div class="card set-card">
               <div class="card-header"><span class="card-title">Обновление данных</span></div>
-              <div class="card-body" style="padding:20px;">
+              <div class="card-body">
                 <p style="font-size:.88rem;color:var(--text-2);margin-bottom:16px;">
                   Заново загрузить все данные с сервера — если на устройстве чего-то
                   не хватает или данные расходятся. Ничего не удаляет: локальные
@@ -1046,9 +1046,9 @@
                 <span id="refresh-server-msg" style="display:none;margin-left:12px;color:var(--accent);font-weight:600;font-size:.9rem;">✓ Обновлено</span>
               </div>
             </div>
-            <div class="card" style="max-width:680px;border-color:var(--danger-dim);">
+            <div class="card set-card" style="border-color:var(--danger-dim);">
               <div class="card-header"><span class="card-title" style="color:var(--danger);">Локальные данные</span></div>
-              <div class="card-body" style="padding:20px;">
+              <div class="card-body">
                 <p style="font-size:.88rem;color:var(--text-2);margin-bottom:16px;">
                   Если данные на устройстве расходятся с сервером — сбросьте локальный кэш.<br>
                   Приложение загрузит актуальные данные с сервера при следующем открытии.
@@ -1058,12 +1058,12 @@
                 </button>
               </div>
             </div>
-            <div class="card" style="max-width:680px;margin-top:16px;">
+            <div class="card set-card">
               <div class="card-header">
                 <span class="card-title">Диагностика</span>
                 <button class="btn btn-ghost btn-sm" id="btn-diag-refresh">Обновить</button>
               </div>
-              <div class="card-body" style="padding:20px;">
+              <div class="card-body">
                 <p style="font-size:.88rem;color:var(--text-2);margin-bottom:12px;">
                   Последние ошибки приложения. Пригодится, если что-то не
                   загрузилось или повело себя не так — покажите этот список

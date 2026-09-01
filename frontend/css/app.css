@@ -671,10 +671,13 @@ h4 { font-size: var(--fs-md);   font-weight: 600; }
   display: flex; align-items: center; justify-content: center;
   font-size: var(--fs-sm); font-weight: 700; flex-shrink: 0;
   letter-spacing: .5px;
+  /* Цвет по умолчанию (без модификатора вида) — был отдельным объявлением
+     перед списком .dog/.cat/.bird/.other, слит сюда. Модификаторы ниже
+     перебивают его по специфичности, как и раньше. */
+  background: var(--accent-dim); color: var(--accent); border: 1.5px solid var(--accent-border);
 }
 
 /* Виды животных — разные цвета аватаров */
-.erow-avatar         { background: var(--accent-dim); color: var(--accent); border: 1.5px solid var(--accent-border); }
 .erow-avatar.dog     { background: #edf4ff; color: #3b82f6; border-color: rgba(59,130,246,.2); }
 .erow-avatar.cat     { background: var(--purple-dim); color: var(--purple); border-color: var(--purple-border); }
 .erow-avatar.bird    { background: var(--warn-dim); color: var(--warn); border-color: var(--warn-border); }
@@ -1116,6 +1119,9 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
   font-weight: 700; font-size: var(--fs-md);
   background: var(--bg);
   color: var(--text);
+  /* Заголовок секции кликабелен (сворачивание) — свойства были во втором
+     объявлении ниже по файлу, слиты сюда. */
+  cursor: pointer; user-select: none;
 }
 
 .visit-section-num {
@@ -1178,6 +1184,8 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
   display: flex; justify-content: flex-end; align-items: center;
   gap: 10px; padding: 12px 4px 4px;
   font-weight: 700;
+  /* Отчёркивание итога — было отдельным объявлением ниже, слито сюда. */
+  border-top: 2px solid var(--accent-border); margin-top: 6px;
 }
 .vitems-total-amount {
   font-size: var(--fs-xl); color: var(--accent);
@@ -1396,7 +1404,6 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 .erow .badge { align-self: flex-start; margin-top: 2px; }
 
 /* ── Прайс-лист в визите: лучше видно ──────────────────────────── */
-.vitems-total-row { border-top: 2px solid var(--accent-border); margin-top: 6px; }
 
 /* ── Transition для страниц ─────────────────────────────────────── */
 .page.active { animation: pageFadeIn .22s var(--ease) both; }
@@ -1608,6 +1615,12 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 }
 
 /* ── Utils ──────────────────────────────────────────────────────── */
+/* Карточка на вкладке настроек. Ширина, внутренние отступы и вертикальный
+   ритм повторялись инлайном в 13 местах разметки (max-width:680px +
+   padding:20px у вложенного .card-body) — сведены сюда. */
+.set-card { max-width: 680px; margin-bottom: 16px; }
+.set-card .card-body { padding: 20px; }
+
 .hidden      { display: none !important; }
 .mt-1        { margin-top: 6px; }
 .mt-2        { margin-top: 12px; }
@@ -2116,10 +2129,12 @@ mark {
   padding: 0 12px;
   background: var(--bg-s); border: 1px solid var(--border);
   border-radius: var(--r);
-  color: var(--text);
+  /* Было два объявления: здесь color: var(--text), ниже по файлу
+     var(--accent). Работал второй — первый был мёртвым кодом. Оставлен
+     тот цвет, который фактически видел пользователь. */
+  color: var(--accent);
 }
 .payment-clinic-display { color: var(--blue, #3b82f6); }
-.payment-doctor-display { color: var(--accent); }
 
 /* Пустой отчёт */
 .report-empty {
@@ -2203,9 +2218,6 @@ mark {
 .noshow-overdue { color: var(--danger); font-weight: 700; }
 
 /* ── Сворачиваемые секции формы визита ──────────────────────────── */
-.visit-section-header {
-  cursor: pointer; user-select: none;
-}
 .vs-toggle {
   margin-left: auto;
   font-size: var(--fs-md); color: var(--text-3);
