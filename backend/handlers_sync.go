@@ -333,7 +333,12 @@ func pushPet(ctx context.Context, db *sql.DB, rec petSyncRecord) (bool, error) {
 		  client_updated_at=excluded.client_updated_at`,
 		rec.ID, rec.OwnerID, rec.Name, rec.Type, rec.Gender,
 		birthDate, rec.Age, nullableString(rec.Breed),
-		nullableString(rec.Color), nullableString(rec.ChipNumber), Tp(chipDate), nullableString(rec.Photo), rec.Weight, status,
+		// ВНИМАНИЕ: photo — колонка NOT NULL DEFAULT ''. nullableString('')
+		// возвращает NULL, и INSERT падал на constraint: любой питомец БЕЗ
+		// ФОТО молча не доезжал с планшета (push отвечал 200, запись уходила
+		// в skipped, ошибка оставалась только в логе сервера). Пустую строку
+		// передаём как есть. Остальные поля ниже действительно nullable.
+		nullableString(rec.Color), nullableString(rec.ChipNumber), Tp(chipDate), rec.Photo, rec.Weight, status,
 		Tp(deathDate), nullableString(rec.DeathReason), nullableString(rec.Notes),
 		serverNow, deletedAt, rec.IsDeleted,
 		nullableString(rec.DeviceID), rec.Version, serverNow, clientAt,
