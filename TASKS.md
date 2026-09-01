@@ -14,10 +14,11 @@
 
 - [ ] **`pages.js` — 5983 строки в одном модуле.** Почти половина фронта.
       Бэкенд уже разъехался на модули — вести фронт туда же, по мере правок.
-- [ ] **Тесты для ядра.** Появился первый (`ratelimit_test.go`). Дальше —
-      разрешение конфликтов синка (version + client_updated_at), расчёт
-      итога приёма, `resolveCost`/`resolveTreatment`. Именно там регресс
-      тихий и дорогой.
+- [~] **Тесты для ядра.** Покрыто: `resolveCost`, `resolveTreatment`,
+      `parseSyncTime`, `clientWinsVersion` (на реальной схеме через openDB) —
+      core_logic_test.go; плюс canSeeSum/seesAllSums и ratelimit. Осталось:
+      расчёт итога приёма (сейчас в JS — либо вынести в Go, либо покрыть
+      в браузере), полный цикл push→pull.
 - [ ] **4 co-located дубля селекторов** (`.visit-section-header`,
       `.vitems-total-row`, `.erow-avatar`, `.payment-doctor-display`) —
       не баги, как был `.list-empty`, а модификаторы рядом с базой.
