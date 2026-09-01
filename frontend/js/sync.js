@@ -414,11 +414,32 @@
   // в IndexedDB и видны из консоли. Вызывать ТОЛЬКО после успешного онлайн
   // pullFull — иначе офлайн-вход стёр бы данные, которые нечем восстановить.
   async function clearForbiddenStores() {
-    if (!(window.VetAuth && window.VetAuth.can)) return; // прав нет — не трогаем
+    // КРИТИЧНО: чистим только когда ТОЧНО знаем, кто вошёл. can() без
+    // загруженного пользователя возвращает false для всех таблиц — раньше
+    // проверялось лишь наличие самой функции, и если bootstrap успевал
+    // отработать до восстановления сессии, стиралась ВСЯ локальная база.
+    var u = window.VetAuth && window.VetAuth.user && window.VetAuth.user();
+    if (!u || !window.VetAuth.can) return;
+
     for (var store of STORE_ORDER) {
-      if (!window.VetAuth.can(permTableForStore(store), "view")) {
-        try { await window.VetDB.clearStore(store); }
-        catch (e) { console.warn("[Sync] clearForbiddenStores " + store + ":", e.message); }
+      if (window.VetAuth.can(permTableForStore(store), "view")) continue;
+
+      // Вторая защита: несинхронизированное не теряем ни при каких правах.
+      // Записи со sync_status "pending" существуют только на этом устройстве —
+      // стереть их значит потерять работу врача безвозвратно.
+      try {
+        var rows = await window.VetDB.getAll(store);
+        var pending = (rows || []).some(function (r) { return r && r.sync_status === "pending"; });
+        if (pending) {
+          if (window.VetLog) {
+            window.VetLog.warn("sync:keepPending",
+              "стор " + store + " недоступен по правам, но содержит несинхронизированные записи — не очищаем");
+          }
+          continue;
+        }
+        await window.VetDB.clearStore(store);
+      } catch (e) {
+        console.warn("[Sync] clearForbiddenStores " + store + ":", e.message);
       }
     }
   }
