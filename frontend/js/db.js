@@ -247,6 +247,16 @@
     });
   }
 
+  // restore — обратная операция к softDelete: снимает признак удаления.
+  // Запись уходит в синк как обычная правка (pending → version+1), поэтому
+  // восстановление выигрывает конфликт и доезжает до остальных устройств.
+  function restore(storeName, id) {
+    return getById(storeName, id).then(function (existing) {
+      if (!existing) return null;
+      return putRecord(storeName, normalizeRecord(existing, { id: id, is_deleted: 0, deleted_at: null }, { sync_status: "pending" }));
+    });
+  }
+
   function hardDelete(storeName, id) {
     return tx(storeName, "readwrite", function (store, resolve, reject) {
       var r = store.delete(id);
@@ -362,6 +372,7 @@
     save:        save,
     bulkSave:    bulkSave,
     softDelete:  softDelete,
+    restore:     restore,
     hardDelete:  hardDelete,
     clearStore:  clearStore,
     markSynced:  markSynced,

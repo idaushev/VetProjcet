@@ -3064,6 +3064,12 @@
     if (diagBtn) diagBtn.onclick = renderDiagLog;
     renderDiagLog();
 
+    // Корзина: доступна всем, кто видит настройки — восстановление идёт
+    // через обычный синк и подчиняется тем же правам, что и правка.
+    var trashBtn = document.getElementById('btn-trash-refresh');
+    if (trashBtn) trashBtn.onclick = renderTrash;
+    if (document.getElementById('trash-list')) renderTrash();
+
     // Резервные копии — только администратору (маршруты под requireAdmin).
     var bkCard = document.getElementById('backup-card');
     if (bkCard) {
@@ -3074,6 +3080,100 @@
         if (bkBtn) bkBtn.onclick = runBackupNow;
         renderBackupStatus();
       }
+    }
+  }
+
+  // ── Корзина ──────────────────────────────────────────────────────────────
+  // Удаление мягкое (is_deleted=1), но вернуть карточку из интерфейса было
+  // нельзя — только через разработчика. Для системы, стоящей в клинике без
+  // своего админа, это блокер: ошибочно удалённый владелец прячет и всех
+  // его животных.
+  //
+  // Данные берём С СЕРВЕРА, а не из локальной базы: при pull удалённые записи
+  // физически стираются из IndexedDB (Правило 0 в mergePulledStore — удаление
+  // применяется жёстко, чтобы гарантированно разойтись по устройствам).
+  // Единственное место, где удалённая карточка ещё существует, — SQLite
+  // сервера. Поэтому корзина требует связи; восстановление её тоже требует —
+  // иначе запись не разойдётся на другие устройства.
+  var TRASH_DAYS = 30;
+
+  function trashFetch(path, method, body) {
+    var base = (window.VetAppConfig && window.VetAppConfig.apiBase) || '';
+    var nf = window.__nativeFetch || window.fetch.bind(window);
+    return nf(base + path, {
+      method: method || 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Bypass-Local': '1',
+        'X-Auth-Token': (window.VetAuth && VetAuth.token && VetAuth.token()) || ''
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+  }
+
+  async function renderTrash() {
+    var el = document.getElementById('trash-list');
+    if (!el) return;
+    if (!navigator.onLine) {
+      el.innerHTML = '<div class="text-sm text-muted">Корзина доступна только при связи '
+        + 'с сервером: удалённые записи хранятся там.</div>';
+      return;
+    }
+    el.innerHTML = '<div class="text-sm text-muted">Загрузка…</div>';
+    try {
+      var res = await trashFetch('/trash');
+      var body = await res.json();
+      if (!res.ok || body.status !== 'ok') {
+        el.innerHTML = '<div class="text-sm" style="color:var(--danger);">'
+          + esc(body.message || ('Ошибка ' + res.status)) + '</div>';
+        return;
+      }
+      var items = (body.data && body.data.items) || [];
+      if (!items.length) {
+        el.innerHTML = '<div class="text-sm text-muted">Корзина пуста — за последние '
+          + TRASH_DAYS + ' дней ничего не удаляли.</div>';
+        return;
+      }
+      el.innerHTML = items.map(function (r) {
+        return '<div class="erow" style="padding-left:0;padding-right:0;">'
+          + '<div class="erow-body">'
+          + '<div class="erow-title">' + esc(r.title || '—') + '</div>'
+          + '<div class="erow-sub">' + esc(r.label || '')
+          + (r.deleted_at ? ' · удалено ' + esc(fmtDate(r.deleted_at)) : '') + '</div></div>'
+          + '<div class="erow-right"><button class="btn btn-ghost btn-sm trash-restore" '
+          + 'data-table="' + esc(r.table) + '" data-id="' + esc(r.id) + '">'
+          + 'Восстановить</button></div></div>';
+      }).join('');
+      // Делегирование вместо onclick в разметке: id и таблица едут в data-,
+      // без экранирования кавычек внутри строкового шаблона.
+      el.onclick = function (ev) {
+        var b = ev.target.closest && ev.target.closest('.trash-restore');
+        if (b) restoreFromTrash(b.dataset.table, b.dataset.id);
+      };
+    } catch (e) {
+      if (window.VetLog) window.VetLog.warn('trash:list', e);
+      el.innerHTML = '<div class="text-sm text-muted">Не удалось получить корзину.</div>';
+    }
+  }
+
+  async function restoreFromTrash(table, id) {
+    try {
+      var res = await trashFetch('/trash/restore', 'POST', { table: table, id: id });
+      var body = await res.json();
+      if (!res.ok || body.status !== 'ok') {
+        UI.toast(body.message || 'Не удалось восстановить', 'err');
+        return;
+      }
+      UI.toast('Запись восстановлена', 'ok');
+      // Забираем восстановленную запись обратно на устройство: локально её
+      // уже нет (её стёр pull при удалении), поэтому нужен полный pull.
+      if (window.VetSync && VetSync.pullFull) {
+        try { await VetSync.pullFull(); } catch (e) { /* приедет следующим циклом */ }
+      }
+      renderTrash();
+    } catch (e) {
+      if (window.VetLog) window.VetLog.warn('trash:restore', e);
+      UI.toast('Нет связи с сервером', 'err');
     }
   }
 
@@ -5712,6 +5812,7 @@ ${visit.notes ? `<div class="section">
     deleteOwner:        deleteOwner,
     showOwnerCard:      showOwnerCard,
     issuePortalCode:    issuePortalCode,
+    restoreFromTrash:   restoreFromTrash,
     printOwnerCard:     printOwnerCard,
     addPet:             addPet,
     editPet:            editPet,

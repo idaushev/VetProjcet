@@ -103,6 +103,11 @@ func (a *app) routes() http.Handler {
 	// Резервные копии базы — только администратор.
 	mux.HandleFunc("GET /backups",      a.requireAdmin(a.handleBackups))
 	mux.HandleFunc("POST /backups/run", a.requireAdmin(a.handleBackupRun))
+
+	// Корзина: права проверяются внутри по каждой таблице (см. trash.go),
+	// поэтому админом не гейтим — врач должен уметь вернуть свой приём.
+	mux.HandleFunc("GET /trash",          a.handleTrash)
+	mux.HandleFunc("POST /trash/restore", a.handleTrashRestore)
 	// Опциональные модули: чтение — любой вошедший (для меню), запись — админ.
 	// Это управление модулями (ядро), а не маршруты самих модулей.
 	mux.HandleFunc("GET /settings/modules",        a.handleGetModules)
