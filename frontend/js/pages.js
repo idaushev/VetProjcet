@@ -159,7 +159,7 @@
 
       // Записи нужны и четвёртой карточке, и виджету ниже — грузим один раз.
       var allAppts = [];
-      try { allAppts = await window.VetDB.getAll('appointments'); } catch(e) {}
+      try { allAppts = await window.VetDB.getAll('appointments'); } catch(e) { window.VetLog.warn('dashboard:appointments', e); }
 
       // Четвёртая карточка — под роль: врач видит свои приёмы, остальные —
       // загрузку на завтра. Денег на дашборде нет намеренно: планшет стоит
@@ -960,7 +960,7 @@
     var pet   = (data.pets||[]).find(function(p){ return p.id===visit.pet_id; });
     var owner = pet ? (data.owners||[]).find(function(o){ return o.id===pet.owner_id; }) : null;
     var visitItems = [];
-    try { visitItems = await api('GET', '/visit-items?visit_id='+id); } catch(e) {}
+    try { visitItems = await api('GET', '/visit-items?visit_id='+id); } catch(e) { window.VetLog.warn('visit:items', e); }
 
     // Черновик правки этого приёма (форма умерла без сохранения)
     var draft = UI.getVisitDraft('edit:'+id);
@@ -1957,7 +1957,7 @@
   async function showStaffCard(id) {
     var st = _staff.find(function(x){ return x.id===id; });
     if (!st) {
-      try { st = (await window.VetDB.getAll('staff')).find(function(x){ return x.id===id; }); } catch(e) {}
+      try { st = (await window.VetDB.getAll('staff')).find(function(x){ return x.id===id; }); } catch(e) { window.VetLog.warn('staff:byId', e); }
     }
     if (!st) { UI.toast('Сотрудник не найден', 'err'); return; }
 
@@ -2088,7 +2088,7 @@
         wrap.style.display = '';
         if (!sel.options.length) {
           var staff = [];
-          try { staff = await window.VetDB.getAll('staff'); } catch(e) {}
+          try { staff = await window.VetDB.getAll('staff'); } catch(e) { window.VetLog.warn('staff:list', e); }
           staff = staff.filter(function(s){ return !s.is_deleted && s.is_active !== false; })
                        .sort(function(a,b){ return (a.name||'').localeCompare(b.name||'','ru'); });
           var myStaff = window.VetAuth && VetAuth.user() ? (VetAuth.user().staff_id || '') : '';
@@ -3044,6 +3044,29 @@
       initUsers();
       if (window.VetTelegram) VetTelegram.initSettings(); // модуль telegram (M4.1)
     }
+
+    // Диагностика: журнал последних ошибок из VetLog (см. app.js).
+    var diagBtn = document.getElementById('btn-diag-refresh');
+    if (diagBtn) diagBtn.onclick = renderDiagLog;
+    renderDiagLog();
+  }
+
+  function renderDiagLog() {
+    var el = document.getElementById('diag-log');
+    if (!el) return;
+    var entries = (window.VetLog && window.VetLog.entries()) || [];
+    if (!entries.length) {
+      el.innerHTML = '<div style="font-size:.85rem;color:var(--text-3);">Ошибок нет — всё работает штатно.</div>';
+      return;
+    }
+    el.innerHTML = entries.slice().reverse().map(function(e){
+      var color = e.level === 'error' ? 'var(--danger)' : 'var(--warn, var(--text-2))';
+      var time = (e.t || '').slice(11, 19);
+      return '<div style="font-family:monospace;font-size:.78rem;padding:6px 0;border-bottom:1px solid var(--border);">'
+        + '<span style="color:var(--text-3);">' + esc(time) + '</span> '
+        + '<span style="color:' + color + ';font-weight:600;">' + esc(e.ctx) + '</span> '
+        + '<span style="color:var(--text-2);">' + esc(e.detail || '') + '</span></div>';
+    }).join('');
   }
 
   // ── Переключатель темы (Светлая / Тёмная / Системная) ───────────────
@@ -4734,7 +4757,7 @@ ${visit.notes ? `<div class="section">
   async function userFormHTML(u) {
     u = u || {};
     var staff = [];
-    try { staff = (await window.VetDB.getAll('staff')).filter(function(s){ return !s.is_deleted && s.is_active; }); } catch(e) {}
+    try { staff = (await window.VetDB.getAll('staff')).filter(function(s){ return !s.is_deleted && s.is_active; }); } catch(e) { window.VetLog.warn('staff:active', e); }
     return '<div class="form-grid">'
       + '<div class="form-group"><label class="form-label">Логин <span class="form-req">*</span></label>'
       + '<input id="fu-login" class="form-input" autocapitalize="none" value="'+esc(u.login||'')+'" placeholder="ivanov"></div>'
@@ -5197,7 +5220,7 @@ ${visit.notes ? `<div class="section">
   async function printChipCertificate(petId) {
     var pet = _chipPets.find(function(p){ return p.id === petId; });
     if (!pet) {
-      try { pet = (await window.VetDB.getAll('pets')).find(function(p){ return p.id === petId; }); } catch(e) {}
+      try { pet = (await window.VetDB.getAll('pets')).find(function(p){ return p.id === petId; }); } catch(e) { window.VetLog.warn('pet:byId', e); }
     }
     if (!pet || !pet.chip_number) { UI.toast('У животного нет чипа', 'err'); return; }
     var owner = _chipOwners[pet.owner_id] ||
@@ -5328,7 +5351,7 @@ ${visit.notes ? `<div class="section">
     grid.innerHTML = '<div class="report-empty">Загрузка…</div>';
 
     var all = [];
-    try { all = await window.VetDB.getAll('appointments'); } catch(e) {}
+    try { all = await window.VetDB.getAll('appointments'); } catch(e) { window.VetLog.warn('appointments:list', e); }
     _schedAppts = all.filter(function(a) {
       if (a.is_deleted) return false;
       if ((a.starts_at||'').slice(0,10) !== _schedDate) return false;
@@ -5734,7 +5757,7 @@ ${visit.notes ? `<div class="section">
   async function apptStartVisit(id) {
     var a = _schedAppts.find(function(x){ return x.id === id; });
     if (!a || !a.pet_id) return;
-    try { await api('PUT', '/appointments/' + id, Object.assign({}, a, { status: 'done' })); } catch(e) {}
+    try { await api('PUT', '/appointments/' + id, Object.assign({}, a, { status: 'done' })); } catch(e) { window.VetLog.warn('appointment:markDone', e); }
     UI.hideModal();
     setTimeout(function(){ newVisit(a.pet_id); }, 150);
   }

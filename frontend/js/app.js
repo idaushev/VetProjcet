@@ -4,6 +4,39 @@
   // Сохраняем оригинальный fetch до перехвата
   window.__nativeFetch = window.fetch.bind(window);
 
+  // ─── Диагностический журнал ───────────────────────────────────────────────
+  // На планшете-стойке консоли никто не видит, а раньше ошибки уходили в пустые
+  // catch — баг было нечем воспроизвести. VetLog.warn(ctx, e) пишет и в консоль,
+  // и в кольцевой буфер последних записей; его показывает вкладка «Данные»
+  // в настройках («Диагностика»). Перехват onerror/unhandledrejection ловит
+  // то, что не обёрнуто явно.
+  window.VetLog = (function () {
+    var MAX = 100;
+    var buf = [];
+    function push(level, ctx, detail) {
+      buf.push({ t: new Date().toISOString(), level: level, ctx: String(ctx || ""), detail: detail });
+      if (buf.length > MAX) buf.shift();
+    }
+    function fmt(e) {
+      if (!e) return "";
+      if (e instanceof Error) return e.message;
+      if (typeof e === "object") { try { return JSON.stringify(e); } catch (_) { return String(e); } }
+      return String(e);
+    }
+    return {
+      warn: function (ctx, e) { push("warn", ctx, fmt(e)); try { console.warn("[" + ctx + "]", e); } catch (_) {} },
+      error: function (ctx, e) { push("error", ctx, fmt(e)); try { console.error("[" + ctx + "]", e); } catch (_) {} },
+      entries: function () { return buf.slice(); },
+      clear: function () { buf = []; }
+    };
+  })();
+  window.addEventListener("error", function (ev) {
+    window.VetLog.error("window.error", (ev && ev.message) || ev);
+  });
+  window.addEventListener("unhandledrejection", function (ev) {
+    window.VetLog.error("unhandledrejection", (ev && ev.reason) || ev);
+  });
+
   window.VetAppConfig = {
     apiBase: window.location.protocol === "file:" ? "http://localhost:8080" : ""
   };
