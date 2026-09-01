@@ -678,6 +678,45 @@
   var _swReg = null;           // активная SW registration
   var _deferredInstall = null; // сохранённый beforeinstallprompt
 
+  // ── Версия приложения в сайдбаре ────────────────────────────────────────
+  // Единственный источник правды — APP_VERSION в service-worker.js. Раньше
+  // в разметке был захардкожен «v2.0», и при обращении в поддержку узнать
+  // реальную версию у клиники было нельзя: ответ всегда неверный.
+  // SW уже умеет отвечать на GET_VERSION — просто спрашиваем и рисуем.
+  var _versionShown = false;
+
+  function renderAppVersion(v) {
+    var el = document.querySelector(".sidebar-version");
+    if (el && v) {
+      el.textContent = "VetClinic v" + v + " · offline-first";
+      _versionShown = true;
+    }
+  }
+
+  function askAppVersion() {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.ready.then(function (reg) {
+        if (reg && reg.active) reg.active.postMessage({ type: "GET_VERSION" });
+      }).catch(function (e) {
+        if (window.VetLog) window.VetLog.warn("version:ask", e);
+      });
+    }
+    // Запасной путь: SW может быть ещё не активен (первый заход) или
+    // выключен (file://, отключён в браузере). Версия нужна поддержке
+    // всегда, поэтому дочитываем её из самого скрипта — он отдаётся
+    // no-store, а офлайн подхватится из кэша.
+    setTimeout(function () {
+      if (_versionShown) return;
+      fetch("/service-worker.js", { cache: "no-store" })
+        .then(function (r) { return r.text(); })
+        .then(function (src) {
+          var m = src.match(/APP_VERSION\s*=\s*"([\d.]+)"/);
+          if (m) renderAppVersion(m[1]);
+        })
+        .catch(function () { /* без номера — не критично */ });
+    }, 1500);
+  }
+
   function registerServiceWorker() {
     if (window.location.protocol === "file:") {
       console.log("[VetApp] file:// — SW не регистрируется");
@@ -726,6 +765,10 @@
       switch (event.data.type) {
         case "APP_UPDATED":
           console.log("[VetApp] App updated to:", event.data.version);
+          renderAppVersion(event.data.version);
+          break;
+        case "VERSION":
+          renderAppVersion(event.data.version);
           break;
         case "BACKGROUND_SYNC_TRIGGERED":
           if (!_syncRunning) runSync();
@@ -874,6 +917,7 @@
   registerServiceWorker();
 
   document.addEventListener("DOMContentLoaded", function () {
+    askAppVersion();
     getStatusNode();
     initSyncBtn();
     initApp();

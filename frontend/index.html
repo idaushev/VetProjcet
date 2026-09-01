@@ -353,7 +353,10 @@
           </div>
         </button>
 
-        <div class="sidebar-version nav-text">VetClinic v2.0 · offline-first</div>
+        <!-- Номер версии подставляет app.js по ответу service worker
+             (GET_VERSION). Здесь его нет намеренно: захардкоженный номер
+             разъезжается с реальным и врёт поддержке. -->
+        <div class="sidebar-version nav-text">VetClinic · offline-first</div>
       </div>
     </nav>
 
