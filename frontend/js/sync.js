@@ -401,12 +401,39 @@
   // ══════════════════════════════════════════════════════════════════════════
 
   // Bootstrap: полная загрузка при старте приложения
+  // Таблица прав для стора — зеркало permTableFor на сервере (handlers_sync.go):
+  // позиции, записи и вложения относятся к праву на visits (медкарта).
+  function permTableForStore(store) {
+    if (store === "visit_items" || store === "appointments" || store === "attachments") return "visits";
+    return store;
+  }
+
+  // clearForbiddenStores убирает с устройства сторы, к таблице которых у роли
+  // больше нет права view. Нужно после СУЖЕНИЯ прав: сервер их уже не отдаёт
+  // и гасит сессии (перелогин), но ранее закешированные строки остаются
+  // в IndexedDB и видны из консоли. Вызывать ТОЛЬКО после успешного онлайн
+  // pullFull — иначе офлайн-вход стёр бы данные, которые нечем восстановить.
+  async function clearForbiddenStores() {
+    if (!(window.VetAuth && window.VetAuth.can)) return; // прав нет — не трогаем
+    for (var store of STORE_ORDER) {
+      if (!window.VetAuth.can(permTableForStore(store), "view")) {
+        try { await window.VetDB.clearStore(store); }
+        catch (e) { console.warn("[Sync] clearForbiddenStores " + store + ":", e.message); }
+      }
+    }
+  }
+
   async function bootstrap() {
     // Всегда пробуем pullFull — даже если navigator.onLine=false.
     // На Android в локальной сети (без интернета) navigator.onLine может быть false,
     // хотя сервер в LAN доступен. Если сервер недоступен — просто получим ошибку.
-    try { await pullFull(); }
+    var pullOk = false;
+    try { await pullFull(); pullOk = true; }
     catch (e) { console.warn("[Sync] bootstrap pullFull failed:", e.message); }
+    // Чистим запрещённые сторы только когда полный pull прошёл: гарантия, что
+    // связь есть и локальная база сейчас соответствует правам. При офлайн-входе
+    // pullOk=false — данные не трогаем.
+    if (pullOk) { try { await clearForbiddenStores(); } catch (e) {} }
     var counts = {};
     for (var store of STORE_ORDER) {
       counts[store] = (await window.VetDB.getAll(store)).length;

@@ -660,6 +660,18 @@ func (a *app) updateUser(w http.ResponseWriter, r *http.Request, id string) {
 	if p.IsActive != nil {
 		isActive = *p.IsActive
 	}
+
+	// Старые значения прав — чтобы понять, изменился ли доступ. Если да,
+	// сессии пользователя надо погасить: sync/pull гейтит и маскирует данные
+	// по правам, а инкрементальный pull по since не догрузит и не уберёт
+	// строки задним числом. Перелогин запускает bootstrap → полный pull
+	// с корректным scope. Меняем не только display_name — сравниваем точечно,
+	// чтобы правка имени не выкидывала пользователя.
+	var oldRole, oldPerms, oldStaff string
+	_ = a.db.QueryRowContext(ctx,
+		`SELECT role, COALESCE(permissions,''), COALESCE(staff_id,'') FROM users WHERE id=?`, id,
+	).Scan(&oldRole, &oldPerms, &oldStaff)
+
 	res, err := a.db.ExecContext(ctx, `
 		UPDATE users SET login=?, display_name=?, role=?, staff_id=?, permissions=?, is_active=?, updated_at=?
 		WHERE id=?`,
@@ -695,6 +707,22 @@ func (a *app) updateUser(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	if p.IsActive != nil && !*p.IsActive {
 		a.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=?`, id)
+	}
+
+	// Доступ изменился (роль, права или привязка к врачу) — гасим сессии
+	// пользователя, кроме своей текущей (если админ правит сам себя).
+	// Следующий запрос получит 401, клиент перелогинится и сделает полный
+	// pull с новым scope. Пароль/деактивация выше уже могли снять сессии —
+	// повторный DELETE безвреден.
+	accessChanged := oldRole != p.Role ||
+		oldPerms != strings.TrimSpace(string(p.Permissions)) ||
+		oldStaff != strings.TrimSpace(p.StaffID)
+	if accessChanged {
+		keep := ""
+		if cur != nil && cur.ID == id {
+			keep = tokenHashOf(strings.TrimSpace(r.Header.Get(authHeader)))
+		}
+		a.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=? AND token_hash<>?`, id, keep)
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: map[string]string{"id": id}})
 }

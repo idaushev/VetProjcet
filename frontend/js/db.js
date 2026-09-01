@@ -255,6 +255,18 @@
     });
   }
 
+  // clearStore — полная локальная очистка стора БЕЗ записи в очередь синка.
+  // Нужна, когда роль потеряла доступ к таблице: закешированные строки надо
+  // убрать с устройства, но НЕ удалять их на сервере. Через тот же tx, что
+  // hardDelete, — очередь синка не задействуется.
+  function clearStore(storeName) {
+    return tx(storeName, "readwrite", function (store, resolve, reject) {
+      var r = store.clear();
+      r.onsuccess = function () { resolve(true); };
+      r.onerror   = function () { reject(r.error); };
+    });
+  }
+
   function markSynced(storeName, id, serverUpdatedAt) {
     return getById(storeName, id).then(function (existing) {
       if (!existing) return null;
@@ -351,6 +363,7 @@
     bulkSave:    bulkSave,
     softDelete:  softDelete,
     hardDelete:  hardDelete,
+    clearStore:  clearStore,
     markSynced:  markSynced,
 
     // Sync state (last_sync, device_id, settings…)
