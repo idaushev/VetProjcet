@@ -12,7 +12,7 @@
 
 // ── Версия ────────────────────────────────────────────────────────
 // Поднимайте при каждом деплое → старые кэши удалятся автоматически
-var APP_VERSION  = "2.65.0"; // bumped: подсветка незаполненных полей формы
+var APP_VERSION  = "2.66.0"; // bumped: чипирование вынесено в modules/chips.js
 var CACHE_APP    = "vet-app-"   + APP_VERSION;  // версионированные ресурсы
 var CACHE_FONTS  = "vet-fonts-1";               // шрифты (стабильный кэш)
 
@@ -39,6 +39,7 @@ var PRECACHE = [
   "/js/app.js",
   "/js/ui.js",
   "/js/pages.js",
+  "/js/modules/chips.js",
   "/js/modules/warehouse.js",
   "/js/modules/telegram.js",
   "/icons/icon.svg",
