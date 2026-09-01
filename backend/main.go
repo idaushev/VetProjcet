@@ -38,6 +38,7 @@ func main() {
 	application.bootstrapAdmin()
 
 	// Фоновая чистка диска: файлы вложений, удалённых больше трёх дней назад.
+	application.startBackupScheduler()
 	application.startAttachmentPurge()
 
 	// Телеграм-бот: отправитель уведомлений из outbox (включается по

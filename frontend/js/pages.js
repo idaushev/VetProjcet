@@ -3063,6 +3063,92 @@
     var diagBtn = document.getElementById('btn-diag-refresh');
     if (diagBtn) diagBtn.onclick = renderDiagLog;
     renderDiagLog();
+
+    // Резервные копии — только администратору (маршруты под requireAdmin).
+    var bkCard = document.getElementById('backup-card');
+    if (bkCard) {
+      var isAdmin = window.VetAuth && VetAuth.user() && VetAuth.user().role === 'admin';
+      bkCard.style.display = isAdmin ? '' : 'none';
+      if (isAdmin) {
+        var bkBtn = document.getElementById('btn-backup-now');
+        if (bkBtn) bkBtn.onclick = runBackupNow;
+        renderBackupStatus();
+      }
+    }
+  }
+
+  // ── Резервные копии ──────────────────────────────────────────────────────
+  // Копии живут на сервере, поэтому запрос идёт мимо локальной базы
+  // (X-Bypass-Local): офлайн показываем честное «нет связи», а не пустоту.
+  function backupFetch(path, method) {
+    var base = (window.VetAppConfig && window.VetAppConfig.apiBase) || '';
+    var nf = window.__nativeFetch || window.fetch.bind(window);
+    return nf(base + path, {
+      method: method || 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Bypass-Local': '1',
+        'X-Auth-Token': (window.VetAuth && VetAuth.token && VetAuth.token()) || ''
+      }
+    });
+  }
+
+  async function renderBackupStatus() {
+    var el = document.getElementById('backup-status');
+    if (!el) return;
+    if (!navigator.onLine) {
+      el.innerHTML = '<div class="text-sm text-muted">Нет связи с сервером — состояние копий неизвестно.</div>';
+      return;
+    }
+    try {
+      var res = await backupFetch('/backups');
+      var body = await res.json();
+      if (!res.ok || body.status !== 'ok') {
+        el.innerHTML = '<div class="text-sm" style="color:var(--danger);">'
+          + esc(body.message || ('Ошибка ' + res.status)) + '</div>';
+        return;
+      }
+      var d = body.data || {};
+      var list = d.backups || [];
+      if (!list.length) {
+        el.innerHTML = '<div class="text-sm" style="color:var(--danger);font-weight:600;">'
+          + 'Копий пока нет. Нажмите «Создать копию».</div>';
+        return;
+      }
+      // Возраст последней копии — то, ради чего этот блок и нужен: если копии
+      // перестали создаваться, это должно быть видно сразу.
+      var h = Number(d.age_hours || 0);
+      var tone = h < 26 ? 'var(--accent)' : (h < 24 * 3 ? 'var(--warn, var(--text-2))' : 'var(--danger)');
+      var when = h < 1 ? 'только что' : (h < 24 ? h + ' ч назад' : Math.floor(h / 24) + ' дн. назад');
+      el.innerHTML =
+        '<div style="font-weight:700;color:' + tone + ';margin-bottom:8px;">'
+        + 'Последняя копия: ' + esc(when) + '</div>'
+        + '<div class="text-sm text-muted" style="margin-bottom:10px;">'
+        + 'Хранится копий: ' + list.length + ' (максимум ' + esc(String(d.keep || '')) + ')</div>'
+        + list.slice(0, 5).map(function (b) {
+            return '<div style="font-family:monospace;font-size:var(--fs-xs);color:var(--text-2);padding:3px 0;">'
+              + esc(b.name) + ' · ' + Math.round((b.size_bytes || 0) / 1024) + ' КБ</div>';
+          }).join('');
+    } catch (e) {
+      if (window.VetLog) window.VetLog.warn('backups:list', e);
+      el.innerHTML = '<div class="text-sm text-muted">Не удалось получить состояние копий.</div>';
+    }
+  }
+
+  async function runBackupNow() {
+    var btn = document.getElementById('btn-backup-now');
+    if (btn) { btn.disabled = true; btn.textContent = 'Создаём…'; }
+    try {
+      var res = await backupFetch('/backups/run', 'POST');
+      var body = await res.json();
+      if (res.ok && body.status === 'ok') UI.toast('Копия создана и проверена', 'ok');
+      else UI.toast(body.message || 'Не удалось создать копию', 'err');
+    } catch (e) {
+      UI.toast('Нет связи с сервером', 'err');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Создать копию'; }
+      renderBackupStatus();
+    }
   }
 
   function renderDiagLog() {

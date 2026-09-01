@@ -1061,6 +1061,20 @@
                 </button>
               </div>
             </div>
+            <div class="card set-card" id="backup-card">
+              <div class="card-header">
+                <span class="card-title">Резервные копии</span>
+                <button class="btn btn-ghost btn-sm" id="btn-backup-now">Создать копию</button>
+              </div>
+              <div class="card-body">
+                <p style="font-size:var(--fs-sm);color:var(--text-2);margin-bottom:12px;">
+                  Копия базы создаётся автоматически раз в сутки и сразу
+                  проверяется на целостность. Медкарты — единственное, что
+                  нельзя восстановить заново.
+                </p>
+                <div id="backup-status"></div>
+              </div>
+            </div>
             <div class="card set-card">
               <div class="card-header">
                 <span class="card-title">Диагностика</span>
