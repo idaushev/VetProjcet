@@ -181,6 +181,41 @@ func (u *User) tableLevel(table string) int {
 	return n
 }
 
+// seesAllSums — видит ли пользователь суммы по всем врачам. Зеркало
+// клиентского sumsScope: админ и пустой/"all" scope — да; "own"/"selected" —
+// нет (видит только свои/выбранных). Быстрый выход для pull: если true,
+// маскировать нечего.
+func (u *User) seesAllSums() bool {
+	if u == nil || u.Role == "admin" {
+		return true
+	}
+	s := u.permsParsed().Sums
+	return s == "" || s == "all"
+}
+
+// canSeeSum — можно ли пользователю видеть суммы визита, который вёл врач
+// staffID. Зеркало клиентского canSeeSum (frontend/js/auth.js), чтобы
+// изоляция сумм была не только в UI, но и в данных, отдаваемых на устройство.
+func (u *User) canSeeSum(staffID string) bool {
+	if u == nil || u.Role == "admin" {
+		return true
+	}
+	ps := u.permsParsed()
+	switch ps.Sums {
+	case "own":
+		return staffID != "" && staffID == u.StaffID
+	case "selected":
+		for _, id := range ps.SumsStaff {
+			if id != "" && id == staffID {
+				return true
+			}
+		}
+		return false
+	default: // "" или "all"
+		return true
+	}
+}
+
 // coreRoles — роли ядра. Роли модулей (например, "warehouse" от склада)
 // добавляются из реестра, см. moduleRoles/buildValidRoles.
 var coreRoles = []string{"admin", "doctor", "reception"}

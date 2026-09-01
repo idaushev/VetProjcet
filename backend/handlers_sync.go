@@ -154,7 +154,66 @@ func (a *app) handleSyncPull(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Полевая маскировка сумм: пользователь со scope own/selected имеет право
+	// видеть чужие визиты (право view на таблицу), но НЕ их деньги. Табличный
+	// гейт выше этого не закрывает — визиты приходят, поэтому денежные поля
+	// чужих визитов затираем здесь, до отдачи на устройство. Иначе ограничение
+	// «видит только свои суммы» осталось бы лишь в UI (видно из IndexedDB).
+	if pullUser != nil && !pullUser.seesAllSums() {
+		a.maskForeignSums(ctx, pullUser, data)
+	}
+
 	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: data})
+}
+
+// maskForeignSums затирает денежные поля визитов и позиций, чей врач вне
+// scope пользователя. Свои визиты не трогаются — клиенту нужны собственные
+// суммы для расчётов и отчёта. Вызывается только для ограниченного scope.
+func (a *app) maskForeignSums(ctx context.Context, u *User, data map[string]any) {
+	if vs, ok := data["visits"].([]Visit); ok {
+		for i := range vs {
+			if !u.canSeeSum(vs[i].StaffID) {
+				vs[i].TotalAmount = 0
+				vs[i].PaymentCard = 0
+				vs[i].Discount = 0
+				vs[i].DiscountReason = ""
+			}
+		}
+	}
+
+	items, ok := data["visit_items"].([]VisitItem)
+	if !ok || len(items) == 0 {
+		return
+	}
+	// Позиции не несут staff_id — врача берём из их визита. Инкрементальный
+	// pull визитов может не содержать нужные, поэтому staff_id тянем напрямую.
+	// Клиника небольшая, один проход дёшев; выполняется только для scope
+	// own/selected, не для админа и не для «все суммы».
+	staffOf := map[string]string{}
+	if rows, err := a.db.QueryContext(ctx, `SELECT id, COALESCE(staff_id,'') FROM visits`); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var id, st string
+			if rows.Scan(&id, &st) == nil {
+				staffOf[id] = st
+			}
+		}
+	} else {
+		// Не смогли определить врачей — безопаснее замаскировать всё, чем
+		// раскрыть чужие суммы.
+		a.logger.Printf("maskForeignSums visits staff: %v", err)
+		for i := range items {
+			items[i].Price = 0
+			items[i].Total = 0
+		}
+		return
+	}
+	for i := range items {
+		if !u.canSeeSum(staffOf[items[i].VisitID]) {
+			items[i].Price = 0
+			items[i].Total = 0
+		}
+	}
 }
 
 // ─── Push helpers — upsert с conflict resolution ──────────────────────────────
