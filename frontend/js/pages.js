@@ -125,6 +125,17 @@
   // ── Role labels ───────────────────────────────────────────────────────
   var ROLE_LABELS = { vet:'Ветеринар', vet_assistant:'Ветфельдшер', admin:'Администратор', groomer:'Груммер', surgeon:'Хирург', other:'Другое' };
 
+  // Мягкое предупреждение: приём без диагноза оставляет в истории питомца
+  // строку «Без диагноза». Не блокируем — осмотр без заключения бывает
+  // штатно, но пропуск должен быть осознанным, а не по спешке.
+  async function confirmDiagnosis(vs) {
+    if (vs.diagnosis) return true;
+    var extra = vs.anamnesis ? ' Анамнез записан, но поле диагноза пустое.' : '';
+    return await UI.confirm('Приём без диагноза',
+      'Диагноз не указан — в истории питомца приём отобразится как «Без диагноза».' + extra + ' Сохранить без диагноза?',
+      { yes: 'Сохранить', no: 'Вернуться' });
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // DASHBOARD
   // ═══════════════════════════════════════════════════════════════════════
@@ -908,6 +919,7 @@
           if (!okNoDoc) return;
         }
 
+        if (!(await confirmDiagnosis(vs))) return;
         var grossAmount = vs.items.reduce(function(s,i){ return s + (i.total||0); }, 0);
         var discount = Math.min(vs.discount || 0, grossAmount);
         var totalAmount = Math.max(0, grossAmount - discount);
@@ -1080,6 +1092,7 @@
           if (!okNoItems) return;
         }
 
+        if (!(await confirmDiagnosis(vs))) return;
         var grossAmount = vs.items.reduce(function(s,i){ return s+(i.total||0); }, 0);
         var discount = Math.min(vs.discount || 0, grossAmount);
         var totalAmount = Math.max(0, grossAmount - discount);
@@ -1202,6 +1215,7 @@
           if (!okNoItems) return;
         }
 
+        if (!(await confirmDiagnosis(vs))) return;
         var grossAmount = vs.items.reduce(function(s,i){ return s+(i.total||0); }, 0);
         var discount = Math.min(vs.discount || 0, grossAmount);
         var totalAmount = Math.max(0, grossAmount - discount);
