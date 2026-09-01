@@ -1530,7 +1530,37 @@
 
   trackViewportHeight();
 
+  // markInvalid — подсветить незаполненные обязательные поля и увести к первому.
+  // Раньше валидация показывала общий тост «Заполните обязательные поля», а
+  // какое именно поле пустое — приходилось искать глазами (на длинной форме
+  // приёма особенно). Подсветка снимается, как только в поле начали вводить.
+  // ids — список id полей-кандидатов; подсвечиваются только реально пустые.
+  function markInvalid(ids) {
+    var first = null;
+    (ids || []).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var empty = !String(el.value == null ? "" : el.value).trim();
+      if (!empty) return;
+      el.classList.add("error");
+      if (!first) first = el;
+      var clear = function () {
+        el.classList.remove("error");
+        el.removeEventListener("input", clear);
+        el.removeEventListener("change", clear);
+      };
+      el.addEventListener("input", clear);
+      el.addEventListener("change", clear);
+    });
+    if (first) {
+      try { first.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {}
+      try { first.focus({ preventScroll: true }); } catch (e) { try { first.focus(); } catch (e2) {} }
+    }
+    return !first; // true — все поля заполнены
+  }
+
   window.VetUI = {
+    markInvalid: markInvalid,
     icon:icon, esc:esc, avatar:avatar,
     rowMenu:rowMenu, toggleRowMenu:toggleRowMenu, closeRowMenu:closeRowMenu,
     acKeyboard:acKeyboard,

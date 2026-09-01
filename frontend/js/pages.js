@@ -447,7 +447,7 @@
     UI.showModal({ title: 'Новый владелец', bodyHTML: UI.ownerFormHTML(), size: 'lg',
       onSave: async function() {
         var d = UI.ownerFormData();
-        if (!d.fio || !d.phone) { UI.toast('Заполните обязательные поля', 'err'); return; }
+        if (!d.fio || !d.phone) { UI.markInvalid(['f-fio','f-phone']); UI.toast('Заполните обязательные поля', 'err'); return; }
         try {
           await api('POST', '/owners', d);
           UI.toast('Владелец добавлен', 'ok');
@@ -464,7 +464,7 @@
     UI.showModal({ title: 'Редактировать владельца', bodyHTML: UI.ownerFormHTML(owner), size: 'lg',
       onSave: async function() {
         var d = UI.ownerFormData();
-        if (!d.fio || !d.phone) { UI.toast('Заполните обязательные поля', 'err'); return; }
+        if (!d.fio || !d.phone) { UI.markInvalid(['f-fio','f-phone']); UI.toast('Заполните обязательные поля', 'err'); return; }
         try {
           await api('PUT', '/owners/' + id, d);
           UI.toast('Сохранено', 'ok');
@@ -1434,7 +1434,7 @@
       },
       onSave: async function() {
         var d = UI.vaccinationFormData();
-        if (!d.vaccine_name || !d.administered_at) { UI.toast('Заполните обязательные поля', 'err'); return; }
+        if (!d.vaccine_name || !d.administered_at) { UI.markInvalid(['f-vaccine','f-admin-at']); UI.toast('Заполните обязательные поля', 'err'); return; }
         try {
           await api('PUT', '/vaccinations/'+id, d);
           UI.toast('Сохранено', 'ok');
