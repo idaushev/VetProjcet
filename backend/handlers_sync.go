@@ -115,11 +115,37 @@ func (a *app) handleSyncPull(w http.ResponseWriter, r *http.Request) {
 	// совместимо со старыми планшетами. Ключи и форма записей не меняются.
 	data := map[string]any{"server_time": nowUTC()}
 
+	// Право читать таблицу — зеркало canPush на push-стороне. Без этого гейта
+	// изоляция ролей была только в UI: планшет с ограниченной ролью (напр.
+	// продавец склада) всё равно получал ВСЕ приёмы и медкарты в локальную
+	// базу — их видно из консоли и IndexedDB. Пропускаем сущность, если у
+	// пользователя нет даже права view. tableLevel по умолчанию отдаёт edit
+	// (админ и пользователь без настроенных прав), так что незакрытые роли
+	// не задеты; модульные роли (склад) разрешаются через moduleRolePermission
+	// внутри tableLevel, поэтому для их таблиц permTable == Name работает.
+	// permTable повторяет отображение из sync_registry.go (push): visit_items,
+	// appointments и attachments относятся к праву на visits (медкарта).
+	pullUser := userFromCtx(ctx)
+	permTableFor := func(name string) string {
+		switch name {
+		case "visit_items", "appointments", "attachments":
+			return "visits"
+		default:
+			return name
+		}
+	}
+	canPull := func(name string) bool {
+		return pullUser == nil || pullUser.tableLevel(permTableFor(name)) >= permLevels["view"]
+	}
+
 	// Загружаем каждую сущность независимо: ошибка одной НЕ прерывает остальные.
 	// (Раньше любая scan-ошибка роняла весь pull в 500.)
 	for _, e := range syncEntities() {
 		if e.pull == nil {
 			continue
+		}
+		if !canPull(e.Name) {
+			continue // таблица недоступна этой роли — не отдаём её на устройство
 		}
 		if v, err := e.pull(ctx, a.db, since); err != nil {
 			a.logger.Printf("syncPull %s: %v", e.Name, err)

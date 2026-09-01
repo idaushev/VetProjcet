@@ -30,6 +30,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -389,6 +390,14 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Лимит попыток по логину (см. loginThrottle). Мягче портала: сеть
+	// локальная, а врач в спешке ошибётся паролем.
+	if ok, wait := staffLoginThrottle.allow(login); !ok {
+		writeError(w, http.StatusTooManyRequests,
+			"Слишком много попыток входа. Попробуйте через "+strconv.Itoa(retryAfterSeconds(wait))+" сек.")
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
@@ -406,10 +415,12 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Одинаковый ответ для «нет такого логина» и «неверный пароль» —
 	// не подсказываем, какие логины существуют.
 	if err != nil || isActive != 1 || !verifyPassword(p.Password, hash, salt) {
+		staffLoginThrottle.fail(login)
 		time.Sleep(300 * time.Millisecond) // притормаживаем перебор
 		writeError(w, http.StatusUnauthorized, "Неверный логин или пароль")
 		return
 	}
+	staffLoginThrottle.success(login)
 	u.IsActive = true
 
 	token, th, err := newSessionToken()

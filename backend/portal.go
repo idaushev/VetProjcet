@@ -13,6 +13,7 @@ import (
 	"context"
 	"database/sql"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -99,6 +100,13 @@ func (a *app) handlePortalLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Защита от перебора кода: лимит по номеру (см. loginThrottle).
+	if ok, wait := portalLoginThrottle.allow(phone); !ok {
+		writeError(w, http.StatusTooManyRequests,
+			"Слишком много попыток. Попробуйте через "+strconv.Itoa(retryAfterSeconds(wait))+" сек.")
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
@@ -124,9 +132,11 @@ func (a *app) handlePortalLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
+		portalLoginThrottle.fail(phone)
 		writeError(w, http.StatusUnauthorized, "Неверный или просроченный пароль. Запросите новый у телеграм-бота или в клинике.")
 		return
 	}
+	portalLoginThrottle.success(phone)
 
 	token, hash, err := newSessionToken()
 	if err != nil {
