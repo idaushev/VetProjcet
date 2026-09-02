@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"time"
 )
@@ -177,16 +179,23 @@ func (a *app) routes() http.Handler {
 	})
 
 	// authMiddleware внутри CORS: preflight-OPTIONS должен отвечать без токена.
-	return a.loggingMiddleware(a.corsMiddleware(a.authMiddleware(mux)))
+	return a.loggingMiddleware(a.securityHeadersMiddleware(a.corsMiddleware(a.authMiddleware(mux))))
 }
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
 func (a *app) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Device-ID, X-Bypass-Local, X-Auth-Token, X-Portal-Token")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		// Раньше стояло "*": любой сайт, открытый у сотрудника, мог обращаться
+		// к серверу клиники из его браузера. Приложение и API живут на одном
+		// origin (apiBase пустой), поэтому кросс-доменный доступ не нужен
+		// вообще — отвечаем заголовком только своему же источнику.
+		if origin := r.Header.Get("Origin"); origin != "" && sameOrigin(origin, r) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Device-ID, X-Bypass-Local, X-Auth-Token, X-Portal-Token")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
@@ -195,12 +204,79 @@ func (a *app) corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// sameOrigin — совпадает ли источник запроса с хостом, к которому обратились.
+// Схему не сверяем: сервер слушает и http, и https на одном порту (sniff),
+// и планшет ходит по обеим.
+func sameOrigin(origin string, r *http.Request) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return u.Host == r.Host
+}
+
+// securityHeaders — заголовки, которые браузер обязан получить на каждый ответ.
+//
+// CSP здесь мягкая по script-src: интерфейс построен на инлайновых
+// обработчиках, и 'unsafe-inline' убрать без их переписывания нельзя. Но
+// connect-src 'self' уже полезен — он не даёт внедрённому скрипту отправить
+// украденный токен на чужой сервер. frame-ancestors закрывает кликджекинг.
+// img-src разрешает data: — фото животных хранятся как data-URL внутри записи.
+const contentSecurityPolicy = "default-src 'self'; " +
+	"script-src 'self' 'unsafe-inline'; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data: blob:; " +
+	"font-src 'self' data:; " +
+	"connect-src 'self'; " +
+	"worker-src 'self'; " +
+	"object-src 'none'; " +
+	"base-uri 'self'; " +
+	"form-action 'self'; " +
+	"frame-ancestors 'none'"
+
+func (a *app) securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		// same-origin: ссылка наружу не должна унести токен из строки запроса
+		// (см. redactToken — тот же токен раньше утекал и в лог).
+		h.Set("Referrer-Policy", "same-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (a *app) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
-		a.logger.Printf("%s %s %s", r.Method, r.URL.RequestURI(), time.Since(start).Round(time.Millisecond))
+		a.logger.Printf("%s %s %s", r.Method, redactTokens(r.URL), time.Since(start).Round(time.Millisecond))
 	})
+}
+
+// redactTokens убирает токены из строки запроса перед записью в лог.
+//
+// authMiddleware принимает токен не только в заголовке, но и в ?t= — это
+// запасной канал для ссылок, куда заголовок не вставить (открытие скана в
+// новой вкладке). Портал так же принимает ?pt=. Полный URI в логе означал,
+// что рабочая сессия на 90 дней ложится в лог открытым текстом.
+func redactTokens(u *url.URL) string {
+	q := u.Query()
+	hit := false
+	for _, k := range []string{"t", "pt"} {
+		if q.Get(k) != "" {
+			// Не "***": Encode() превратил бы звёздочки в %2A и лог стал бы шумным.
+			q.Set(k, "redacted")
+			hit = true
+		}
+	}
+	if !hit {
+		return u.RequestURI()
+	}
+	c := *u
+	c.RawQuery = q.Encode()
+	return c.RequestURI()
 }
 
 // ─── Health ───────────────────────────────────────────────────────────────────
@@ -234,9 +310,29 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, apiResponse{Status: "error", Message: message})
 }
 
+// maxJSONBody — потолок тела JSON-запроса.
+//
+// Раньше лимита не было вовсе: любой аутентифицированный клиент мог прислать
+// тело произвольного размера, и оно целиком буферизовалось в памяти. Портал
+// проверял размер фото, но уже ПОСЛЕ разбора — то есть после буферизации.
+// 2 МБ с запасом покрывают самый тяжёлый обычный запрос: запись с фото
+// животного (data-URL, ограничение ~400 КБ).
+const maxJSONBody = 2 << 20
+
 func decodeJSON(r *http.Request, dest interface{}) error {
 	defer r.Body.Close()
-	dec := json.NewDecoder(r.Body)
+	// Читаем на байт больше потолка и по длине отличаем «слишком большое» от
+	// «битый JSON». Без этого обрезанное тело давало «invalid json:
+	// unexpected EOF» — сообщение, по которому непонятно, что фото просто
+	// тяжёлое. Буферизация безопасна: выше потолка мы всё равно не читаем.
+	raw, err := io.ReadAll(io.LimitReader(r.Body, maxJSONBody+1))
+	if err != nil {
+		return errors.New("failed to read body")
+	}
+	if len(raw) > maxJSONBody {
+		return fmt.Errorf("тело запроса больше %d МБ — уменьшите вложение", maxJSONBody>>20)
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dest); err != nil {
 		return fmt.Errorf("invalid json: %w", err)

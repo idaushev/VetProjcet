@@ -66,8 +66,11 @@ func (a *app) handleSyncPush(w http.ResponseWriter, r *http.Request) {
 	}
 	// Право писать в таблицу: у «только просмотр» push отклоняется —
 	// иначе право было бы фикцией, планшет всё равно продавил бы правки.
+	// Умолчание — «запретить». Раньше при pushUser == nil разрешалось всё:
+	// сейчас до хендлера без валидного токена не дойти (authMiddleware), но
+	// стоило бы /sync попасть в authExempt — и гейт прав исчез бы молча.
 	canPush := func(table string) bool {
-		return pushUser == nil || pushUser.tableLevel(table) >= permLevels["create"]
+		return pushUser != nil && pushUser.tableLevel(table) >= permLevels["create"]
 	}
 
 	// Обобщённый диспетчер: идём по реестру сущностей (порядок = FK). Вся ручная

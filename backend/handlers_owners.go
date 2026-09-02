@@ -267,7 +267,13 @@ func resolveOwnerID(ctx context.Context, tx *sql.Tx, owner Owner) (string, error
 	return "", nil
 }
 
+// Портальные сессии владельца гасим тем же запросом: иначе доступ в кабинет
+// пережил бы удаление карточки — токен живёт 90 дней и проверяется только по
+// сроку, не по существованию владельца.
 func softDeleteOwnerCascade(ctx context.Context, tx *sql.Tx, ownerID string) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM owner_sessions WHERE owner_id=?`, ownerID); err != nil {
+		return err
+	}
 	now := T(nowUTC())
 
 	// Проверяем существование

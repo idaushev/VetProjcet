@@ -161,6 +161,9 @@ func (a *app) startBackupScheduler() {
 				return
 			}
 			a.rotateBackups()
+			// Заодно выметаем протухшие сессии: отдельный планировщик ради
+			// одного DELETE в сутки заводить незачем.
+			a.sweepExpiredSessions()
 			a.logger.Printf("Бэкап: создана и проверена копия %s", name)
 		}
 		run()

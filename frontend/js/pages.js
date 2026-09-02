@@ -1920,7 +1920,7 @@
         +'<div class="erow-actions">'
         +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editItem(\''+it.id+'\')" title="Редактировать" aria-label="Редактировать">'+UI.icon('edit','')+'</button>'
         +'<span class="erow-actions-sep"></span>'
-        +'<button class="btn btn-icon danger" onclick="event.stopPropagation();VetPages.deleteItem(\''+it.id+'\',\''+esc(it.name)+'\')" title="Удалить" aria-label="Удалить">'+UI.icon('trash','')+'</button>'
+        +'<button class="btn btn-icon danger" onclick="event.stopPropagation();VetPages.deleteItem(\''+it.id+'\')" title="Удалить" aria-label="Удалить">'+UI.icon('trash','')+'</button>'
         +'</div></div></div>';
     }).join('');
   }
@@ -1951,8 +1951,14 @@
     });
   }
 
-  async function deleteItem(id, name) {
-    var ok = await UI.confirm('Удалить позицию?', name);
+  // ПРАВИЛО: в inline-обработчик подставляем ТОЛЬКО идентификатор, никогда
+  // свободный текст. esc() здесь не защищает: браузер HTML-декодирует значение
+  // атрибута ДО того, как отдаст его JS-парсеру, поэтому &#39; снова становится
+  // апострофом и разрывает строку кода. Имя и телефон берём по id из данных,
+  // которые и так загружены.
+  async function deleteItem(id) {
+    var it = _items.find(function (x) { return x.id === id; }) || {};
+    var ok = await UI.confirm('Удалить позицию?', it.name || '');
     if (!ok) return;
     try { await api('DELETE','/items/'+id); try{var _b=(window.VetAppConfig&&window.VetAppConfig.apiBase)||'',_n=window.__nativeFetch||window.fetch.bind(window);await _n(_b+'/items/'+id,{method:'DELETE',headers:{'X-Bypass-Local':'1'}});}catch(_e){} UI.toast('Удалено','ok'); await initItems(); }
     catch(e) { UI.toast(e.message,'err'); }
@@ -1995,7 +2001,7 @@
         +'<div class="erow-actions">'
         +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editStaff(\''+s.id+'\')" title="Редактировать" aria-label="Редактировать">'+UI.icon('edit','')+'</button>'
         +'<span class="erow-actions-sep"></span>'
-        +'<button class="btn btn-icon danger" onclick="event.stopPropagation();VetPages.deleteStaff(\''+s.id+'\',\''+esc(s.name)+'\')" title="Удалить" aria-label="Удалить">'+UI.icon('trash','')+'</button>'
+        +'<button class="btn btn-icon danger" onclick="event.stopPropagation();VetPages.deleteStaff(\''+s.id+'\')" title="Удалить" aria-label="Удалить">'+UI.icon('trash','')+'</button>'
         +'</div></div></div>';
     }).join('');
   }
@@ -2092,8 +2098,9 @@
     });
   }
 
-  async function deleteStaff(id, name) {
-    var ok = await UI.confirm('Удалить сотрудника?', name);
+  async function deleteStaff(id) {
+    var st = _staff.find(function (x) { return x.id === id; }) || {};
+    var ok = await UI.confirm('Удалить сотрудника?', st.name || '');
     if (!ok) return;
     try { await api('DELETE','/staff/'+id); try{var _b=(window.VetAppConfig&&window.VetAppConfig.apiBase)||'',_n=window.__nativeFetch||window.fetch.bind(window);await _n(_b+'/staff/'+id,{method:'DELETE',headers:{'X-Bypass-Local':'1'}});}catch(_e){} UI.toast('Удалено','ok'); await initStaff(); }
     catch(e) { UI.toast(e.message,'err'); }
@@ -3968,7 +3975,7 @@
       +'<div class="oc-header-info">'
       +'<div class="oc-name">'+esc(owner.fio||'—')+'</div>'
       +'<div class="oc-contact-row">'
-      +(owner.phone?'<span class="oc-phone" onclick="location.href=\'tel:'+esc(owner.phone)+'\'">'+I('phone')+' '+esc(owner.phone)+'</span>':'')
+      +(owner.phone?'<span class="oc-phone" onclick="VetPages.callOwner(\''+esc(owner.id)+'\')">'+I('phone')+' '+esc(owner.phone)+'</span>':'')
       +(owner.iin?'<span class="oc-iin">'+(owner.owner_type==='legal'?'БИН':'ИИН')+': '+esc(owner.iin)+'</span>':'')
       +'</div>'
       +(owner.address?'<div class="oc-address">'+I('pin')+' '+esc(owner.address)+'</div>':'')
@@ -4083,7 +4090,7 @@
         +'},150)">'+I('clipboard')+' Новый приём</button>'
       +'<button class="oc-action-btn" onclick="VetUI.hideModal();setTimeout(function(){VetPages.editOwner(\''+ownerId+'\');},150)">'+I('edit')+' Редактировать</button>'
       +'<button class="oc-action-btn" onclick="VetUI.hideModal();setTimeout(function(){VetPages.addPetForOwner(\''+ownerId+'\');},150)">'+I('paw')+' Добавить питомца</button>'
-      +'<button class="oc-action-btn" onclick="VetPages.callOwner(\''+esc(owner.phone||'')+'\')">'+I('phone')+' Позвонить</button>'
+      +'<button class="oc-action-btn" onclick="VetPages.callOwner(\''+esc(owner.id)+'\')">'+I('phone')+' Позвонить</button>'
       +'</div>';
 
     // ── Сборка ────────────────────────────────────────────────────
@@ -4119,7 +4126,17 @@
     });
   }
 
-  function callOwner(phone) {
+  // Принимает id владельца, а не номер: номер — свободный текст, и его нельзя
+  // подставлять в обработчик (см. ПРАВИЛО выше). Читаем из локальной базы, а не
+  // из массива страницы: карточку открывают и из списка животных, и из приёма.
+  async function callOwner(ownerId) {
+    var phone = '';
+    try {
+      var o = await window.VetDB.getById('owners', ownerId);
+      phone = (o && o.phone) || '';
+    } catch (e) {
+      if (window.VetLog) window.VetLog.warn('callOwner', e);
+    }
     if (!phone) { UI.toast('Телефон не указан','warn'); return; }
     window.location.href = 'tel:' + phone;
   }
@@ -4225,7 +4242,7 @@
       +'<div class="pc-owner-row">'
       +'<div class="pc-owner-avatar">'+esc(ownerInitials)+'</div>'
       +'<div><div class="pc-owner-name">'+esc(owner.fio||'—')+'</div>'
-      +(owner.phone?'<div class="pc-owner-phone" onclick="location.href=\'tel:'+esc(owner.phone)+'\'">'+I('phone')+' '+esc(owner.phone)+'</div>':'')
+      +(owner.phone?'<div class="pc-owner-phone" onclick="VetPages.callOwner(\''+esc(pet.owner_id)+'\')">'+I('phone')+' '+esc(owner.phone)+'</div>':'')
       +(owner.address?'<div style="font-size:.78rem;color:var(--text-3);margin-top:2px;">'+I('pin')+' '+esc(owner.address)+'</div>':'')
       +'</div></div></div>';
 

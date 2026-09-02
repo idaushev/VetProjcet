@@ -119,6 +119,7 @@ func (portalModule) RegisterRoutes(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("POST /owners/{id}/portal-code", g(a.requirePortalCodeAccess(a.handleIssuePortalCode)))
 	// API портала: своя авторизация (X-Portal-Token), см. portal.go.
 	mux.HandleFunc("POST /portal/login",                 g(a.handlePortalLogin))
+	mux.HandleFunc("POST /portal/logout",                g(a.handlePortalLogout))
 	mux.HandleFunc("GET /portal/bot-info",               g(a.handlePortalBotInfo))
 	mux.HandleFunc("GET /portal/me",                     g(a.handlePortalMe))
 	mux.HandleFunc("GET /portal/pets",                   g(a.handlePortalPets))

@@ -313,8 +313,12 @@ func pathTable(p string) string {
 		return "pets"
 	// Записи расписания живут под правами приёмов: отдельная настройка
 	// не нужна — кто ведёт приёмы, тот и управляет записью.
+	// Шаблоны диагнозов — часть приёма: кто ведёт приёмы, тот и правит шаблоны.
+	// Раньше путь не был известен pathTable, и любой вошедший мог их менять
+	// независимо от выданных прав.
 	case strings.HasPrefix(p, "/visits"), strings.HasPrefix(p, "/visit-items"),
-		strings.HasPrefix(p, "/attachments"), strings.HasPrefix(p, "/appointments"):
+		strings.HasPrefix(p, "/attachments"), strings.HasPrefix(p, "/appointments"),
+		strings.HasPrefix(p, "/diagnoses"):
 		return "visits"
 	case strings.HasPrefix(p, "/vaccinations"):
 		return "vaccinations"
@@ -836,6 +840,13 @@ func (a *app) stampAuthor(ctx context.Context, table, id, userID string) {
 // POST /auth/change-password — любой вошедший меняет СВОЙ пароль,
 // подтвердив старый. Чужие сессии пользователя рвутся (вдруг пароль меняют,
 // потому что он утёк), текущая остаётся.
+// dropBootstrapPasswordFile убирает data/ADMIN-PASSWORD.txt после того, как
+// администратор сменил пароль: файл создаётся при первом запуске и до сих пор
+// лежал рядом с базой сколь угодно долго — в том числе попадая в бэкапы.
+func (a *app) dropBootstrapPasswordFile() {
+	os.Remove(filepath.Join(filepath.Dir(a.config.DBPath), "ADMIN-PASSWORD.txt"))
+}
+
 func (a *app) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
 	if u == nil {
@@ -884,6 +895,9 @@ func (a *app) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	keep := tokenHashOf(strings.TrimSpace(r.Header.Get(authHeader)))
 	a.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=? AND token_hash<>?`, u.ID, keep)
+	if u.Login == "admin" {
+		a.dropBootstrapPasswordFile()
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "ok"})
 }
 

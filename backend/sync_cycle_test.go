@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log"
@@ -27,9 +28,15 @@ func testApp(t *testing.T) *app {
 }
 
 // push отправляет payload в handleSyncPush и возвращает разобранный ответ.
+//
+// Пользователя в контекст кладём руками: в бою это делает authMiddleware, а
+// хендлер зовут напрямую. Без него canPush отклоняет всё — умолчание там
+// «запретить», и тест обязан ходить тем же путём, что живой планшет.
 func doPush(t *testing.T, a *app, payload string) map[string]any {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/sync/push", strings.NewReader(payload))
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{},
+		&User{ID: "u-test", Login: "admin", Role: "admin", IsActive: true}))
 	rec := httptest.NewRecorder()
 	a.handleSyncPush(rec, req)
 	if rec.Code != http.StatusOK {

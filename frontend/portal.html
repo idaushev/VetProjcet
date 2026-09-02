@@ -222,6 +222,13 @@
   }).catch(function () {});
 
   $('btn-logout').onclick = function () {
+    // Гасим сессию НА СЕРВЕРЕ, а не только забываем токен в браузере: иначе
+    // токен остаётся действительным 90 дней и «выход» ничего не отзывает.
+    var token = localStorage.getItem(TOKEN_KEY);
+    if (token) {
+      fetch('/portal/logout', { method: 'POST', headers: { 'X-Portal-Token': token } })
+        .catch(function () {}); // офлайн — локальный выход всё равно делаем
+    }
     localStorage.removeItem(TOKEN_KEY);
     state.owner = null;
     show('scr-login');

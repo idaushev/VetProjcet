@@ -21,6 +21,11 @@ import (
 const portalTokenHeader = "X-Portal-Token"
 const portalSessionTTL = 90 * 24 * time.Hour
 
+// portalLoginFailMessage — единственный ответ на неудачный вход. Один текст
+// и на неизвестный номер, и на неверный пароль: иначе разница в ответах сама
+// по себе выдаёт, обслуживается ли этот человек в клинике.
+const portalLoginFailMessage = "Неверный номер или пароль. Запросите новый пароль у телеграм-бота или в клинике."
+
 // normalizePhoneDigits приводит телефон к цифрам с кодом страны 7:
 // «+7 707 123-45-67», «87071234567», «707 123 45 67» → «77071234567».
 func normalizePhoneDigits(s string) string {
@@ -117,7 +122,12 @@ func (a *app) handlePortalLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if owner.ID == "" {
-		writeError(w, http.StatusNotFound, "Номер не найден. Проверьте номер или обратитесь в клинику.")
+		// Ответ и код те же, что при неверном пароле, и попытка так же идёт
+		// в счётчик. Раньше «номера нет» отвечало 404 и мимо троттлинга —
+		// перебором диапазона номеров вытаскивался список клиентов клиники,
+		// а сам факт обращения в ветклинику это уже персональные данные.
+		portalLoginThrottle.fail(phone)
+		writeError(w, http.StatusUnauthorized, portalLoginFailMessage)
 		return
 	}
 
@@ -133,7 +143,7 @@ func (a *app) handlePortalLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		portalLoginThrottle.fail(phone)
-		writeError(w, http.StatusUnauthorized, "Неверный или просроченный пароль. Запросите новый у телеграм-бота или в клинике.")
+		writeError(w, http.StatusUnauthorized, portalLoginFailMessage)
 		return
 	}
 	portalLoginThrottle.success(phone)
@@ -242,6 +252,44 @@ func (a *app) requirePortalOwner(w http.ResponseWriter, r *http.Request) string 
 		writeError(w, http.StatusUnauthorized, "Требуется вход по номеру телефона")
 	}
 	return ownerID
+}
+
+// handlePortalLogout гасит текущую сессию владельца.
+//
+// Раньше выхода не было вовсе: сессия жила 90 дней, и отозвать её было нечем —
+// ни при потере телефона, ни при смене номера.
+func (a *app) handlePortalLogout(w http.ResponseWriter, r *http.Request) {
+	token := strings.TrimSpace(r.Header.Get(portalTokenHeader))
+	if token == "" {
+		token = strings.TrimSpace(r.URL.Query().Get("pt"))
+	}
+	if token != "" {
+		a.db.ExecContext(r.Context(),
+			`DELETE FROM owner_sessions WHERE token_hash=?`, tokenHashOf(token))
+	}
+	// Отвечаем «ок» даже без токена: выход не должен сообщать, была ли сессия.
+	writeJSON(w, http.StatusOK, apiResponse{Status: "ok"})
+}
+
+// dropOwnerSessions отзывает все сессии владельца. Зовётся при удалении
+// карточки: иначе портальный доступ пережил бы самого клиента.
+func (a *app) dropOwnerSessions(ctx context.Context, ownerID string) {
+	a.db.ExecContext(ctx, `DELETE FROM owner_sessions WHERE owner_id=?`, ownerID)
+}
+
+// sweepExpiredSessions чистит протухшие сессии — и сотрудников, и владельцев.
+// Просроченная строка не даёт доступа (срок проверяется при каждом запросе),
+// но копится годами и таскается в каждом бэкапе.
+func (a *app) sweepExpiredSessions() {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	now := T(nowUTC())
+	for _, table := range []string{"sessions", "owner_sessions"} {
+		if _, err := a.db.ExecContext(ctx,
+			`DELETE FROM `+table+` WHERE expires_at IS NOT NULL AND expires_at < ?`, now); err != nil {
+			a.logger.Printf("Чистка сессий (%s): %v", table, err)
+		}
+	}
 }
 
 // ─── Данные владельца ─────────────────────────────────────────────────────────
