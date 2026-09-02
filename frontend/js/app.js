@@ -263,7 +263,7 @@
       // на сервер до того как pull может их перезаписать.
       // Pull после push получает подтверждённое состояние сервера.
       var pushResult = await window.VetSync.pushSync();
-      await window.VetSync.pullFull();
+      var pullResult = await window.VetSync.pullFull();
 
       // Сбрасываем кэш после sync чтобы UI получил свежие данные
       Object.keys(_cache).forEach(function (k) { _cache[k] = null; });
@@ -274,7 +274,15 @@
         ? " ↑" + pushResult.pushed + (pushResult.skipped > 0 ? " !" + pushResult.skipped : "")
         : (pushResult.fallback ? " ↑fb" : "");
       setStatus("Актуально" + pushInfo, "ok");
-      emitChange("all");
+      // Перерисовываем страницу ТОЛЬКО если синк что-то реально изменил.
+      // Раньше событие уходило после каждого цикла — каждые 15 секунд, — и
+      // страница перестраивалась целиком: список прыгал к началу, а на
+      // отчёте, который читают долго, это выглядело как самопроизвольный
+      // скачок вверх. Сервер присылает полный снимок всегда, поэтому мерилом
+      // служит число применённых записей, а не присланных.
+      if ((pullResult && pullResult.applied > 0) || pushResult.pushed > 0) {
+        emitChange("all");
+      }
 
     } catch (err) {
       console.error("[VetApp] sync error:", err);

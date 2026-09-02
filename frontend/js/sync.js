@@ -177,9 +177,9 @@
     if (since) params += "&since=" + encodeURIComponent(since);
     try {
       var data = await req("GET", "/sync/pull" + params);
-      await mergeAll(data);
+      var applied = await mergeAll(data);
       await setLastSync(data.server_time || new Date().toISOString());
-      return { pulled: countPulled(data), incremental: true };
+      return { pulled: countPulled(data), applied: applied, incremental: true };
     } catch (e) {
       console.warn("[Sync] incremental pull failed:", e.message);
       return pullFull();
@@ -190,19 +190,25 @@
   async function pullFull() {
     try {
       var data = await req("GET", "/sync/pull?device_id=" + encodeURIComponent(deviceID()));
-      await mergeAll(data);
+      var applied = await mergeAll(data);
       await setLastSync(data.server_time || new Date().toISOString());
-      return { pulled: countPulled(data), incremental: false };
+      return { pulled: countPulled(data), applied: applied, incremental: false };
     } catch (e) {
       console.warn("[Sync] full pull failed:", e.message);
-      return { pulled: 0, error: e.message };
+      return { pulled: 0, applied: 0, error: e.message };
     }
   }
 
+  // Возвращает число РЕАЛЬНО применённых записей, а не присланных сервером.
+  // Разница принципиальна: цикл синка тянет полный снимок каждые 15 секунд, и
+  // «сервер прислал 900 строк» почти всегда означает «ничего не изменилось».
+  // По этому числу решается, дёргать ли перерисовку экрана.
   async function mergeAll(data) {
+    var applied = 0;
     for (var store of STORE_ORDER) {
-      await mergePulledStore(store, data[store] || []);
+      applied += (await mergePulledStore(store, data[store] || [])) || 0;
     }
+    return applied;
   }
 
   function countPulled(data) {
@@ -230,7 +236,7 @@
   // ══════════════════════════════════════════════════════════════════════════
 
   async function mergePulledStore(storeName, remoteRecords) {
-    if (!Array.isArray(remoteRecords) || !remoteRecords.length) return;
+    if (!Array.isArray(remoteRecords) || !remoteRecords.length) return 0;
 
     var localAll  = await window.VetDB.getAll(storeName);
     var localByID = new Map(localAll.map(function (r) { return [r.id, r]; }));
@@ -285,7 +291,12 @@
             saved.photo = _betterPhoto(local.photo, remote.photo);
           }
         }
-        toSave.push(saved);
+        // Запись, ничем не отличающаяся от уже сохранённой, — не изменение.
+        // Тайбрейкер выше намеренно отдаёт победу серверу при равных версии и
+        // времени (чтобы принимать одновременные правки), поэтому в спокойном
+        // состоянии сюда попадает ВЕСЬ снимок каждые 15 секунд. Писать его в
+        // IndexedDB и дёргать перерисовку экрана незачем.
+        if (!_sameAsLocal(local, saved)) toSave.push(saved);
       } else {
         // Локальная версия новее — пропускаем серверную для основных полей,
         // но мержим спецполя чтобы не потерять историю/фото с сервера
@@ -312,6 +323,22 @@
     if (toSave.length) {
       await window.VetDB.bulkSave(storeName, toSave, { sync_status: "synced" });
     }
+
+    return toSave.length + toSavePending.length + toDelete.length;
+  }
+
+  // Совпадает ли кандидат с тем, что уже лежит локально. Сравниваем поверхностно
+  // по полям кандидата: вложенных объектов в записях синка нет.
+  function _sameAsLocal(local, saved) {
+    if (!local || local.sync_status !== "synced") return false;
+    for (var k in saved) {
+      if (!Object.prototype.hasOwnProperty.call(saved, k)) continue;
+      var a = saved[k], b = local[k];
+      if (a === b) continue;
+      if (a == null && b == null) continue;
+      return false;
+    }
+    return true;
   }
 
   // Применяем только спецполя (change_log, photo) не трогая основные данные

@@ -182,9 +182,21 @@
     // Дебаунс 150ms чтобы не перерисовывать при rapid mutations
     clearTimeout(_refreshTimer);
     _refreshTimer = setTimeout(function() {
-      if (window.VetPages && currentPage) {
-        VetPages.init(currentPage);
-      }
+      if (!window.VetPages || !currentPage) return;
+      // Перерисовка заменяет innerHTML, и прокрутка сбрасывается в начало.
+      // Когда данные пришли с другого планшета, врач не должен терять место,
+      // на котором читал. Возвращаем позицию после отрисовки.
+      var scroller = document.querySelector('.main') || document.scrollingElement;
+      var top = scroller ? scroller.scrollTop : 0;
+      var done = VetPages.init(currentPage);
+      if (!scroller || top <= 0) return;
+      var restore = function () {
+        if (scroller.scrollTop !== top) scroller.scrollTop = top;
+      };
+      // init у страниц асинхронный: ждём его, иначе вернём прокрутку до того,
+      // как список отрисуется, и она снова уедет в начало.
+      if (done && typeof done.then === 'function') done.then(restore, restore);
+      else requestAnimationFrame(restore);
     }, 150);
   });
 
