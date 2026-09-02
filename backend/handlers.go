@@ -104,6 +104,13 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /backups",      a.requireAdmin(a.handleBackups))
 	mux.HandleFunc("POST /backups/run", a.requireAdmin(a.handleBackupRun))
 
+	// Задачи сотрудникам (см. handlers_tasks.go). Права общие: задача —
+	// рабочая заметка, а не медицинские данные.
+	mux.HandleFunc("GET /tasks",         a.handleTasks)
+	mux.HandleFunc("POST /tasks",        a.handleTasks)
+	mux.HandleFunc("PUT /tasks/{id}",    a.handleTaskByID)
+	mux.HandleFunc("DELETE /tasks/{id}", a.handleTaskByID)
+
 	// Справочник диагнозов с заготовками лечения (см. handlers_diagnoses.go).
 	mux.HandleFunc("GET /diagnoses",         a.handleDiagnoses)
 	mux.HandleFunc("POST /diagnoses",        a.handleDiagnoses)

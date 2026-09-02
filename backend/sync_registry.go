@@ -159,6 +159,13 @@ func coreSyncEntities() []syncEntity {
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullAppointments(ctx, db, since) },
 		},
 		{
+			Name: "tasks",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "tasks", "tasks", "tasks", uid, cp, pushTask, res)
+			},
+			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullTasks(ctx, db, since) },
+		},
+		{
 			Name: "diagnosis_templates",
 			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
 				pushEntity(ctx, a, raw, "diagnosis_templates", "items", "diagnosis_templates", uid, cp, pushDiagnosis, res)

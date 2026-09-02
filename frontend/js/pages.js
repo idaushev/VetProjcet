@@ -274,6 +274,23 @@
           sortKey: '1'+(v.next_due_at||'')
         });
       });
+      // 0) Ручные задачи сотрудников — в той же очереди: у врача один
+      //    рабочий список на день, а не отдельный экран задач.
+      var manualTasks = await loadTasks();
+      manualTasks.filter(function (t) { return !t.done; }).forEach(function (t) {
+        var due = (t.due_date || '').slice(0, 10);
+        var overdue = due && due < today;
+        attention.push({
+          icon: 'clipboard', tone: overdue ? 'danger' : 'blue',
+          title: esc(t.title),
+          sub: (due ? (overdue ? 'просрочено, срок ' : 'срок ') + fmtDate(t.due_date) : 'задача')
+               + (t.note ? ' · ' + esc(t.note) : ''),
+          phone: '',
+          onclick: "VetPages.completeTask('" + t.id + "')",
+          sortKey: (overdue ? '0' : '3') + (due || '')
+        });
+      });
+
       // 3) Не вернулись на повторный: последний визит с next_visit_date в прошлом
       //    и без последующего визита.
       var latestByPet = {};
@@ -304,8 +321,15 @@
       var attCount = document.getElementById('dash-attention-count');
       if (attCard && attEl) {
         if (!attention.length) {
-          attCard.style.display = 'none';
+          // Раньше блок просто прятали. Теперь в нём живёт кнопка «+ Задача»,
+          // и пряча блок, мы прятали бы единственный способ её создать.
+          attCard.style.display = '';
+          attCard.style.borderColor = 'var(--border)';
+          if (attCount) attCount.textContent = '';
+          attEl.innerHTML = '<div class="text-sm text-muted" style="padding:6px 0;">'
+            + 'Ничего не требует внимания. Задачу можно добавить кнопкой выше.</div>';
         } else {
+          attCard.style.borderColor = '';
           attention.sort(function(a,b){ return a.sortKey < b.sortKey ? -1 : 1; });
           if (attCount) attCount.textContent = attention.length;
           attEl.innerHTML = attention.slice(0, 12).map(function(x){
@@ -4044,6 +4068,70 @@ ${visit.notes ? `<div class="section">
   // PRINT: PET CARD (паспорт животного)
   // ═══════════════════════════════════════════════════════════════════════
 
+  // ── Задачи сотрудникам ───────────────────────────────────────────────────
+  // Список «Требуют внимания» показывает только то, что система выводит
+  // сама. Всё остальное («перезвонить», «заказать препарат») жило в голове
+  // и на бумажках. Ручные задачи попадают в тот же список — отдельный экран
+  // заводить не стали: у врача и так один рабочий блок на день.
+
+  async function loadTasks() {
+    try {
+      var all = await window.VetDB.getAll('tasks');
+      return (all || []).filter(function (t) { return !t.is_deleted; });
+    } catch (e) {
+      if (window.VetLog) window.VetLog.warn('tasks:load', e);
+      return [];
+    }
+  }
+
+  function taskDialog(ownerId, prefillTitle) {
+    UI.showModal({
+      title: 'Новая задача',
+      size: 'lg',
+      bodyHTML:
+        '<div style="display:grid;gap:12px;">'
+        + '<div class="form-group"><label class="form-label">Что сделать<span class="form-req">*</span></label>'
+        + '<input id="task-title" class="form-input" value="' + esc(prefillTitle || '') + '" placeholder="Перезвонить по результатам анализов"></div>'
+        + '<div class="form-group"><label class="form-label">Срок</label>'
+        + '<input id="task-due" class="form-input" type="date"></div>'
+        + '<div class="form-group"><label class="form-label">Заметка</label>'
+        + '<textarea id="task-note" class="form-textarea" rows="3"></textarea></div>'
+        + '</div>',
+      saveLabel: 'Создать',
+      onSave: async function () {
+        var title = (document.getElementById('task-title') || {}).value || '';
+        if (!title.trim()) { UI.markInvalid(['task-title']); UI.toast('Опишите задачу', 'err'); return; }
+        try {
+          await api('POST', '/tasks', {
+            title: title.trim(),
+            note: (document.getElementById('task-note') || {}).value.trim(),
+            due_date: (document.getElementById('task-due') || {}).value || '',
+            owner_ref: ownerId || ''
+          });
+          UI.hideModal();
+          UI.toast('Задача создана', 'ok');
+          if (window.VetSync && VetSync.pullFull) { try { await VetSync.pullFull(); } catch (e) {} }
+          window.dispatchEvent(new Event('vetdata:changed'));
+          if ((document.querySelector('.page.active') || {}).id === 'page-dashboard') initDashboard();
+        } catch (e) {
+          UI.toast('Не удалось создать: ' + (e && e.message || e), 'err');
+        }
+      }
+    });
+  }
+
+  async function completeTask(id) {
+    try {
+      await api('PUT', '/tasks/' + id, { done: 1 });
+      if (window.VetSync && VetSync.pullFull) { try { await VetSync.pullFull(); } catch (e) {} }
+      UI.toast('Задача выполнена', 'ok');
+      window.dispatchEvent(new Event('vetdata:changed'));
+      if ((document.querySelector('.page.active') || {}).id === 'page-dashboard') initDashboard();
+    } catch (e) {
+      UI.toast('Не удалось отметить: ' + (e && e.message || e), 'err');
+    }
+  }
+
   // ── Печать: согласие на процедуру ────────────────────────────────────────
   // Юридически значимый документ: подпись владельца под информированным
   // согласием — то, чем клиника защищается при споре об исходе операции
@@ -6586,6 +6674,8 @@ ${visit.notes ? `<div class="section">
     issuePortalCode:    issuePortalCode,
     restoreFromTrash:   restoreFromTrash,
     startSetupWizard:   startSetupWizard,
+    taskDialog:         taskDialog,
+    completeTask:       completeTask,
     printConsentForm:   printConsentForm,
     exportReportXlsx:   exportReportXlsx,
     diagnosisDialog:    diagnosisDialog,

@@ -2,14 +2,14 @@
   "use strict";
 
   const DB_NAME    = "vetclinic-pwa";
-  const DB_VERSION = 6; // v6: справочник диагнозов — diagnosis_templates
+  const DB_VERSION = 7; // v7: задачи сотрудникам — tasks
 
   // Список всех object stores: ядро + стораджи модулей (VetModules, M3.1).
   // attachments — только метаданные, приезжают с сервера через pull.
   // Сами файлы на планшете не хранятся: смотреть сканы можно при наличии сети.
   // Стораджи модулей объявляются ВСЕГДА (не зависят от флага): выключение
   // модуля не должно стирать его данные из IndexedDB.
-  const CORE_ENTITY_STORES = ["owners", "pets", "items", "diagnosis_templates", "visits", "visit_items", "vaccinations", "staff", "attachments", "appointments"];
+  const CORE_ENTITY_STORES = ["owners", "pets", "items", "diagnosis_templates", "tasks", "visits", "visit_items", "vaccinations", "staff", "attachments", "appointments"];
   const MODULE_STORES = (window.VetModules && window.VetModules.stores()) || ["warehouses", "stock_movements"];
   const ENTITY_STORES = CORE_ENTITY_STORES.concat(MODULE_STORES);
   const META_STORES   = ["sync_queue", "sync_state", "devices", "attachment_queue"];

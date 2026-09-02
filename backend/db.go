@@ -606,6 +606,27 @@ var migrations = []string{
 	`ALTER TABLE stock_movements ADD COLUMN batch TEXT`,
 	`ALTER TABLE stock_movements ADD COLUMN expires_at DATETIME`,
 
+	// Ручные задачи сотрудникам («перезвонить клиенту», «заказать препарат»).
+	// Автоматический список «Требуют внимания» на дашборде закрывает только
+	// то, что система может вывести сама; всё остальное сейчас живёт
+	// в голове и на бумажках.
+	`CREATE TABLE IF NOT EXISTS tasks (
+	    id          TEXT PRIMARY KEY,
+	    title       TEXT NOT NULL,
+	    note        TEXT NOT NULL DEFAULT '',
+	    due_date    DATETIME,
+	    done        INTEGER NOT NULL DEFAULT 0,
+	    owner_ref   TEXT,               -- владелец, к которому относится задача
+	    staff_id    TEXT,               -- на кого назначена (пусто = на всех)
+	    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	    client_updated_at DATETIME,
+	    deleted_at DATETIME,
+	    is_deleted INTEGER NOT NULL DEFAULT 0,
+	    device_id  TEXT,
+	    version    INTEGER NOT NULL DEFAULT 1
+	)`,
+
 	// Справочник диагнозов с готовым текстом лечения и рекомендаций.
 	// Врач выбирает диагноз — система подставляет заготовку, врач правит.
 	// Это же даёт статистику «частые диагнозы»: сейчас diagnosis — свободная
