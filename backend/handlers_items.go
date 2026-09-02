@@ -42,7 +42,7 @@ func (a *app) listItems(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	q := `SELECT id, name, type, price, COALESCE(cost_price,0), COALESCE(cost_mode,'fixed'), COALESCE(cost_percent,0), COALESCE(purchase_price,0), is_active, created_at, updated_at, deleted_at, is_deleted, COALESCE(device_id,''), COALESCE(version,1)
+	q := `SELECT id, name, type, price, COALESCE(cost_price,0), COALESCE(cost_mode,'fixed'), COALESCE(cost_percent,0), COALESCE(purchase_price,0), COALESCE(result_mode,'none'), COALESCE(protocol_id,''), is_active, created_at, updated_at, deleted_at, is_deleted, COALESCE(device_id,''), COALESCE(version,1)
 	      FROM items WHERE is_deleted = 0 AND is_active = 1`
 	args := make([]interface{}, 0, 2)
 
@@ -118,8 +118,9 @@ func (a *app) createItem(w http.ResponseWriter, r *http.Request) {
 	now := T(nowUTC())
 	if _, err := a.db.ExecContext(ctx,
 		`INSERT INTO items (id, name, type, price, cost_price, cost_mode, cost_percent, purchase_price, is_active, created_at, updated_at, version)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 1)`,
-		id, strings.TrimSpace(p.Name), normalizeItemType(p.Type), p.Price, cost, mode, percent, p.PurchasePrice, now, now,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 1)`,
+		id, strings.TrimSpace(p.Name), normalizeItemType(p.Type), p.Price, cost, mode, percent, p.PurchasePrice,
+		normalizeResultMode(p.ResultMode), nullableString(p.ProtocolID), now, now,
 	); err != nil {
 		a.logger.Printf("createItem: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to create item")
@@ -159,6 +160,7 @@ func (a *app) updateItem(w http.ResponseWriter, r *http.Request, id string) {
 		`UPDATE items SET name=?, type=?, price=?, cost_price=?, cost_mode=?, cost_percent=?, purchase_price=?, is_active=?, updated_at=?, version=version+1
 		 WHERE id=? AND is_deleted=0`,
 		strings.TrimSpace(p.Name), normalizeItemType(p.Type), p.Price, cost, mode, percent, p.PurchasePrice,
+		normalizeResultMode(p.ResultMode), nullableString(p.ProtocolID),
 		boolToInt(isActive), T(nowUTC()), id,
 	)
 	if err != nil {
@@ -201,7 +203,7 @@ func (a *app) deleteItem(w http.ResponseWriter, r *http.Request, id string) {
 
 func (a *app) getItemByID(ctx context.Context, id string) (Item, error) {
 	row := a.db.QueryRowContext(ctx,
-		`SELECT id, name, type, price, COALESCE(cost_price,0), COALESCE(cost_mode,'fixed'), COALESCE(cost_percent,0), COALESCE(purchase_price,0), is_active, created_at, updated_at, deleted_at, is_deleted, COALESCE(device_id,''), COALESCE(version,1)
+		`SELECT id, name, type, price, COALESCE(cost_price,0), COALESCE(cost_mode,'fixed'), COALESCE(cost_percent,0), COALESCE(purchase_price,0), COALESCE(result_mode,'none'), COALESCE(protocol_id,''), is_active, created_at, updated_at, deleted_at, is_deleted, COALESCE(device_id,''), COALESCE(version,1)
 		 FROM items WHERE id=?`, id)
 	return scanItem(row)
 }
@@ -214,7 +216,7 @@ func scanItem(s interface {
 	var createdAt, updatedAt, deletedAt timeScanner
 	err := s.Scan(
 		&item.ID, &item.Name, &item.Type, &item.Price, &item.CostPrice,
-		&item.CostMode, &item.CostPercent, &item.PurchasePrice, &isActive,
+		&item.CostMode, &item.CostPercent, &item.PurchasePrice, &item.ResultMode, &item.ProtocolID, &isActive,
 		&createdAt, &updatedAt, &deletedAt,
 		&item.IsDeleted, &item.DeviceID, &item.Version,
 	)

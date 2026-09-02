@@ -318,7 +318,7 @@ func pathTable(p string) string {
 	// независимо от выданных прав.
 	case strings.HasPrefix(p, "/visits"), strings.HasPrefix(p, "/visit-items"),
 		strings.HasPrefix(p, "/attachments"), strings.HasPrefix(p, "/appointments"),
-		strings.HasPrefix(p, "/diagnoses"):
+		strings.HasPrefix(p, "/diagnoses"), strings.HasPrefix(p, "/results"):
 		return "visits"
 	case strings.HasPrefix(p, "/vaccinations"):
 		return "vaccinations"
@@ -908,6 +908,7 @@ func (a *app) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 var authorshipTables = map[string]string{
 	"owners": "owners", "pets": "pets", "items": "items", "visits": "visits",
 	"visit_items": "visit_items", "vaccinations": "vaccinations", "staff": "clinic_staff",
+	"visit_results": "visit_results",
 }
 
 // GET /authorship?table=visits&id=... — кто создал и кто последним менял запись.

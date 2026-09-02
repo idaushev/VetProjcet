@@ -293,3 +293,79 @@ func TestSyncCycleOwnerTypeAndIIN(t *testing.T) {
 		t.Errorf("старый клиент разжаловал юрлицо в %q", got)
 	}
 }
+
+// Шаблон протокола и результат проходят полный цикл. Проверка не формальная:
+// values_json и fields — колонки NOT NULL с JSON по умолчанию, и пустая строка
+// от клиента не должна ложиться в базу вместо '{}' — иначе разбор упадёт и на
+// планшете, и в кабинете владельца.
+func TestSyncCycleResultsSurviveRoundTrip(t *testing.T) {
+	a := testApp(t)
+
+	res := doPush(t, a, `{
+		"owners":[{"id":"o-30","fio":"Хозяин","phone":"+7 700 300 3000",
+			"version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"pets":[{"id":"p-30","owner_id":"o-30","name":"Рыжик","type":"cat","gender":"m",
+			"version":1,"updated_at":"2026-09-01T10:01:00Z"}],
+		"visits":[{"id":"v-30","pet_id":"p-30","date":"2026-09-01T11:00:00Z",
+			"version":1,"updated_at":"2026-09-01T11:00:00Z"}],
+		"protocol_templates":[{"id":"t-30","name":"ОАК","kind":"lab",
+			"fields":"[{\"key\":\"hgb\",\"label\":\"Гемоглобин\",\"type\":\"number\",\"ref_low\":80,\"ref_high\":150}]",
+			"version":1,"updated_at":"2026-09-01T09:00:00Z"}],
+		"visit_results":[{"id":"r-30","visit_id":"v-30","pet_id":"p-30","title":"ОАК",
+			"template_id":"t-30","kind":"protocol","values_json":"{\"hgb\":\"200\"}",
+			"status":"done","conclusion":"Выше нормы",
+			"version":1,"updated_at":"2026-09-01T12:00:00Z"}]}`)
+	if skipped, _ := res["skipped"].(float64); skipped != 0 {
+		t.Fatalf("сервер пропустил записи (skipped=%v)", res["skipped"])
+	}
+
+	data := doPull(t, a, "")
+	tpls := data["protocol_templates"]
+	if len(tpls) != 1 {
+		t.Fatalf("шаблон не вернулся (получили %d)", len(tpls))
+	}
+	if got, _ := tpls[0]["name"].(string); got != "ОАК" {
+		t.Errorf("name шаблона = %q", got)
+	}
+	if f, _ := tpls[0]["fields"].(string); !strings.Contains(f, "hgb") {
+		t.Errorf("поля шаблона потерялись: %q", f)
+	}
+
+	results := data["visit_results"]
+	if len(results) != 1 {
+		t.Fatalf("результат не вернулся (получили %d)", len(results))
+	}
+	r := results[0]
+	if v, _ := r["values_json"].(string); v != `{"hgb":"200"}` {
+		t.Errorf("значения протокола потерялись: %q", v)
+	}
+	if s, _ := r["status"].(string); s != "done" {
+		t.Errorf("status = %q, ожидался done", s)
+	}
+	// filled_at сервер проставляет сам при status=done — по нему кабинет
+	// владельца сортирует результаты.
+	if r["filled_at"] == nil {
+		t.Errorf("filled_at не проставлен для внесённого результата")
+	}
+}
+
+// Пустой values_json от старого клиента не должен ложиться в базу пустой
+// строкой: JSON.parse("") падает и на планшете, и в портале.
+func TestSyncCycleResultEmptyJSONBecomesObject(t *testing.T) {
+	a := testApp(t)
+	doPush(t, a, `{
+		"owners":[{"id":"o-31","fio":"Х","phone":"+7 700 1","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"pets":[{"id":"p-31","owner_id":"o-31","name":"К","type":"cat","gender":"m","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"visits":[{"id":"v-31","pet_id":"p-31","date":"2026-09-01T11:00:00Z","version":1,"updated_at":"2026-09-01T11:00:00Z"}],
+		"visit_results":[{"id":"r-31","visit_id":"v-31","pet_id":"p-31","title":"УЗИ",
+			"kind":"file","values_json":"","status":"pending",
+			"version":1,"updated_at":"2026-09-01T12:00:00Z"}]}`)
+
+	results := doPull(t, a, "")["visit_results"]
+	if len(results) != 1 {
+		t.Fatalf("результат не вернулся")
+	}
+	if v, _ := results[0]["values_json"].(string); v != "{}" {
+		t.Errorf("values_json = %q, ожидался {}", v)
+	}
+}

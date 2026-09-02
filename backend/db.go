@@ -155,6 +155,72 @@ CREATE INDEX IF NOT EXISTS idx_pets_status  ON pets(status);
 CREATE INDEX IF NOT EXISTS idx_pets_updated ON pets(updated_at);
 CREATE INDEX IF NOT EXISTS idx_pets_deleted ON pets(is_deleted);
 
+-- ─── Результаты услуг: шаблоны протоколов и заполненные результаты ────────
+--
+-- Услуга может требовать результата: анализ, УЗИ, рентген. Результат бывает
+-- файлом (скан, PDF из лаборатории) либо заполненным протоколом, а иногда и
+-- тем и другим сразу — снимок плюс заключение.
+CREATE TABLE IF NOT EXISTS protocol_templates (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    kind       TEXT NOT NULL DEFAULT 'lab',   -- lab | ultrasound | xray | other
+    -- fields — JSON-описание полей протокола:
+    -- [{"key","label","type","unit","ref_low","ref_high","options":[...]}]
+    -- Нормы (ref_low/ref_high) держим здесь, а не в коде: у кошки и собаки
+    -- границы разные, и клиника правит их сама, не дожидаясь обновления.
+    fields     TEXT NOT NULL DEFAULT '[]',
+    notes      TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME,
+    is_deleted INTEGER NOT NULL DEFAULT 0,
+    device_id  TEXT,
+    version    INTEGER NOT NULL DEFAULT 1,
+    client_updated_at DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_prototpl_updated ON protocol_templates(updated_at);
+CREATE INDEX IF NOT EXISTS idx_prototpl_deleted ON protocol_templates(is_deleted);
+
+-- visit_results — ожидаемый или внесённый результат по конкретной услуге приёма.
+--
+-- Отдельная таблица, а не поля во вложениях: результат бывает протоколом БЕЗ
+-- файла, а одна услуга может дать и снимок, и заключение. Главное же —
+-- status='pending': это рабочий список «пробу взяли, результата нет».
+-- Без него забытый анализ обнаруживается через неделю.
+CREATE TABLE IF NOT EXISTS visit_results (
+    id            TEXT PRIMARY KEY,
+    visit_id      TEXT NOT NULL,
+    pet_id        TEXT NOT NULL,          -- дублируем ради выборки «все результаты животного»
+    visit_item_id TEXT,                   -- какая строка приёма породила результат
+    item_id       TEXT,                   -- услуга из каталога
+    title         TEXT NOT NULL,          -- название услуги на момент приёма
+    template_id   TEXT,                   -- шаблон протокола, если заполняется вручную
+    kind          TEXT NOT NULL DEFAULT 'protocol',  -- protocol | file
+    -- values — JSON {"ключ_поля": "значение"}. Конфликт разрешается целиком по
+    -- версии: два человека один протокол одновременно не заполняют.
+    values_json   TEXT NOT NULL DEFAULT '{}',
+    attachment_id TEXT,                   -- ссылка на файл, если kind='file'
+    conclusion    TEXT,                   -- заключение врача свободным текстом
+    status        TEXT NOT NULL DEFAULT 'pending',   -- pending | done
+    filled_at     DATETIME,
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted_at    DATETIME,
+    is_deleted    INTEGER NOT NULL DEFAULT 0,
+    device_id     TEXT,
+    version       INTEGER NOT NULL DEFAULT 1,
+    client_updated_at DATETIME,
+    created_by    TEXT,
+    updated_by    TEXT,
+    FOREIGN KEY (visit_id) REFERENCES visits(id),
+    FOREIGN KEY (pet_id)   REFERENCES pets(id)
+);
+CREATE INDEX IF NOT EXISTS idx_vres_visit   ON visit_results(visit_id);
+CREATE INDEX IF NOT EXISTS idx_vres_pet     ON visit_results(pet_id);
+CREATE INDEX IF NOT EXISTS idx_vres_status  ON visit_results(status);
+CREATE INDEX IF NOT EXISTS idx_vres_updated ON visit_results(updated_at);
+CREATE INDEX IF NOT EXISTS idx_vres_deleted ON visit_results(is_deleted);
+
 -- ─── Каталог услуг и препаратов ───────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS items (
     id         TEXT PRIMARY KEY,
@@ -415,6 +481,9 @@ var migrations = []string{
 	`ALTER TABLE items ADD COLUMN cost_price REAL DEFAULT 0`,
 	`ALTER TABLE items ADD COLUMN cost_mode TEXT NOT NULL DEFAULT 'fixed'`,
 	`ALTER TABLE items ADD COLUMN cost_percent REAL NOT NULL DEFAULT 0`,
+	// Результат услуги: анализ, УЗИ, рентген. none — обычная услуга.
+	`ALTER TABLE items ADD COLUMN result_mode TEXT NOT NULL DEFAULT 'none'`,
+	`ALTER TABLE items ADD COLUMN protocol_id TEXT`,
 	// items.purchase_price переехал в warehouseModule.Migrations() (M1.1) —
 	// это дельта модуля склада на ядровой таблице.
 	`CREATE INDEX IF NOT EXISTS idx_items_updated ON items(updated_at)`,

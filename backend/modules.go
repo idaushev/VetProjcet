@@ -125,6 +125,7 @@ func (portalModule) RegisterRoutes(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /portal/pets",                   g(a.handlePortalPets))
 	mux.HandleFunc("GET /portal/pets/{id}/visits",       g(a.handlePortalPetVisits))
 	mux.HandleFunc("GET /portal/pets/{id}/vaccinations", g(a.handlePortalPetVaccinations))
+	mux.HandleFunc("GET /portal/pets/{id}/results",       g(a.handlePortalPetResults))
 	mux.HandleFunc("GET /portal/appointments",           g(a.handlePortalAppointments))
 	mux.HandleFunc("POST /portal/book",                  g(a.handlePortalBook))
 	mux.HandleFunc("PUT /portal/pets/{id}/photo",        g(a.handlePortalPetPhoto))

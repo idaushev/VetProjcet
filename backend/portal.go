@@ -219,6 +219,64 @@ func (a *app) handlePortalPetVaccinations(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: vaccs})
 }
 
+// handlePortalPetResults — результаты анализов и протоколы по животному.
+//
+// Владелец видит всё, что клиника внесла: и файлы, и заполненные протоколы со
+// значениями. Незаконченные (status='pending') не отдаём — показывать «анализ
+// взят, результата нет» в кабинете значит плодить звонки в регистратуру.
+func (a *app) handlePortalPetResults(w http.ResponseWriter, r *http.Request) {
+	ownerID := a.requirePortalOwner(w, r)
+	if ownerID == "" {
+		return
+	}
+	petID := strings.TrimSpace(r.PathValue("id"))
+	if !a.petBelongsToOwner(r.Context(), petID, ownerID) {
+		writeError(w, http.StatusNotFound, "Питомец не найден")
+		return
+	}
+	rows, err := a.db.QueryContext(r.Context(), `
+		SELECT r.id, r.title, COALESCE(r.kind,'protocol'), COALESCE(r.values_json,'{}'),
+		       COALESCE(r.attachment_id,''), COALESCE(r.conclusion,''), r.filled_at,
+		       COALESCE(t.name,''), COALESCE(t.fields,'[]')
+		FROM visit_results r
+		LEFT JOIN protocol_templates t ON t.id = r.template_id
+		WHERE r.pet_id = ? AND r.is_deleted = 0 AND r.status = 'done'
+		ORDER BY COALESCE(r.filled_at, r.created_at) DESC`, petID)
+	if err != nil {
+		a.logger.Printf("portalPetResults: %v", err)
+		writeError(w, http.StatusInternalServerError, "Не удалось загрузить результаты")
+		return
+	}
+	defer rows.Close()
+
+	type portalResult struct {
+		ID           string  `json:"id"`
+		Title        string  `json:"title"`
+		Kind         string  `json:"kind"`
+		Values       string  `json:"values_json"`
+		AttachmentID string  `json:"attachment_id,omitempty"`
+		Conclusion   string  `json:"conclusion,omitempty"`
+		FilledAt     *string `json:"filled_at,omitempty"`
+		Template     string  `json:"template_name,omitempty"`
+		Fields       string  `json:"fields"`
+	}
+	list := make([]portalResult, 0, 16)
+	for rows.Next() {
+		var it portalResult
+		var filled timeScanner
+		if rows.Scan(&it.ID, &it.Title, &it.Kind, &it.Values, &it.AttachmentID,
+			&it.Conclusion, &filled, &it.Template, &it.Fields) != nil {
+			continue
+		}
+		if filled.t != nil {
+			s := filled.t.Format(time.RFC3339)
+			it.FilledAt = &s
+		}
+		list = append(list, it)
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: list})
+}
+
 // ─── Сессия ───────────────────────────────────────────────────────────────────
 
 // portalOwnerID возвращает owner_id по портальному токену или "" если сессии нет.

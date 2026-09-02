@@ -173,6 +173,25 @@ func coreSyncEntities() []syncEntity {
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullDiagnoses(ctx, db, since) },
 		},
 		{
+			// Шаблоны протоколов правит только администратор, но синкуются они
+			// как обычная таблица: врачу нужен шаблон офлайн, чтобы заполнить.
+			// Гейт прав — на маршрутах (requireAdmin), а не в синке.
+			Name: "protocol_templates",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "protocol_templates", "items", "protocol_templates", uid, cp, pushProtocol, res)
+			},
+			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullProtocols(ctx, db, since) },
+		},
+		{
+			// Результаты живут под правами приёмов: кто ведёт приём, тот и
+			// вносит результат.
+			Name: "visit_results",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "visit_results", "visits", "visit_results", uid, cp, pushVisitResult, res)
+			},
+			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullVisitResults(ctx, db, since) },
+		},
+		{
 			Name:    "attachments", // только pull: метаданные вложений, файлы качаются отдельно
 			pushAll: nil,
 			pull:    func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullAttachments(ctx, db, since) },

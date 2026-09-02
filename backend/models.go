@@ -25,7 +25,11 @@ type Item struct {
 	// При percent CostPrice пересчитывается автоматически при каждой смене цены.
 	CostMode    string  `json:"cost_mode"`
 	CostPercent float64 `json:"cost_percent"`
-	PurchasePrice float64 `json:"purchase_price"` // закупочная (для склада); розница = Price
+	PurchasePrice float64 `json:"purchase_price"`
+	// ResultMode — требует ли услуга результата: none | file | protocol | both.
+	// ProtocolID — какой шаблон подставлять, когда результат заполняется вручную.
+	ResultMode  string  `json:"result_mode"`
+	ProtocolID  string  `json:"protocol_id,omitempty"` // закупочная (для склада); розница = Price
 	IsActive    bool    `json:"is_active"`
 	SyncMeta
 }
@@ -206,6 +210,8 @@ type itemPayload struct {
 	// продолжает слать только cost_price и работает как раньше.
 	CostMode    string  `json:"cost_mode,omitempty"`
 	CostPercent float64 `json:"cost_percent,omitempty"`
+	ResultMode  string  `json:"result_mode,omitempty"`
+	ProtocolID  string  `json:"protocol_id,omitempty"`
 	PurchasePrice float64 `json:"purchase_price,omitempty"`
 	IsActive    *bool   `json:"is_active,omitempty"`
 }
@@ -423,6 +429,10 @@ type itemSyncRecord struct {
 	CostMode    string  `json:"cost_mode"`
 	CostPercent float64 `json:"cost_percent"`
 	PurchasePrice float64 `json:"purchase_price"`
+	// ResultMode — требует ли услуга результата: none | file | protocol | both.
+	// ProtocolID — какой шаблон подставлять, когда результат заполняется вручную.
+	ResultMode  string  `json:"result_mode"`
+	ProtocolID  string  `json:"protocol_id,omitempty"`
 	IsActive    bool    `json:"is_active"`
 	UpdatedAt   string  `json:"updated_at"`
 	DeletedAt *string `json:"deleted_at"`

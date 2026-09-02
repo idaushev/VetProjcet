@@ -397,18 +397,20 @@ func pushItem(ctx context.Context, db *sql.DB, rec itemSyncRecord) (bool, error)
 	// Пересчитываем на сервере: клиент мог прислать percent с устаревшей суммой.
 	mode, percent, cost := resolveCost(rec.CostMode, rec.CostPercent, rec.Price, rec.CostPrice)
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO items (id, name, type, price, cost_price, cost_mode, cost_percent, purchase_price, is_active, updated_at, deleted_at, is_deleted, device_id, version, created_at, client_updated_at)
+		INSERT INTO items (id, name, type, price, cost_price, cost_mode, cost_percent, purchase_price, result_mode, protocol_id, is_active, updated_at, deleted_at, is_deleted, device_id, version, created_at, client_updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		  name=excluded.name, type=excluded.type, price=excluded.price,
 		  cost_price=excluded.cost_price, cost_mode=excluded.cost_mode,
 		  cost_percent=excluded.cost_percent, purchase_price=excluded.purchase_price,
+		  result_mode=excluded.result_mode, protocol_id=excluded.protocol_id,
 		  is_active=excluded.is_active,
 		  updated_at=excluded.updated_at, deleted_at=excluded.deleted_at,
 		  is_deleted=excluded.is_deleted, device_id=excluded.device_id,
 		  version=excluded.version,
 		  client_updated_at=excluded.client_updated_at`,
-		rec.ID, rec.Name, normalizeItemType(rec.Type), rec.Price, cost, mode, percent, rec.PurchasePrice, boolToInt(rec.IsActive),
+		rec.ID, rec.Name, normalizeItemType(rec.Type), rec.Price, cost, mode, percent, rec.PurchasePrice,
+		normalizeResultMode(rec.ResultMode), nullableString(rec.ProtocolID), boolToInt(rec.IsActive),
 		serverNow, deletedAt, rec.IsDeleted,
 		nullableString(rec.DeviceID), rec.Version, serverNow, clientAt,
 	)
@@ -664,7 +666,7 @@ SELECT id, owner_id, name, type, gender, birth_date, age, COALESCE(breed,''),
 FROM pets`
 
 func pullItems(ctx context.Context, db *sql.DB, since time.Time) ([]Item, error) {
-	q := `SELECT id, name, type, price, COALESCE(cost_price,0), COALESCE(cost_mode,'fixed'), COALESCE(cost_percent,0), COALESCE(purchase_price,0), is_active, created_at, updated_at, deleted_at, is_deleted, COALESCE(device_id,''), COALESCE(version,1) FROM items`
+	q := `SELECT id, name, type, price, COALESCE(cost_price,0), COALESCE(cost_mode,'fixed'), COALESCE(cost_percent,0), COALESCE(purchase_price,0), COALESCE(result_mode,'none'), COALESCE(protocol_id,''), is_active, created_at, updated_at, deleted_at, is_deleted, COALESCE(device_id,''), COALESCE(version,1) FROM items`
 	var rows *sql.Rows
 	var err error
 	if !since.IsZero() {

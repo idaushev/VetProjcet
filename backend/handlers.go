@@ -117,6 +117,18 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("DELETE /tasks/{id}", a.handleTaskByID)
 
 	// Справочник диагнозов с заготовками лечения (см. handlers_diagnoses.go).
+	// Шаблоны протоколов: читать всем (врач заполняет по ним), править — админу.
+	mux.HandleFunc("GET /protocols",         a.handleProtocols)
+	mux.HandleFunc("POST /protocols",        a.requireAdmin(a.handleProtocols))
+	mux.HandleFunc("PUT /protocols/{id}",    a.requireAdmin(a.handleProtocolByID))
+	mux.HandleFunc("DELETE /protocols/{id}", a.requireAdmin(a.handleProtocolByID))
+
+	// Результаты услуг — под правами приёмов (см. pathTable).
+	mux.HandleFunc("GET /results",         a.handleResults)
+	mux.HandleFunc("POST /results",        a.handleResults)
+	mux.HandleFunc("PUT /results/{id}",    a.handleResultByID)
+	mux.HandleFunc("DELETE /results/{id}", a.handleResultByID)
+
 	mux.HandleFunc("GET /diagnoses",         a.handleDiagnoses)
 	mux.HandleFunc("POST /diagnoses",        a.handleDiagnoses)
 	mux.HandleFunc("PUT /diagnoses/{id}",    a.handleDiagnosisByID)
