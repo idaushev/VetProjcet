@@ -4940,6 +4940,43 @@ ${visit.notes ? `<div class="section">
     reader.readAsArrayBuffer(file);
   }
 
+  // ── Экспорт отчётов в Excel ──────────────────────────────────────────────
+  // Бухгалтеру нужен файл, а не распечатка. Отчёты уже собраны как обычные
+  // HTML-таблицы, поэтому выгрузка общая для всех четырёх — SheetJS умеет
+  // превращать таблицу в лист напрямую, дублировать логику расчётов
+  // не требуется (и, значит, цифры в файле не разойдутся с экраном).
+
+  function exportReportXlsx(containerId, baseName) {
+    if (typeof XLSX === 'undefined') { UI.toast('Библиотека XLSX не загружена', 'err'); return; }
+    var box = document.getElementById(containerId);
+    var tables = box ? box.querySelectorAll('table') : [];
+    if (!tables.length) { UI.toast('Сначала сформируйте отчёт', 'err'); return; }
+
+    try {
+      var wb = XLSX.utils.book_new();
+      var used = {};
+      for (var i = 0; i < tables.length; i++) {
+        // Имя листа берём из заголовка группы над таблицей — так в файле
+        // понятно, что где, без обращения к экрану.
+        var grp = tables[i].closest('.report-group');
+        var title = grp && grp.querySelector('.report-group-title')
+                  ? grp.querySelector('.report-group-title').textContent.trim()
+                  : ('Лист ' + (i + 1));
+        // Excel: не больше 31 символа и без : \ / ? * [ ]
+        title = title.replace(/[:\\/?*\[\]]/g, ' ').trim().slice(0, 28) || ('Лист ' + (i + 1));
+        if (used[title]) { used[title]++; title = title.slice(0, 25) + ' ' + used[title]; }
+        else used[title] = 1;
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(tables[i]), title);
+      }
+      var stamp = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, baseName + '-' + stamp + '.xlsx');
+      UI.toast('Файл выгружен', 'ok');
+    } catch (e) {
+      if (window.VetLog) window.VetLog.warn('export:xlsx', e);
+      UI.toast('Не удалось выгрузить: ' + (e && e.message || e), 'err');
+    }
+  }
+
   // ── Справочник диагнозов с заготовками ───────────────────────────────────
   // diagnosis у визита — свободная строка: посчитать частые диагнозы нельзя,
   // а «Лечение» и «Рекомендации» врач набирает с нуля каждый раз. Отсюда же
@@ -6470,6 +6507,7 @@ ${visit.notes ? `<div class="section">
     issuePortalCode:    issuePortalCode,
     restoreFromTrash:   restoreFromTrash,
     startSetupWizard:   startSetupWizard,
+    exportReportXlsx:   exportReportXlsx,
     diagnosisDialog:    diagnosisDialog,
     applyDiagnosisTemplate: applyDiagnosisTemplate,
     downloadClientsTemplate: downloadClientsTemplate,

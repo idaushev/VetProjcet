@@ -588,6 +588,7 @@
           <div class="page-actions">
             <button class="btn btn-ghost admin-only" id="btn-report-settings" title="Настройки отчёта" aria-label="Настройки отчёта" onclick="VetPages.openReportSettings()"><i data-icon="settings" data-icon-size="18"></i></button>
             <button class="btn btn-ghost" id="btn-print-report" disabled onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
+            <button class="btn btn-ghost" onclick="VetPages.exportReportXlsx('report-content','otchet-za-den')"><i data-icon="download" data-icon-size="18"></i> Excel</button>
           </div>
         </div>
         <div class="page-inner">
@@ -618,6 +619,7 @@
           <h1 class="page-title">Выручка за период</h1>
           <div class="page-actions">
             <button class="btn btn-ghost" id="btn-print-revenue" disabled onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
+            <button class="btn btn-ghost" onclick="VetPages.exportReportXlsx('revenue-content','vyruchka')"><i data-icon="download" data-icon-size="18"></i> Excel</button>
           </div>
         </div>
         <div class="page-inner">
@@ -646,6 +648,7 @@
           <h1 class="page-title">Предстоящие приёмы</h1>
           <div class="page-actions">
             <button class="btn btn-ghost" id="btn-print-upcoming" disabled onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
+            <button class="btn btn-ghost" onclick="VetPages.exportReportXlsx('upcoming-content','predstoyashchie')"><i data-icon="download" data-icon-size="18"></i> Excel</button>
           </div>
         </div>
         <div class="page-inner">
@@ -671,6 +674,7 @@
           <h1 class="page-title">Не пришли на приём</h1>
           <div class="page-actions">
             <button class="btn btn-ghost" id="btn-print-noshows" disabled onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
+            <button class="btn btn-ghost" onclick="VetPages.exportReportXlsx('noshows-content','ne-prishli')"><i data-icon="download" data-icon-size="18"></i> Excel</button>
           </div>
         </div>
         <div class="page-inner">
