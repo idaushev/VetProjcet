@@ -56,6 +56,18 @@ func newUUID() (string, error) {
 // ─── Нормализация строк ──────────────────────────────────────────────────────
 
 func normalizeItemType(v string) string { return strings.ToLower(strings.TrimSpace(v)) }
+
+// normalizeVisitStatus — статус приёма (VET-003): completed | draft.
+// Пустое значение означает старого клиента, который поля ещё не шлёт, — такой
+// приём считаем завершённым, чтобы поведение не менялось. Любое неизвестное
+// значение тоже сводим к completed: статус информационный, и ошибка в нём не
+// должна прятать приём от врача.
+func normalizeVisitStatus(v string) string {
+	if strings.ToLower(strings.TrimSpace(v)) == "draft" {
+		return "draft"
+	}
+	return "completed"
+}
 func normalizeGender(v string) string   { return strings.ToLower(strings.TrimSpace(v)) }
 
 func normalizePatientCondition(v string) string { return strings.TrimSpace(v) }

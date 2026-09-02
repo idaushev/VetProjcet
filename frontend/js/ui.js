@@ -1052,6 +1052,18 @@
           <label class="form-label">Вес животного (кг)</label>
           <input id="f-animal-weight" class="form-input" type="number" step="0.1" min="0" value="${esc(weight)}" placeholder="0.0">
         </div>
+        <!-- VET-003. Отметка «дописан ли приём». По умолчанию включена: приём,
+             который врач сохраняет, обычно закончен, и поведение остаётся
+             прежним. Снимают её, когда работа не завершена — ждём анализ или
+             диагноз под вопросом. Ничего не блокирует: приём сохраняется в
+             любом случае и одинаково попадает в выручку и отчёты. -->
+        <div class="form-group" style="flex:0 0 auto;align-self:flex-end;">
+          <label class="vf-status" title="Снимите, если к приёму ещё нужно вернуться"
+                 aria-label="Приём завершён">
+            <input type="checkbox" id="f-visit-done" ${prefill.status === 'draft' ? '' : 'checked'}>
+            <span>Приём завершён</span>
+          </label>
+        </div>
         <div class="form-group" style="flex:1;min-width:200px;">
           <label class="form-label">Состояние пациента</label>
           <div id="condition-tabs" class="condition-tabs mt-1">
@@ -1705,6 +1717,8 @@
       date:document.getElementById('f-visit-date')?document.getElementById('f-visit-date').value:'',
       next_visit_date:nvd,
       treatment_days:parseInt((document.getElementById('f-treatment-days')||{}).value,10)||0,
+      // VET-003: снятая галка = приём ещё не дописан.
+      status:(document.getElementById('f-visit-done')||{checked:true}).checked?'completed':'draft',
       visit_type:document.getElementById('f-visit-type')?document.getElementById('f-visit-type').value:'первичный',
       animal_weight:aw,
       condition:document.getElementById('f-condition')?document.getElementById('f-condition').value:'',

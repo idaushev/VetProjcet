@@ -158,13 +158,14 @@ func (a *app) createVisit(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO visits (id, pet_id, staff_id, visit_type, animal_weight, date, next_visit_date,
 		                     treatment_days, treatment_until,
 		                     patient_condition, anamnesis, diagnosis, treatment, notes,
-		                     total_amount, discount, discount_reason, payment_card, change_log, created_at, updated_at, version)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+		                     total_amount, discount, discount_reason, payment_card, change_log, status, created_at, updated_at, version)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
 		v.ID, v.PetID, nullableString(v.StaffID), visitType, v.AnimalWeight, T(v.Date), Tp(v.NextVisitDate),
 		days, Tp(until),
 		nullableString(v.PatientCondition), nullableString(v.Anamnesis),
 		nullableString(v.Diagnosis), nullableString(v.Treatment),
-		nullableString(v.Notes), v.TotalAmount, v.Discount, nullableString(v.DiscountReason), v.PaymentCard, v.ChangeLog, now, now,
+		nullableString(v.Notes), v.TotalAmount, v.Discount, nullableString(v.DiscountReason), v.PaymentCard, v.ChangeLog,
+		normalizeVisitStatus(v.Status), now, now,
 	); err != nil {
 		a.logger.Printf("createVisit: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to create visit")
@@ -214,13 +215,14 @@ func (a *app) updateVisit(w http.ResponseWriter, r *http.Request, id string) {
 		`UPDATE visits SET pet_id=?, staff_id=?, visit_type=?, animal_weight=?,
 		                   date=?, next_visit_date=?, treatment_days=?, treatment_until=?,
 		                   patient_condition=?, anamnesis=?, diagnosis=?, treatment=?,
-		                   notes=?, total_amount=?, discount=?, discount_reason=?, payment_card=?, change_log=?, updated_at=?, version=version+1
+		                   notes=?, total_amount=?, discount=?, discount_reason=?, payment_card=?, change_log=?, status=?, updated_at=?, version=version+1
 		 WHERE id=? AND is_deleted=0`,
 		v.PetID, nullableString(v.StaffID), visitType, v.AnimalWeight,
 		T(v.Date), Tp(v.NextVisitDate), days, Tp(until),
 		nullableString(v.PatientCondition), nullableString(v.Anamnesis),
 		nullableString(v.Diagnosis), nullableString(v.Treatment),
-		nullableString(v.Notes), v.TotalAmount, v.Discount, nullableString(v.DiscountReason), v.PaymentCard, v.ChangeLog, T(nowUTC()), id,
+		nullableString(v.Notes), v.TotalAmount, v.Discount, nullableString(v.DiscountReason), v.PaymentCard, v.ChangeLog,
+		normalizeVisitStatus(v.Status), T(nowUTC()), id,
 	)
 	if err != nil {
 		a.logger.Printf("updateVisit: %v", err)
@@ -392,13 +394,13 @@ func (a *app) handleCreateFullVisit(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO visits (id, pet_id, staff_id, visit_type, animal_weight, date, next_visit_date,
 		                     treatment_days, treatment_until, discount, discount_reason, payment_card,
 		                     patient_condition, anamnesis, diagnosis, treatment, notes,
-		                     total_amount, created_at, updated_at, version)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+		                     total_amount, status, created_at, updated_at, version)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
 		visit.ID, visit.PetID, nullableString(visit.StaffID), visitType, visit.AnimalWeight, T(visit.Date), Tp(nextVisitDate),
 		days, Tp(until), visit.Discount, nullableString(visit.DiscountReason), p.Visit.PaymentCard,
 		nullableString(visit.PatientCondition), nullableString(visit.Anamnesis),
 		nullableString(visit.Diagnosis), nullableString(visit.Treatment),
-		nullableString(visit.Notes), visit.TotalAmount, now, now,
+		nullableString(visit.Notes), visit.TotalAmount, normalizeVisitStatus(p.Visit.Status), now, now,
 	); err != nil {
 		a.logger.Printf("fullVisit insert visit: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to create visit")
@@ -598,7 +600,8 @@ SELECT v.id, v.pet_id, COALESCE(v.staff_id,''), COALESCE(v.visit_type,'перв�
        COALESCE(v.patient_condition,''), COALESCE(v.anamnesis,''),
        COALESCE(v.diagnosis,''), COALESCE(v.treatment,''), COALESCE(v.notes,''),
        v.total_amount, COALESCE(v.discount,0), COALESCE(v.discount_reason,''), COALESCE(v.payment_card,0), COALESCE(v.change_log,''), v.created_at, v.updated_at, v.deleted_at,
-       v.is_deleted, COALESCE(v.device_id,''), COALESCE(v.version,1)
+       v.is_deleted, COALESCE(v.device_id,''), COALESCE(v.version,1),
+       COALESCE(v.status,'completed')
 FROM visits v`
 
 const visitItemSelectAll = `
@@ -629,7 +632,7 @@ func scanVisit(s interface{ Scan(...interface{}) error }) (Visit, error) {
 		&visitDate, &nextVisitDate, &v.TreatmentDays, &treatmentUntil,
 		&v.PatientCondition, &v.Anamnesis, &v.Diagnosis, &v.Treatment, &v.Notes,
 		&v.TotalAmount, &v.Discount, &v.DiscountReason, &v.PaymentCard, &v.ChangeLog, &createdAt, &updatedAt, &deletedAt,
-		&v.IsDeleted, &v.DeviceID, &v.Version,
+		&v.IsDeleted, &v.DeviceID, &v.Version, &v.Status,
 	)
 	if err != nil {
 		return Visit{}, err
@@ -710,6 +713,7 @@ func visitFromPayload(p createVisitPayload) (Visit, error) {
 		DiscountReason:   strings.TrimSpace(p.DiscountReason),
 		PaymentCard:      p.PaymentCard,
 		ChangeLog:        strings.TrimSpace(p.ChangeLog),
+		Status:           normalizeVisitStatus(p.Status),
 	}
 	if strings.TrimSpace(p.NextVisitDate) != "" {
 		if nd, err := parseFlexibleDate(strings.TrimSpace(p.NextVisitDate)); err == nil {

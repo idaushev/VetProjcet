@@ -2889,6 +2889,20 @@ body[data-role="admin"] .settings-tab.admin-only { display: inline-flex; }
 body:not(.mod-warehouse-on) .needs-mod-warehouse { display: none !important; }
 body.mod-portal-off .needs-mod-portal { display: none !important; }
 
+/* VET-003: отметка «приём завершён» в форме приёма */
+.vf-status {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  white-space: nowrap; font-size: var(--fs-md); user-select: none;
+  padding: 8px 0;
+}
+.vf-status input { width: 18px; height: 18px; flex: 0 0 auto; }
+
+/* Метка незавершённого приёма в списках и карточках */
+.badge-draft {
+  background: var(--warn-bg, #fef8ec); color: var(--warn, #c97a0a);
+  border: 1px solid var(--warn-border, rgba(201,122,10,.28));
+}
+
 /* Модалка настроек отчёта за день (шестерёнка) */
 .rs-sect { padding: 14px 0; border-bottom: 1px solid var(--border); }
 .rs-sect:last-child { border-bottom: 0; }

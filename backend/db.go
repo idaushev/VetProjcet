@@ -585,6 +585,14 @@ var migrations = []string{
 	`ALTER TABLE items ADD COLUMN updated_by TEXT`,
 	`ALTER TABLE visits ADD COLUMN created_by TEXT`,
 	`ALTER TABLE visits ADD COLUMN updated_by TEXT`,
+	// VET-003. Статус приёма: completed | draft.
+	// ИНФОРМАЦИОННЫЙ — ничего не блокирует и не влияет на выручку и отчёты.
+	// Он отвечает на вопрос «эта запись дописана?»: приём, ждущий анализа,
+	// раньше выглядел точно так же, как закрытый. Значение по умолчанию
+	// 'completed' сознательно: все существующие приёмы и все новые сохранения
+	// сохраняют сегодняшний смысл, а незавершённость врач отмечает явно.
+	`ALTER TABLE visits ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'`,
+	`CREATE INDEX IF NOT EXISTS idx_visits_status ON visits(status)`,
 	`ALTER TABLE visit_items ADD COLUMN created_by TEXT`,
 	`ALTER TABLE visit_items ADD COLUMN updated_by TEXT`,
 	`ALTER TABLE vaccinations ADD COLUMN created_by TEXT`,

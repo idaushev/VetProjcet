@@ -96,6 +96,10 @@ type Visit struct {
 	DiscountReason   string     `json:"discount_reason,omitempty"` // причина скидки (контроль злоупотреблений)
 	PaymentCard      float64    `json:"payment_card"`    // сумма оплаченная картой (безнал)
 	ChangeLog        string     `json:"change_log,omitempty"` // JSON-массив истории изменений
+	// VET-003. completed — врач считает приём дописанным; draft — работа ещё
+	// не закончена (ждём анализ, диагноз под вопросом). Информационный: на
+	// выручку, отчёты и права не влияет.
+	Status           string     `json:"status,omitempty"`
 	SyncMeta
 }
 
@@ -274,6 +278,7 @@ type createVisitPayload struct {
 	DiscountReason   string   `json:"discount_reason,omitempty"`
 	PaymentCard      float64  `json:"payment_card,omitempty"`
 	ChangeLog        string   `json:"change_log,omitempty"`
+	Status           string   `json:"status,omitempty"` // VET-003: completed|draft
 }
 
 type createVisitItemPayload struct {
@@ -336,6 +341,7 @@ type visitPayloadShort struct {
 	Diagnosis        string   `json:"diagnosis"`
 	Treatment        string   `json:"treatment,omitempty"`
 	Notes            string   `json:"notes"`
+	Status           string   `json:"status,omitempty"` // VET-003: completed|draft
 }
 
 type visitFullPayload struct {
@@ -522,6 +528,8 @@ type visitSyncRecord struct {
 	DiscountReason   string   `json:"discount_reason"`
 	PaymentCard      float64  `json:"payment_card"`
 	ChangeLog        string   `json:"change_log"`
+	// VET-003: пусто = старый клиент, значит приём считаем завершённым.
+	Status           string   `json:"status"`
 	UpdatedAt        string   `json:"updated_at"`
 	DeletedAt        *string  `json:"deleted_at"`
 	IsDeleted        int      `json:"is_deleted"`

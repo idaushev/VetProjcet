@@ -307,6 +307,31 @@
         });
       } catch (e) {}
 
+      // VET-018. Незавершённые приёмы. Врач снял отметку «приём завершён»,
+      // чтобы вернуться (ждём анализ, диагноз под вопросом) — и запись должна
+      // о себе напоминать. Иначе «допишу потом» остаётся навсегда: раньше
+      // такой приём ничем не отличался от закрытого. Показываем только свои,
+      // с правом на чужие суммы — все.
+      try {
+        var myStaffId = (window.VetAuth && VetAuth.user() && VetAuth.user().staff_id) || '';
+        var seesAll = !window.VetAuth || VetAuth.sumsScope().mode === 'all';
+        (d.visits || []).forEach(function (v) {
+          if (v.is_deleted || v.status !== 'draft') return;
+          if (!seesAll && myStaffId && v.staff_id && v.staff_id !== myStaffId) return;
+          var pet = (d.pets || []).find(function (p) { return p.id === v.pet_id; }) || {};
+          var day = (v.date || '').slice(0, 10);
+          var old = day && day < today;
+          attention.push({
+            icon: 'clipboard', tone: old ? 'warn' : 'blue',
+            title: 'Приём не завершён — ' + esc(pet.name || 'животное'),
+            sub: old ? 'с ' + fmtDate(v.date) : 'сегодня',
+            phone: '',
+            act: 'visit.edit', data: { id: v.id },
+            sortKey: (old ? '1' : '2') + (day || '')
+          });
+        });
+      } catch (e) {}
+
       // 0) Ручные задачи сотрудников — в той же очереди: у врача один
       //    рабочий список на день, а не отдельный экран задач.
       var manualTasks = await loadTasks();
@@ -392,9 +417,12 @@
         var pet = petsMap[v.pet_id] || {};
         var owner = ownersMap[pet.owner_id] || {};
         var visitTypeBadge = v.visit_type === 'вторичный' ? '<span class="badge badge-service" style="margin-left:6px;">Вторичный</span>' : '';
+        // VET-003: незавершённый приём видно прямо в списке — иначе запись,
+        // к которой врач собирался вернуться, ничем не отличается от закрытой.
+        var draftBadge = v.status === 'draft' ? '<span class="badge badge-draft" style="margin-left:6px;">Не завершён</span>' : '';
         return '<div class="erow" data-act="visit.edit" data-id="'+v.id+'">'
           +UI.avatar(pet.name||'?',pet.type)
-          +'<div class="erow-body"><div class="erow-title">'+esc(pet.name||'Неизвестно')+visitTypeBadge+'</div>'
+          +'<div class="erow-body"><div class="erow-title">'+esc(pet.name||'Неизвестно')+visitTypeBadge+draftBadge+'</div>'
           +'<div class="erow-sub">'+esc(owner.fio||'')+' · '+esc(v.diagnosis||v.anamnesis||'Без диагноза')+'</div></div>'
           // Суммы на главной не показываем: планшет стоит на виду, и клиент
           // у стойки видел бы, сколько заплатил предыдущий. В списке приёмов
@@ -863,10 +891,14 @@
       var vtTag = v.visit_type==='вторичный'
         ? '<span class="visit-type-tag secondary">Повторный</span>'
         : '<span class="visit-type-tag">Первичный</span>';
+      // VET-003: незавершённый приём видно прямо в списке — иначе запись,
+      // к которой врач собирался вернуться, ничем не отличается от закрытой.
+      var draftTag = v.status==='draft'
+        ? '<span class="badge badge-draft" style="margin-left:6px;">Не завершён</span>' : '';
       return '<div class="erow" data-act="visit.edit" data-id="'+v.id+'">'
         +UI.avatar(pet.name||'?',pet.type)
         +'<div class="erow-body">'
-        +'<div class="erow-title">'+esc(pet.name||'Неизвестно')+vtTag+'</div>'
+        +'<div class="erow-title">'+esc(pet.name||'Неизвестно')+vtTag+draftTag+'</div>'
         +'<div class="erow-sub">'+esc(owner.fio||'')+(v.diagnosis?' · '+esc(v.diagnosis):(v.anamnesis?' · '+esc(v.anamnesis):''))+'</div>'
         +('<div class="erow-extra">'
           +(v.animal_weight?''+I('scale')+' '+v.animal_weight+' кг':'')
@@ -1006,6 +1038,7 @@
             anamnesis: vs.anamnesis, diagnosis: vs.diagnosis,
             treatment: vs.treatment, notes: vs.notes,
             total_amount: totalAmount, discount: discount, discount_reason: vs.discount_reason || '', payment_card: vs.payment_card || 0,
+            status: vs.status || 'completed',
           },
           items: vs.items,
         };
@@ -1197,6 +1230,7 @@
             anamnesis: vs.anamnesis, diagnosis: vs.diagnosis,
             treatment: vs.treatment, notes: vs.notes,
             total_amount: totalAmount, discount: discount, discount_reason: vs.discount_reason || '', payment_card: vs.payment_card || 0,
+            status: vs.status || 'completed',
             change_log: vs._change_log || '',
           });
           // Сохранение правки = удалить все позиции и создать заново.
@@ -1373,6 +1407,7 @@
             anamnesis: vs.anamnesis, diagnosis: vs.diagnosis,
             treatment: vs.treatment, notes: vs.notes,
             total_amount: totalAmount, discount: discount, discount_reason: vs.discount_reason || '', payment_card: vs.payment_card || 0,
+            status: vs.status || 'completed',
           },
           items: vs.items,
         };
