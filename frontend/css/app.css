@@ -2950,3 +2950,44 @@ body.mod-portal-off .needs-mod-portal { display: none !important; }
 .perm-chip-all  { color: var(--accent); }
 .perm-chip-off  { color: var(--danger); }
 .perm-chip-warn { color: var(--warn); font-weight: 600; }
+
+
+/* ── Пояснения по требованию ───────────────────────────────────────── */
+/* Текст остаётся в разметке (и доступен читалкам), но показывается только
+   по наведению или нажатию: постоянные подписи под каждым полем забивали
+   формы. Нажатие обязательно — на планшете наведения нет. */
+
+.hint {
+  position: relative; display: inline-flex; align-items: center;
+  vertical-align: middle; margin-left: 6px; cursor: help;
+}
+.hint-mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 1px solid var(--border); color: var(--text-3);
+  font-size: 11px; font-weight: 700; line-height: 1;
+  transition: color var(--t, .15s), border-color var(--t, .15s);
+}
+.hint:hover .hint-mark,
+.hint.open .hint-mark { color: var(--accent); border-color: var(--accent); }
+.hint:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 50%; }
+
+.hint-body {
+  position: absolute; left: 0; top: calc(100% + 6px); z-index: 400;
+  display: none; width: max-content; max-width: 260px;
+  padding: 8px 10px; border-radius: var(--r-md, 8px);
+  background: var(--text, #1a2434); color: #fff;
+  font-size: var(--fs-sm); font-weight: 400; line-height: 1.4;
+  white-space: normal; text-align: left;
+  box-shadow: var(--shadow-md, 0 4px 16px rgba(0,0,0,.18));
+}
+.hint:hover .hint-body,
+.hint.open .hint-body { display: block; }
+
+/* У правого края экрана всплывающая подсказка уезжала бы за границу. */
+.hint.hint-right .hint-body { left: auto; right: 0; }
+
+@media (max-width: 640px) {
+  /* На узком экране 260px всё ещё может не поместиться. */
+  .hint-body { max-width: 70vw; }
+}

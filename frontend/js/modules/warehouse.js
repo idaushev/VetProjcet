@@ -491,7 +491,7 @@
       + '<div class="form-group"><label class="form-label">Закупочная, ₸</label><input id="wh-p-purchase" class="form-input" type="number" min="0" step="1" value="'+Number(base.purchase_price||0)+'"></div>'
       + '<div class="form-group"><label class="form-label">Розничная, ₸</label><input id="wh-p-retail" class="form-input" type="number" min="0" step="1" value="'+Number(base.price||0)+'"></div>'
       + '<div class="form-group"><label class="form-label">Дата</label><input id="wh-p-date" class="form-input" type="date" value="'+today+'"></div>'
-      + '<div class="form-group form-span-2"><div class="form-hint">Цены общие для всех складов — это цены позиции в каталоге. Изменение попадёт в журнал движений (вид «Цены»).</div></div>'
+      + '<div class="form-group form-span-2"></div>'
       + '</div>';
     UI.showModal({ title:'Изменение цен', bodyHTML:body, saveLabel:'Сохранить',
       afterOpen: function(){

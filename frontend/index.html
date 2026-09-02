@@ -887,7 +887,7 @@
                     <button type="button" class="filter-btn" data-theme-mode="dark">Тёмная</button>
                     <button type="button" class="filter-btn" data-theme-mode="auto">Системная</button>
                   </div>
-                  <div class="form-hint">Тёмная тема — на устройстве, где вы её включили; на других остаётся своя.</div>
+                  
                 </div>
                 <div style="margin-top:20px;">
                   <button class="btn btn-primary" id="btn-save-settings">Сохранить настройки</button>
@@ -1046,43 +1046,30 @@
             </div>
             <div class="card set-card" id="diagnoses-card">
               <div class="card-header">
-                <span class="card-title">Справочник диагнозов</span>
+                <span class="card-title">Справочник диагнозов<span class="hint" data-act="ui.hint" data-act-on="click keydown" role="button" tabindex="0" aria-expanded="false" aria-label="Пояснение"><span class="hint-mark" aria-hidden="true">?</span><span class="hint-body">Частые диагнозы с готовым текстом лечения. При заполнении приёма врач выбирает диагноз — текст подставляется, остаётся поправить под пациента.</span></span></span>
                 <button class="btn btn-ghost btn-sm" data-act="diagnosis.add">Добавить</button>
               </div>
               <div class="card-body">
-                <p style="font-size:var(--fs-sm);color:var(--text-2);margin-bottom:12px;">
-                  Частые диагнозы с готовым текстом лечения. При заполнении
-                  приёма врач выбирает диагноз — текст подставляется,
-                  остаётся поправить под пациента.
-                </p>
+                
                 <div id="diagnoses-list"></div>
               </div>
             </div>
             <div class="card set-card" id="protocols-card">
               <div class="card-header">
-                <span class="card-title">Шаблоны протоколов</span>
+                <span class="card-title">Шаблоны протоколов<span class="hint" data-act="ui.hint" data-act-on="click keydown" role="button" tabindex="0" aria-expanded="false" aria-label="Пояснение"><span class="hint-mark" aria-hidden="true">?</span><span class="hint-body">Что заполнять по услугам, которые требуют результата: анализы, УЗИ, рентген. Границы нормы задаются здесь — врач сразу видит отклонение, не сверяясь со справочником.</span></span></span>
                 <button class="btn btn-ghost btn-sm" data-act="protocol.add">Добавить</button>
               </div>
               <div class="card-body">
-                <p style="font-size:var(--fs-sm);color:var(--text-2);margin-bottom:12px;">
-                  Что заполнять по услугам, которые требуют результата: анализы,
-                  УЗИ, рентген. Границы нормы задаются здесь — врач сразу видит
-                  отклонение, не сверяясь со справочником.
-                </p>
+                
                 <div id="protocols-list"></div>
               </div>
             </div>
             <div class="card set-card" id="import-clients-card">
               <div class="card-header">
-                <span class="card-title">Импорт клиентской базы</span>
+                <span class="card-title">Импорт клиентской базы<span class="hint" data-act="ui.hint" data-act-on="click keydown" role="button" tabindex="0" aria-expanded="false" aria-label="Пояснение"><span class="hint-mark" aria-hidden="true">?</span><span class="hint-body">Загрузка владельцев и животных из Excel — по одной строке на животное. Владельцы с одинаковым телефоном объединяются, а уже существующие не дублируются. Перед записью показываем, что получится.</span></span></span>
               </div>
               <div class="card-body">
-                <p style="font-size:var(--fs-sm);color:var(--text-2);margin-bottom:14px;">
-                  Загрузка владельцев и животных из Excel — по одной строке
-                  на животное. Владельцы с одинаковым телефоном объединяются,
-                  а уже существующие не дублируются. Перед записью показываем,
-                  что получится.
-                </p>
+                
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">
                   <button class="btn btn-ghost btn-sm" data-act="clients.template">
                     Скачать шаблон
@@ -1097,28 +1084,21 @@
             </div>
             <div class="card set-card" id="trash-card">
               <div class="card-header">
-                <span class="card-title">Корзина</span>
+                <span class="card-title">Корзина<span class="hint" data-act="ui.hint" data-act-on="click keydown" role="button" tabindex="0" aria-expanded="false" aria-label="Пояснение"><span class="hint-mark" aria-hidden="true">?</span><span class="hint-body">Удалённые записи за последние 30 дней. История лечения не стирается — карточку можно вернуть.</span></span></span>
                 <button class="btn btn-ghost btn-sm" id="btn-trash-refresh">Обновить</button>
               </div>
               <div class="card-body">
-                <p style="font-size:var(--fs-sm);color:var(--text-2);margin-bottom:12px;">
-                  Удалённые записи за последние 30 дней. История лечения
-                  не стирается — карточку можно вернуть.
-                </p>
+                
                 <div id="trash-list"></div>
               </div>
             </div>
             <div class="card set-card" id="backup-card">
               <div class="card-header">
-                <span class="card-title">Резервные копии</span>
+                <span class="card-title">Резервные копии<span class="hint" data-act="ui.hint" data-act-on="click keydown" role="button" tabindex="0" aria-expanded="false" aria-label="Пояснение"><span class="hint-mark" aria-hidden="true">?</span><span class="hint-body">Копия базы создаётся автоматически раз в сутки и сразу проверяется на целостность. Медкарты — единственное, что нельзя восстановить заново.</span></span></span>
                 <button class="btn btn-ghost btn-sm" id="btn-backup-now">Создать копию</button>
               </div>
               <div class="card-body">
-                <p style="font-size:var(--fs-sm);color:var(--text-2);margin-bottom:12px;">
-                  Копия базы создаётся автоматически раз в сутки и сразу
-                  проверяется на целостность. Медкарты — единственное, что
-                  нельзя восстановить заново.
-                </p>
+                
                 <div id="backup-status"></div>
               </div>
             </div>

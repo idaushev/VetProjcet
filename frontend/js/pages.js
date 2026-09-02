@@ -3205,11 +3205,10 @@
       + '<div class="rs-sect"><div class="rs-sect-t">Итоговая строка</div><div class="form-grid">'
       + inp('settle','Название итога') + inp('settleSub','Подпись (мелким)')
       + '</div>'
-      + '<div class="form-group form-span-2" style="margin-top:10px;"><label class="form-label">Формула расчёта</label>'
+      + '<div class="form-group form-span-2" style="margin-top:10px;"><label class="form-label">Формула расчёта'+UI.hint('Операции: + − * / ( ) > < >= <= == != && || ?:   Пример: Доля врача > 0 ? Доля врача − Безналичные : 0')+'</label>'
       + '<input class="form-input" id="rs-formula" value="'+esc(cfg.formula)+'" style="font-family:monospace;">'
       + '<div class="form-hint" style="margin-top:6px;">Переменные (нажмите, чтобы вставить):</div>'
       + '<div class="flex-gap" style="flex-wrap:wrap;margin:6px 0;">'+varBtns+'</div>'
-      + '<div class="form-hint">Операции: + − * / ( ) &gt; &lt; &gt;= &lt;= == != &amp;&amp; || ?:&nbsp;&nbsp;Пример: Доля врача &gt; 0 ? Доля врача - Безналичные : 0</div>'
       + '<div id="rs-preview" style="margin-top:8px;font-weight:700;font-size:.9rem;"></div>'
       + '</div></div>';
     UI.showModal({
@@ -5527,11 +5526,11 @@
       + '</select></div>'
       + '<div class="form-group"><label class="form-label">'+(u.id?'Новый пароль (пусто — не менять)':'Пароль <span class="form-req">*</span>')+'</label>'
       + '<input id="fu-password" class="form-input" type="password" autocomplete="new-password" placeholder="минимум 6 символов"></div>'
-      + '<div class="form-group form-span-2"><label class="form-label">Сотрудник клиники (необязательно)</label>'
+      + '<div class="form-group form-span-2"><label class="form-label">Сотрудник клиники'+UI.hint('Связь нужна, чтобы показывать «свои» суммы и авторство записей. Пользователь не обязан быть врачом: админ и регистратор — тоже пользователи.')+'</label>'
       + '<select id="fu-staff" class="form-select" data-act="user.staffChange" data-act-on="change"><option value="">— не связан —</option>'
       + staff.map(function(st){ return '<option value="'+st.id+'"'+(st.id===u.staff_id?' selected':'')+'>'+esc(st.name)+'</option>'; }).join('')
       + '</select>'
-      + '<div class="form-hint">Пользователь не обязан быть врачом: админ или регистратор — тоже пользователи.</div></div>'
+      + '</div>'
       + permissionsFormHTML(u, staff)
       + (u.id
         ? '<div class="form-group form-span-2"><label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">'
@@ -5598,9 +5597,7 @@
     var rows = PERM_TABLES.map(function(t){
       var cur = tables[t.v] || 'edit';
       return '<div class="perm-row">'
-        + '<span class="perm-table">'+t.l
-        + (t.hint ? '<span class="perm-hint">'+esc(t.hint)+'</span>' : '')
-        + '</span>'
+        + '<span class="perm-table">'+t.l+(t.hint ? UI.hint(t.hint) : '')+'</span>'
         + '<select class="form-select perm-select" data-table="'+t.v+'">'
         + PERM_LEVELS.map(function(l){ return '<option value="'+l.v+'"'+(l.v===cur?' selected':'')+'>'+l.l+'</option>'; }).join('')
         + '</select></div>';
@@ -5613,10 +5610,11 @@
 
     return '<div class="form-group form-span-2" id="fu-perms-block"'+(isAdmin?' style="display:none"':'')+'>'
       + '<div class="perm-head">'
-      + '<label class="form-label">Права доступа</label>'
+      + '<label class="form-label">Права доступа'
+      + UI.hint('«Нет доступа» прячет раздел из меню. Сервер не примет правки сверх этих прав, но данные на устройство синхронизируются целиком.')
+      + '</label>'
       + '<button type="button" class="btn btn-ghost btn-sm" data-act="user.preset">Типовые для роли</button>'
       + '</div>'
-      + '<div id="fu-preset-note" class="form-hint"></div>'
       + '<div class="perm-grid">'+rows+'</div>'
       + '<div style="margin-top:12px;">'
       + '<label class="form-label">Какие суммы видит</label>'
@@ -5631,10 +5629,10 @@
       + '<div style="margin-top:12px;">'
       + '<label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">'
       + '<input type="checkbox" id="fu-portal-codes"'+(perms.portal_codes?' checked':'')+' style="width:18px;height:18px;">'
-      + ' Может выдавать владельцам пароли для входа в кабинет</label>'
-      + '<div class="form-hint">Пароль открывает владельцу его медкарты на портале. Обычно право дают регистратуре.</div>'
+      + ' Может выдавать владельцам пароли для входа в кабинет'
+      + UI.hint('Пароль открывает владельцу его медкарты на портале. Обычно право дают регистратуре.') + '</label>'
       + '</div>'
-      + '<div class="form-hint">«Нет доступа» прячет раздел из меню. Сервер не примет правки сверх этих прав, но данные на устройство синхронизируются целиком.</div>'
+
       + '</div>';
   }
 
@@ -5656,10 +5654,8 @@
     if (sums) { sums.value = preset.sums; sums.dispatchEvent(new Event('change', { bubbles: true })); }
     var pc = document.getElementById('fu-portal-codes');
     if (pc) pc.checked = !!preset.portal_codes;
-    var note = document.getElementById('fu-preset-note');
-    if (note) note.textContent = preset.title + ': ' + preset.note;
     checkSumsStaff();
-    UI.toast('Права выставлены по роли «' + preset.title + '» — поправьте, если нужно', 'ok');
+    UI.toast(preset.title + ': ' + preset.note, 'ok', 6000);
   }
 
   // «Только свои суммы» без связи с сотрудником не работает вовсе: сравнение

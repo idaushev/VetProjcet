@@ -45,6 +45,50 @@
     });
   }
 
+  // ── Пояснения по требованию ────────────────────────────────────────────
+  //
+  // Раньше пояснения висели под каждым полем постоянно и забивали формы. Текст
+  // никуда не делся — он в разметке (и доступен читалкам экрана), но
+  // показывается только по наведению или нажатию.
+  //
+  // Нажатие обязательно: приложение живёт на планшете, где наведения нет
+  // вовсе. Поэтому значок — настоящая кнопка с tabindex и aria-expanded, а не
+  // декоративный span с :hover.
+  //
+  // hint('текст') -> разметка значка. Ставится рядом с подписью поля.
+  function hint(text) {
+    if (!text) return '';
+    return '<span class="hint" data-act="ui.hint" data-act-on="click keydown" role="button" tabindex="0"'
+      + ' aria-expanded="false" aria-label="Пояснение">'
+      + '<span class="hint-mark" aria-hidden="true">?</span>'
+      + '<span class="hint-body">' + esc(text) + '</span>'
+      + '</span>';
+  }
+
+  function toggleHint(el) {
+    var open = el.classList.contains('open');
+    closeHints();
+    if (!open) {
+      el.classList.add('open');
+      el.setAttribute('aria-expanded', 'true');
+    }
+  }
+  function closeHints() {
+    document.querySelectorAll('.hint.open').forEach(function (h) {
+      h.classList.remove('open');
+      h.setAttribute('aria-expanded', 'false');
+    });
+  }
+  // Клик мимо и Esc закрывают открытое пояснение — иначе на планшете оно
+  // остаётся висеть поверх формы.
+  document.addEventListener('click', function (e) {
+    if (e.target && e.target.closest && e.target.closest('.hint')) return;
+    closeHints();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeHints();
+  });
+
   // ── Меню строки списка «⋯» ─────────────────────────────────────────────
   // Вторичные и деструктивные действия строки прячем в оверфлоу-меню, чтобы
   // в строке осталось 1–2 частых действия под палец. Меню позиционируется
@@ -375,7 +419,7 @@
       +'</select></div>'
       +'<div class="form-group form-span-2"><label class="form-label" id="f-fio-label">'+(legal?'Наименование организации':'ФИО')+' <span class="form-req">*</span></label><input id="f-fio" class="form-input" value="'+esc(d.fio||'')+'" placeholder="'+(legal?'ОФ «Приют Друг»':'Иванов Иван Иванович')+'"></div>'
       +'<div class="form-group"><label class="form-label">Телефон <span class="form-req">*</span></label><input id="f-phone" class="form-input" type="tel" value="'+esc(d.phone||'')+'" placeholder="+7 777 000 0000"></div>'
-      +'<div class="form-group"><label class="form-label" id="f-iin-label">'+(legal?'БИН':'ИИН')+'</label><input id="f-iin" class="form-input" inputmode="numeric" value="'+esc(d.iin||'')+'" maxlength="12" placeholder="12 цифр" data-act="ui.checkIIN" data-act-on="input"><div id="f-iin-hint" class="form-hint">Нужен для регистрации животного в ТАҢБА</div></div>'
+      +'<div class="form-group"><label class="form-label" id="f-iin-label">'+(legal?'БИН':'ИИН')+'</label>'+hint('Нужен для регистрации животного в госреестре ТАҢБА')+'<input id="f-iin" class="form-input" inputmode="numeric" value="'+esc(d.iin||'')+'" maxlength="12" placeholder="12 цифр" data-act="ui.checkIIN" data-act-on="input"><div id="f-iin-hint" class="form-hint"></div></div>'
       +'<div class="form-group form-span-2"><label class="form-label" id="f-address-label">'+(legal?'Юридический адрес':'Адрес (место жительства)')+'</label><input id="f-address" class="form-input" value="'+esc(d.address||'')+'" placeholder="Город, улица, дом"></div>'
       +'<div class="form-group form-span-2"><label class="form-label">Примечания</label><textarea id="f-notes" class="form-textarea">'+esc(d.notes||'')+'</textarea></div>'
       +'</div>';
@@ -507,7 +551,7 @@
       +'<div class="form-group"><label class="form-label">№ чипа</label><input id="f-chip" class="form-input" inputmode="numeric" value="'+esc(d.chip_number||'')+'" placeholder="643094100001234" maxlength="20" data-act="ui.checkChip" data-act-on="input"><div id="f-chip-hint" class="form-hint"></div></div>'
       +'<div class="form-group"><label class="form-label">Дата чипирования</label><input id="f-chip-date" class="form-input" type="date" value="'+esc(dateVal(d.chip_date))+'"></div>'
       +'<div class="form-group"><label class="form-label">Индивидуальный № в ТАҢБА</label><input id="f-tanba" class="form-input" value="'+esc(d.tanba_number||'')+'" placeholder="Номер из реестра"></div>'
-      +'<div class="form-group form-span-2"><label class="form-label">Внесено в ТАҢБА</label><input id="f-tanba-at" class="form-input" type="date" value="'+esc(dateVal(d.tanba_at))+'"><div class="form-hint">Заполните после регистрации на портале — по этой дате видно, кого ещё не внесли</div></div>'
+      +'<div class="form-group form-span-2"><label class="form-label">Внесено в ТАҢБА'+hint('Заполните после регистрации на портале — по этой дате видно, кого ещё не внесли')+'</label><input id="f-tanba-at" class="form-input" type="date" value="'+esc(dateVal(d.tanba_at))+'"></div>'
       +'<div class="form-group form-span-2"><label class="form-label">Место содержания</label><input id="f-keep-address" class="form-input" value="'+esc(d.keep_address||'')+'" placeholder="Если отличается от адреса владельца"></div>'
       +'<div class="form-group"><label class="form-check"><input type="checkbox" id="f-sterilized"'+(d.sterilized?' checked':'')+'> Стерилизован(а)</label></div>'
       +'<div class="form-group"><label class="form-label">Дата стерилизации</label><input id="f-sterilized-at" class="form-input" type="date" value="'+esc(dateVal(d.sterilized_at))+'"></div>'
@@ -603,9 +647,9 @@
       +'<div class="form-group"><label class="form-label">Требует результата</label>'
       +'<select id="f-result-mode" class="form-select" data-act="ui.resultMode" data-act-on="change">'
       + resultModeOpts(d.result_mode || 'none') + '</select></div>'
-      +'<div class="form-group" id="f-protocol-group"><label class="form-label">Шаблон протокола</label>'
+      +'<div class="form-group" id="f-protocol-group"><label class="form-label">Шаблон протокола'+hint('Список шаблонов ведёт администратор в Настройках')+'</label>'
       +'<select id="f-protocol" class="form-select">' + _protocolOpts(d.protocol_id || '') + '</select>'
-      +'<div class="form-hint">Список ведёт администратор в Настройках</div></div>'
+      +'</div>'
       +'</div></div>';
   }
 
@@ -1769,6 +1813,13 @@
   if (window.VetActions) {
     window.VetActions.register({
       'ui.rowmenu.toggle': function (el, e) { toggleRowMenu(e, el); },
+      // Пробел и Enter на значке пояснения — как нажатие: значок доступен
+      // с клавиатуры, а не только мышью.
+      'ui.hint': function (el, e) {
+        if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+        if (e.type === 'keydown') e.preventDefault();
+        toggleHint(el);
+      },
       'ui.ownerType':      function () { ownerTypeSwitch(); },
       'ui.checkIIN':       function () { checkIIN(); },
       'ui.checkChip':      function () { checkChip(); },
@@ -1806,6 +1857,7 @@
     itemFormHTML:itemFormHTML, itemFormData:itemFormData, recalcItemCost:recalcItemCost,
     setProtocols:setProtocols, resultModeSwitch:resultModeSwitch,
     checkChip:checkChip, normalizeChip:normalizeChip, actAttrs:actAttrs,
+    hint:hint, closeHints:closeHints,
     checkIIN:checkIIN, validIINChecksum:validIINChecksum, ownerTypeSwitch:ownerTypeSwitch,
     _autoGrow:_autoGrow, _autoGrowAll:_autoGrowAll,
     recalcTreatment:recalcTreatment, treatmentUntil:treatmentUntil,

@@ -18,7 +18,8 @@
  * незарегистрированное имя не делает ничего.
  *
  * СОБЫТИЯ. По умолчанию click. Иначе — data-act-on="change" (input, submit,
- * keydown, change).
+ * keydown, change). Можно перечислить несколько через пробел:
+ * data-act-on="click keydown".
  *
  * ВЛОЖЕННОСТЬ. Ищем ближайшего предка с data-act, поэтому кнопка внутри
  * кликабельной строки перекрывает действие строки сама собой — отдельный
@@ -62,9 +63,13 @@
       var el = t.closest('[data-act]');
       if (!el) return;
       // Элемент реагирует ровно на своё событие: у <select data-act-on="change">
-      // клик по нему не должен запускать действие.
+      // клик по нему не должен запускать действие. Событий можно перечислить
+      // несколько через пробел — значку пояснения нужны и click, и keydown,
+      // чтобы он открывался не только мышью.
       var want = el.getAttribute('data-act-on') || 'click';
-      if (want !== type) return;
+      if (want.indexOf(' ') >= 0) {
+        if (want.split(/\s+/).indexOf(type) < 0) return;
+      } else if (want !== type) return;
       if (el.disabled) return;
       if (el.getAttribute('data-act-prevent') === '1') event.preventDefault();
       run(el.getAttribute('data-act'), el, event);
