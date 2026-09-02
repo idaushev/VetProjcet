@@ -147,6 +147,10 @@
   var DASH_ROWS = 5;
 
   async function initDashboard() {
+    // Свежая установка: проводим через настройку до того, как человек
+    // упрётся в пустые экраны. Внутри проверка — повторно не навязываемся.
+    try { await maybeRunSetupWizard(); } catch (e) {}
+
     refreshModules();  // гейтим раздел «Склад» по флагу модуля
     try {
       var d = await loadAll();
@@ -4850,6 +4854,206 @@ ${visit.notes ? `<div class="section">
     reader.readAsArrayBuffer(file);
   }
 
+  // ── Мастер первого запуска ───────────────────────────────────────────────
+  // Настройка размазана по вкладкам, и порядок знает только тот, кто
+  // разрабатывал. Новой клинике нужен один линейный путь: кто мы → кто
+  // принимает → чем лечим. Мастер закрывает ровно это и больше ничего:
+  // всё остальное настраивается позже и не мешает начать работать.
+  //
+  // Показывается сам, если клиника выглядит ненастроенной (нет названия
+  // и ни одного сотрудника), и доступен вручную из «Настройки → Клиника».
+
+  var _wizStep = 1;
+  var _wizTotal = 3;
+
+  async function setupNeeded() {
+    try {
+      var st = await loadClinicSettings();
+      if (st && st.setup_done) return false;
+      var staff = await window.VetDB.getAll('staff');
+      var active = (staff || []).filter(function (s) { return !s.is_deleted; });
+      // Признак свежей установки: некому принимать и клиника без имени.
+      return !(st && st.name) && !active.length;
+    } catch (e) {
+      return false; // не смогли определить — не навязываемся
+    }
+  }
+
+  async function maybeRunSetupWizard() {
+    if (await setupNeeded()) startSetupWizard();
+  }
+
+  function startSetupWizard() {
+    _wizStep = 1;
+    renderWizard();
+  }
+
+  function wizardHeader() {
+    var dots = '';
+    for (var i = 1; i <= _wizTotal; i++) {
+      dots += '<span style="width:26px;height:4px;border-radius:2px;background:'
+            + (i <= _wizStep ? 'var(--accent)' : 'var(--border)') + ';"></span>';
+    }
+    return '<div style="display:flex;gap:6px;margin-bottom:16px;">' + dots + '</div>'
+         + '<div class="text-sm text-muted" style="margin-bottom:14px;">Шаг '
+         + _wizStep + ' из ' + _wizTotal + '</div>';
+  }
+
+  async function renderWizard() {
+    if (_wizStep === 1) return renderWizardClinic();
+    if (_wizStep === 2) return renderWizardStaff();
+    return renderWizardCatalog();
+  }
+
+  async function renderWizardClinic() {
+    var st = await loadClinicSettings();
+    var hours = function (sel, cur) {
+      var o = '';
+      for (var h = 0; h <= 23; h++) {
+        o += '<option value="' + h + '"' + (h === cur ? ' selected' : '') + '>'
+           + String(h).padStart(2, '0') + ':00</option>';
+      }
+      return o;
+    };
+    UI.showModal({
+      title: 'Настройка клиники',
+      size: 'lg',
+      bodyHTML: wizardHeader()
+        + '<div class="form-grid" style="display:grid;gap:12px;">'
+        + '<div class="form-group"><label class="form-label">Название клиники<span class="form-req">*</span></label>'
+        + '<input id="wiz-name" class="form-input" value="' + esc(st.name || '') + '" placeholder="Ветклиника «Айболит»"></div>'
+        + '<div class="form-group"><label class="form-label">Телефон</label>'
+        + '<input id="wiz-phone" class="form-input" value="' + esc(st.phone || '') + '" placeholder="+7 ..."></div>'
+        + '<div class="form-group"><label class="form-label">Адрес</label>'
+        + '<input id="wiz-address" class="form-input" value="' + esc(st.address || '') + '"></div>'
+        + '<div style="display:flex;gap:12px;">'
+        + '<div class="form-group" style="flex:1;"><label class="form-label">Начало приёма</label>'
+        + '<select id="wiz-start" class="form-select">' + hours('start', st.sched_start != null ? st.sched_start : 8) + '</select></div>'
+        + '<div class="form-group" style="flex:1;"><label class="form-label">Конец приёма</label>'
+        + '<select id="wiz-end" class="form-select">' + hours('end', st.sched_end != null ? st.sched_end : 20) + '</select></div>'
+        + '</div></div>'
+        + '<div class="text-sm text-muted" style="margin-top:12px;">Название попадёт в печатные формы и справки.</div>',
+      saveLabel: 'Далее',
+      cancelLabel: 'Позже',
+      onSave: async function () {
+        var name = (document.getElementById('wiz-name') || {}).value || '';
+        if (!name.trim()) {
+          UI.markInvalid(['wiz-name']);
+          UI.toast('Укажите название клиники', 'err');
+          return;
+        }
+        var s = parseInt((document.getElementById('wiz-start') || {}).value, 10);
+        var e = parseInt((document.getElementById('wiz-end') || {}).value, 10);
+        if (e <= s) { UI.toast('Конец приёма должен быть позже начала', 'err'); return; }
+        var prev = await loadClinicSettings();
+        prev.name = name.trim();
+        prev.phone = (document.getElementById('wiz-phone') || {}).value.trim();
+        prev.address = (document.getElementById('wiz-address') || {}).value.trim();
+        prev.sched_start = s; prev.sched_end = e;
+        await saveClinicSettings(prev);
+        _wizStep = 2;
+        renderWizard();
+      }
+    });
+  }
+
+  async function renderWizardStaff() {
+    var staff = [];
+    try { staff = (await window.VetDB.getAll('staff')).filter(function (s) { return !s.is_deleted; }); } catch (e) {}
+    var list = staff.length
+      ? '<div style="margin-bottom:12px;">' + staff.map(function (s) {
+          return '<div class="erow" style="padding-left:0;padding-right:0;"><div class="erow-body">'
+               + '<div class="erow-title">' + esc(s.name) + '</div>'
+               + '<div class="erow-sub">' + esc(ROLE_LABELS[s.role] || s.role || '') + '</div></div></div>';
+        }).join('') + '</div>'
+      : '';
+
+    var roleOpts = Object.keys(ROLE_LABELS).map(function (k) {
+      return '<option value="' + k + '"' + (k === 'vet' ? ' selected' : '') + '>' + esc(ROLE_LABELS[k]) + '</option>';
+    }).join('');
+
+    UI.showModal({
+      title: 'Кто принимает',
+      size: 'lg',
+      bodyHTML: wizardHeader() + list
+        + '<div style="display:grid;gap:12px;">'
+        + '<div class="form-group"><label class="form-label">ФИО сотрудника</label>'
+        + '<input id="wiz-staff-name" class="form-input" placeholder="Иванов Иван"></div>'
+        + '<div class="form-group"><label class="form-label">Должность</label>'
+        + '<select id="wiz-staff-role" class="form-select">' + roleOpts + '</select></div>'
+        + '</div>'
+        + '<div class="text-sm text-muted" style="margin-top:12px;">'
+        + 'Врач нужен, чтобы приёмы попадали в отчёт по врачам и в расписание. '
+        + 'Остальных добавите позже в «Персонале».</div>',
+      saveLabel: staff.length ? 'Далее' : 'Добавить и далее',
+      cancelLabel: 'Пропустить',
+      onSave: async function () {
+        var nm = (document.getElementById('wiz-staff-name') || {}).value.trim();
+        if (nm) {
+          try {
+            await api('POST', '/staff', {
+              name: nm,
+              role: (document.getElementById('wiz-staff-role') || {}).value || 'vet',
+              is_active: true
+            });
+          } catch (e) {
+            UI.toast('Не удалось добавить сотрудника: ' + (e && e.message || e), 'err');
+            return;
+          }
+        } else if (!staff.length) {
+          UI.markInvalid(['wiz-staff-name']);
+          UI.toast('Добавьте хотя бы одного сотрудника или нажмите «Пропустить»', 'err');
+          return;
+        }
+        _wizStep = 3;
+        renderWizard();
+      },
+      onCancel: function () { _wizStep = 3; renderWizard(); }
+    });
+  }
+
+  async function renderWizardCatalog() {
+    var items = [];
+    try { items = (await window.VetDB.getAll('items')).filter(function (i) { return !i.is_deleted; }); } catch (e) {}
+
+    UI.showModal({
+      title: 'Услуги и препараты',
+      size: 'lg',
+      bodyHTML: wizardHeader()
+        + (items.length
+            ? '<div style="color:var(--accent);font-weight:700;margin-bottom:10px;">В каталоге уже '
+              + items.length + ' позиций — этот шаг можно пропустить.</div>'
+            : '')
+        + '<p style="color:var(--text-2);margin-bottom:14px;">'
+        + 'Каталог — это то, из чего складывается сумма приёма. Загрузите свой '
+        + 'прайс из Excel: скачайте шаблон, заполните и выберите файл.</p>'
+        + '<div style="display:flex;gap:10px;flex-wrap:wrap;">'
+        + '<button class="btn btn-ghost btn-sm" onclick="VetPages.downloadItemTemplate()">Скачать шаблон</button>'
+        + '<label class="btn btn-primary btn-sm" style="cursor:pointer;">Выбрать файл…'
+        + '<input type="file" accept=".xlsx,.xls" style="display:none;" '
+        + 'onchange="VetPages.importItemsExcel(this)"></label>'
+        + '</div>',
+      saveLabel: 'Готово',
+      cancelLabel: 'Позже',
+      onSave: async function () { await finishWizard(); },
+      onCancel: async function () { await finishWizard(); }
+    });
+  }
+
+  async function finishWizard() {
+    try {
+      var st = await loadClinicSettings();
+      st.setup_done = true;               // больше не показываем автоматически
+      await saveClinicSettings(st);
+    } catch (e) {
+      if (window.VetLog) window.VetLog.warn('wizard:finish', e);
+    }
+    UI.hideModal();
+    UI.toast('Клиника настроена', 'ok');
+    window.dispatchEvent(new Event('vetdata:changed'));
+    if (typeof navigate === 'function') navigate('dashboard');
+  }
+
   // ── Импорт клиентской базы (владельцы + животные) ────────────────────────
   // Условие входа для новой клиники: у неё уже есть сотни карточек в Excel,
   // и вручную их никто вбивать не станет. Формат — одна строка на животное,
@@ -6049,6 +6253,7 @@ ${visit.notes ? `<div class="section">
     showOwnerCard:      showOwnerCard,
     issuePortalCode:    issuePortalCode,
     restoreFromTrash:   restoreFromTrash,
+    startSetupWizard:   startSetupWizard,
     downloadClientsTemplate: downloadClientsTemplate,
     importClientsExcel: importClientsExcel,
     printOwnerCard:     printOwnerCard,

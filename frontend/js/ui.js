@@ -194,7 +194,10 @@
     modalBody.innerHTML = cfg.bodyHTML||'';
     footer.innerHTML = '';
     if (cfg.onSave !== false) {
-      var cancel = document.createElement('button'); cancel.className='btn btn-ghost'; cancel.textContent=cfg.cancelLabel||'Отмена'; cancel.onclick=requestHideModal;
+      var cancel = document.createElement('button'); cancel.className='btn btn-ghost'; cancel.textContent=cfg.cancelLabel||'Отмена';
+      // onCancel — для сценариев, где «Позже»/«Пропустить» не просто закрывает
+      // окно, а ведёт дальше (шаги мастера первого запуска).
+      cancel.onclick = cfg.onCancel ? function(){ cfg.onCancel(); } : requestHideModal;
       var save   = document.createElement('button'); save.className='btn btn-primary'; save.id='modal-save-btn'; save.textContent=cfg.saveLabel||'Сохранить';
       if (cfg.onSave) save.onclick = cfg.onSave;
       footer.appendChild(cancel); footer.appendChild(save);
