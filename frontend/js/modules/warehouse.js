@@ -214,7 +214,62 @@
     rows.sort(function(a,b){ return (b.qty>0)-(a.qty>0) || a.it.name.localeCompare(b.it.name,'ru'); });
 
     if (!rows.length) { el.innerHTML = q ? searchEmpty('wh-stock-search') : emptyState('Остатков нет — оформите поступление', '+ Поступление', "document.getElementById('wh-btn-receipt').click()", 'box'); return; }
-    el.innerHTML = rows.map(function(r){
+
+    // Предупреждение о сроках: просроченное нельзя применять, а узнать об
+    // этом надо заранее, а не в момент укола. Смотрим поступления с
+    // проставленным сроком; позиции, которых на остатке нет, не тревожат.
+    el.innerHTML = whExpiryWarningHTML(itemsMap, stock) + whStockRowsHTML(rows);
+    return;
+  }
+
+  // Порог предупреждения: месяц — успеть вернуть поставщику или израсходовать.
+  var WH_EXPIRY_SOON_DAYS = 30;
+
+  function whExpiryWarningHTML(itemsMap, stock) {
+    var today = new Date().toISOString().slice(0, 10);
+    var soon = new Date(Date.now() + WH_EXPIRY_SOON_DAYS * 86400000).toISOString().slice(0, 10);
+    var seen = {};
+    var rows = [];
+
+    (_whMoves || []).forEach(function (m) {
+      if (m.is_deleted || m.kind !== 'receipt' || !m.expires_at) return;
+      var exp = String(m.expires_at).slice(0, 10);
+      if (exp > soon) return; // ещё не скоро
+      // Если позиции на остатке нет, предупреждать не о чем.
+      var qty = 0;
+      if (_whStockWarehouse) qty = stock[_whStockWarehouse + '|' + m.item_id] || 0;
+      else _whStores.forEach(function (w) { qty += stock[w.id + '|' + m.item_id] || 0; });
+      if (qty <= 0) return;
+
+      var key = m.item_id + '|' + exp + '|' + (m.batch || '');
+      if (seen[key]) return;
+      seen[key] = true;
+      var it = itemsMap[m.item_id];
+      rows.push({ name: it ? it.name : 'позиция', exp: exp, batch: m.batch || '', expired: exp < today });
+    });
+
+    if (!rows.length) return '';
+    rows.sort(function (a, b) { return a.exp < b.exp ? -1 : 1; });
+    var expiredCnt = rows.filter(function (r) { return r.expired; }).length;
+
+    return '<div class="card" style="margin-bottom:12px;border-color:'
+      + (expiredCnt ? 'var(--danger)' : 'var(--warn, var(--border))') + ';">'
+      + '<div class="card-header"><span class="card-title" style="color:'
+      + (expiredCnt ? 'var(--danger)' : 'var(--text)') + ';">'
+      + (expiredCnt ? 'Просрочено и истекает' : 'Скоро истекает срок') + '</span></div>'
+      + '<div class="card-body" style="padding:12px 16px;">'
+      + rows.slice(0, 10).map(function (r) {
+          return '<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;">'
+            + '<span>' + esc(r.name) + (r.batch ? ' <span class="text-muted">партия ' + esc(r.batch) + '</span>' : '') + '</span>'
+            + '<span style="font-weight:700;color:' + (r.expired ? 'var(--danger)' : 'var(--warn, var(--text-2))') + ';">'
+            + (r.expired ? 'просрочено ' : 'до ') + esc(r.exp) + '</span></div>';
+        }).join('')
+      + (rows.length > 10 ? '<div class="text-sm text-muted">…и ещё ' + (rows.length - 10) + '</div>' : '')
+      + '</div></div>';
+  }
+
+  function whStockRowsHTML(rows) {
+    return rows.map(function(r){
       var it=r.it; var low = r.qty<=0;
       return '<div class="erow" onclick="VetPages.whItemMoves(\''+it.id+'\')">'
         + '<div class="erow-body">'
@@ -314,6 +369,15 @@
       + (kind==='writeoff' ? '<div class="form-group form-span-2"><label class="form-label">Причина</label><input id="wh-f-reason" class="form-input" placeholder="Брак, срок годности, порча..."></div>' : '')
       + '<div class="form-group"><label class="form-label">Дата</label><input id="wh-f-date" class="form-input" type="date" value="'+today+'"></div>'
       + '<div class="form-group form-span-2"><label class="form-label">Примечание</label><input id="wh-f-note" class="form-input"></div>'
+      // Партия и срок годности — только у поступления: у списания и продажи
+      // своей партии нет. Для ветпрепаратов срок это безопасность пациента,
+      // а не бухгалтерия, поэтому поле на виду, а не в примечании.
+      + (kind === 'receipt'
+          ? '<div class="form-group"><label class="form-label">Партия</label>'
+            + '<input id="wh-f-batch" class="form-input" placeholder="номер партии"></div>'
+            + '<div class="form-group"><label class="form-label">Годен до</label>'
+            + '<input id="wh-f-expires" class="form-input" type="date"></div>'
+          : '')
       + '</div>';
     // Автоподстановка цены при выборе позиции
     UI.showModal({ title: titleMap[kind], bodyHTML: body, size:'lg', saveLabel:'Сохранить',
@@ -394,6 +458,8 @@
           reason: (document.getElementById('wh-f-reason')||{}).value || '',
           note: (document.getElementById('wh-f-note')||{}).value || '',
           occurred_at: (document.getElementById('wh-f-date')||{}).value || new Date().toISOString().slice(0,10),
+          batch: (document.getElementById('wh-f-batch')||{}).value || '',
+          expires_at: (document.getElementById('wh-f-expires')||{}).value || null,
         };
         await window.VetDB.save('stock_movements', rec);
         // Поступление обновляет закупочную цену позиции.

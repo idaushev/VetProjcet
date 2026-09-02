@@ -844,17 +844,19 @@ func pushStockMovement(ctx context.Context, db *sql.DB, rec stockMovementSyncRec
 	occurredAt := Tp(parseSyncTimePtr(&rec.OccurredAt))
 	_, err = db.ExecContext(ctx, `
 		INSERT INTO stock_movements (id, warehouse_id, item_id, kind, qty, purchase_price, retail_price,
-		                             reason, note, occurred_at, updated_at, deleted_at, is_deleted,
+		                             reason, note, occurred_at, batch, expires_at, updated_at, deleted_at, is_deleted,
 		                             device_id, version, created_at, client_updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		  warehouse_id=excluded.warehouse_id, item_id=excluded.item_id, kind=excluded.kind,
 		  qty=excluded.qty, purchase_price=excluded.purchase_price, retail_price=excluded.retail_price,
 		  reason=excluded.reason, note=excluded.note, occurred_at=excluded.occurred_at,
+		  batch=excluded.batch, expires_at=excluded.expires_at,
 		  updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, is_deleted=excluded.is_deleted,
 		  device_id=excluded.device_id, version=excluded.version, client_updated_at=excluded.client_updated_at`,
 		rec.ID, rec.WarehouseID, rec.ItemID, rec.Kind, rec.Qty, rec.PurchasePrice, rec.RetailPrice,
 		nullableString(rec.Reason), nullableString(rec.Note), occurredAt,
+		nullableString(rec.Batch), Tp(parseSyncTimePtr(rec.ExpiresAt)),
 		serverNow, deletedAt, rec.IsDeleted, nullableString(rec.DeviceID), rec.Version, serverNow, clientAt,
 	)
 	return err == nil, err
@@ -899,7 +901,7 @@ func pullWarehouses(ctx context.Context, db *sql.DB, since time.Time) ([]Warehou
 func pullStockMovements(ctx context.Context, db *sql.DB, since time.Time) ([]StockMovement, error) {
 	q := `SELECT id, warehouse_id, item_id, COALESCE(kind,'receipt'), COALESCE(qty,0),
 	             COALESCE(purchase_price,0), COALESCE(retail_price,0), COALESCE(reason,''), COALESCE(note,''),
-	             occurred_at, created_at, updated_at, deleted_at, is_deleted,
+	             occurred_at, COALESCE(batch,''), expires_at, created_at, updated_at, deleted_at, is_deleted,
 	             COALESCE(device_id,''), COALESCE(version,1) FROM stock_movements`
 	var rows *sql.Rows
 	var err error
@@ -916,15 +918,19 @@ func pullStockMovements(ctx context.Context, db *sql.DB, since time.Time) ([]Sto
 	list := []StockMovement{}
 	for rows.Next() {
 		var m StockMovement
-		var occurred, created, updated, deleted timeScanner
+		var occurred, expires, created, updated, deleted timeScanner
 		if err := rows.Scan(&m.ID, &m.WarehouseID, &m.ItemID, &m.Kind, &m.Qty,
 			&m.PurchasePrice, &m.RetailPrice, &m.Reason, &m.Note,
-			&occurred, &created, &updated, &deleted, &m.IsDeleted, &m.DeviceID, &m.Version); err != nil {
+			&occurred, &m.Batch, &expires, &created, &updated, &deleted, &m.IsDeleted, &m.DeviceID, &m.Version); err != nil {
 			return nil, err
 		}
 		if occurred.t != nil {
 			s := occurred.t.Format(time.RFC3339)
 			m.OccurredAt = &s
+		}
+		if expires.t != nil {
+			e := expires.t.Format(time.RFC3339)
+			m.ExpiresAt = &e
 		}
 		if created.t != nil {
 			m.CreatedAt = *created.t

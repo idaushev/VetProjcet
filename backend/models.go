@@ -430,6 +430,10 @@ type StockMovement struct {
 	Reason        string  `json:"reason"`
 	Note          string  `json:"note"`
 	OccurredAt    *string `json:"occurred_at"`
+	// Партия и срок годности — только у поступлений; списание и продажа
+	// их не несут, поэтому поля необязательные.
+	Batch         string  `json:"batch"`
+	ExpiresAt     *string `json:"expires_at"`
 	SyncMeta
 }
 
@@ -455,6 +459,8 @@ type stockMovementSyncRecord struct {
 	Reason        string  `json:"reason"`
 	Note          string  `json:"note"`
 	OccurredAt    string  `json:"occurred_at"`
+	Batch         string  `json:"batch"`
+	ExpiresAt     *string `json:"expires_at"`
 	UpdatedAt     string  `json:"updated_at"`
 	DeletedAt     *string `json:"deleted_at"`
 	IsDeleted     int     `json:"is_deleted"`
