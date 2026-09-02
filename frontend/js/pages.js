@@ -2286,6 +2286,88 @@
       var avgCheck = visits.length ? Math.round(grandNet / visits.length) : 0;
       var noShowLost = noShowCount * avgCheck;
 
+      // ── Показатели клиники ────────────────────────────────────────────
+      // Учётная система фиксирует прошлое; владельцу нужно видеть, где
+      // деньги. Данные для всех трёх метрик уже собираются — не хватало
+      // только выводов. Считаем по тому же периоду, что и выручку.
+      var allVisitsForMetrics = [];
+      try { allVisitsForMetrics = (await window.VetDB.getAll('visits')).filter(function(v){ return !v.is_deleted; }); }
+      catch (e) { if (window.VetLog) window.VetLog.warn('metrics:visits', e); }
+
+      // 1. Первичные и повторные за период. visit_type пишется в каждый приём,
+      //    но до сих пор нигде не анализировался — только бейдж в списке.
+      var primaryCnt = 0, repeatCnt = 0;
+      visits.forEach(function (v) {
+        if (String(v.visit_type || '').toLowerCase() === 'вторичный') repeatCnt++;
+        else primaryCnt++;
+      });
+      var repeatShare = visits.length ? Math.round(repeatCnt * 100 / visits.length) : 0;
+
+      // 2. Загрузка расписания: занятые слоты из доступных. Пустой слот —
+      //    не «свободно», а упущенная выручка, и её сейчас никто не видит.
+      var slotsBusy = 0, slotsTotal = 0, loadPct = null;
+      try {
+        var st = await loadClinicSettings();
+        var hStart = st && st.sched_start != null ? Number(st.sched_start) : 8;
+        var hEnd   = st && st.sched_end   != null ? Number(st.sched_end)   : 20;
+        var perDay = Math.max(0, (hEnd - hStart) * 2); // слот 30 минут
+        var dFrom = new Date(fromStr), dTo = new Date(toStr);
+        var days = Math.floor((dTo - dFrom) / 86400000) + 1;
+        if (days > 0 && perDay > 0) {
+          slotsTotal = perDay * days;
+          var apptsAll = await window.VetDB.getAll('appointments');
+          slotsBusy = (apptsAll || []).filter(function (a) {
+            if (a.is_deleted || a.status === 'cancelled') return false;
+            var ad = (a.starts_at || '').slice(0, 10);
+            return ad >= fromStr && ad <= toStr;
+          }).length;
+          loadPct = Math.round(slotsBusy * 100 / slotsTotal);
+        }
+      } catch (e) { if (window.VetLog) window.VetLog.warn('metrics:load', e); }
+
+      // 3. Возвращаемость: из питомцев, впервые пришедших в период, сколько
+      //    вернулись в течение 90 дней. Отвечает на вопрос «клиника растёт
+      //    или просто прогоняет поток» и честно покажет эффект напоминаний.
+      var firstByPet = {};
+      allVisitsForMetrics.forEach(function (v) {
+        if (!v.pet_id || !v.date) return;
+        var d = toLocalDateStr(v.date);
+        if (!firstByPet[v.pet_id] || d < firstByPet[v.pet_id]) firstByPet[v.pet_id] = d;
+      });
+      var cohort = 0, returned = 0;
+      Object.keys(firstByPet).forEach(function (petId) {
+        var first = firstByPet[petId];
+        if (first < fromStr || first > toStr) return;
+        cohort++;
+        var deadline = new Date(new Date(first).getTime() + 90 * 86400000).toISOString().slice(0, 10);
+        var came = allVisitsForMetrics.some(function (v) {
+          if (v.pet_id !== petId) return false;
+          var d = toLocalDateStr(v.date);
+          return d > first && d <= deadline;
+        });
+        if (came) returned++;
+      });
+      var returnPct = cohort ? Math.round(returned * 100 / cohort) : null;
+
+      var metricsHTML =
+        '<div class="report-group"><div class="report-group-title">' + I('chart') + ' Показатели клиники</div>'
+        + '<table class="report-table"><tbody>'
+        + '<tr><td>Первичные приёмы</td><td class="num">' + primaryCnt + '</td></tr>'
+        + '<tr><td>Повторные приёмы</td><td class="num">' + repeatCnt
+        + ' <span class="text-muted">(' + repeatShare + '%)</span></td></tr>'
+        + (loadPct === null ? ''
+            : '<tr><td>Загрузка расписания</td><td class="num">' + loadPct + '%'
+              + ' <span class="text-muted">(' + slotsBusy + ' из ' + slotsTotal + ' слотов)</span></td></tr>')
+        + (returnPct === null
+            ? '<tr><td>Возвращаемость новых пациентов</td><td class="num text-muted">нет новых за период</td></tr>'
+            : '<tr><td>Вернулись в течение 90 дней</td><td class="num">' + returnPct + '%'
+              + ' <span class="text-muted">(' + returned + ' из ' + cohort + ' новых)</span></td></tr>')
+        + '</tbody></table>'
+        + '<div class="text-sm text-muted" style="padding:8px 0 0;">'
+        + 'Возвращаемость считается по питомцам, впервые пришедшим в выбранный период; '
+        + 'для свежих дат она ещё неполная — 90 дней не прошли.'
+        + '</div></div>';
+
       var doctorRows = Object.keys(byDoctor).map(function(k){
         var x = byDoctor[k]; x.share = Math.max(0, x.total - x.cash - x.discount); return x;
       }).sort(function(a,b){ return b.share - a.share; });
@@ -2311,6 +2393,7 @@
         + '</div>'
 
         // По врачам
+        + metricsHTML
         + '<div class="report-group"><div class="report-group-title">'+I('stethoscope')+' По врачам</div>'
         + '<table class="report-table"><thead><tr><th>Врач</th><th class="num">Приёмов</th>'
         + '<th class="num">Выручка</th><th class="num">Касса</th><th class="num">Заработок</th></tr></thead><tbody>'
