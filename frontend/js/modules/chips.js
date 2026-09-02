@@ -22,7 +22,16 @@
   // Работает офлайн: всё считается из локальной базы.
   // ═══════════════════════════════════════════════════════════════════════
   var _chipPets = [], _chipOwners = {};
-  var _chipFilter = 'all'; // 'all' — с чипом | 'none' — без чипа | 'month' — за 30 дней
+  // 'all' — с чипом | 'none' — без чипа | 'month' — за 30 дней
+  // | 'notanba' — чип есть, а в госреестре карточки ещё нет
+  var _chipFilter = 'all';
+
+  // У ТАҢБА нет API: карточку в реестр заводит человек через портал. Значит
+  // единственный способ не потерять животное — вести свой список тех, кого
+  // ещё не внесли, и вычёркивать по мере регистрации.
+  function needsTanba(p) {
+    return p.chip_number && p.status === 'active' && !p.tanba_number;
+  }
 
   async function initChips() {
     var [pets, owners] = await Promise.all([
@@ -39,6 +48,7 @@
     setText('chip-stat-total', chipped.length);
     setText('chip-stat-none',  noChip.length);
     setText('chip-stat-month', month.length);
+    setText('chip-stat-notanba', _chipPets.filter(needsTanba).length);
 
     // Карточки-счётчики кликабельны: фильтруют список (с чипом / без чипа /
     // за 30 дней). Клик по активной карточке сбрасывает на «с чипом».
@@ -77,6 +87,8 @@
     var base;
     if (_chipFilter === 'none') {
       base = _chipPets.filter(function(p){ return !p.chip_number && p.status === 'active'; });
+    } else if (_chipFilter === 'notanba') {
+      base = _chipPets.filter(needsTanba);
     } else if (_chipFilter === 'month') {
       base = _chipPets.filter(function(p){ return p.chip_number && p.chip_date && toAstanaStr(p.chip_date) >= monthAgo; });
     } else {
@@ -100,6 +112,7 @@
     if (!list.length) {
       if (q) { el.innerHTML = searchEmpty('search-chips'); return; }
       var emptyText = _chipFilter === 'none' ? 'Все активные животные уже с чипом 👍'
+                    : _chipFilter === 'notanba' ? 'Все чипированные животные заведены в ТАҢБА 👍'
                     : _chipFilter === 'month' ? 'За 30 дней не чипировали'
                     : 'Чипированных животных пока нет';
       el.innerHTML = emptyState(emptyText, null, null, 'paw');
@@ -133,9 +146,14 @@
         + UI.avatar(p.name, p.type)
         + '<div class="erow-body">'
         + '<div class="erow-title"><span class="chip-mono">'+esc(p.chip_number)+'</span>'
+        + (needsTanba(p)?' <span class="chip-nochip">не в ТАҢБА</span>':'')
         + (dead?' <span class="badge badge-'+p.status+'">'+(p.status==='deceased'?'Умер':'Неактивен')+'</span>':'')+'</div>'
         + '<div class="erow-sub">'+esc(p.name)+' · '+esc(p.type||'')+(p.breed?' · '+esc(p.breed):'')
-        + ' · '+esc(owner.fio||'—')+(owner.phone?' · '+I('phone')+' '+esc(owner.phone):'')+'</div>'
+        + ' · '+esc(owner.fio||'—')+(owner.phone?' · '+I('phone')+' '+esc(owner.phone):'')
+        // Без ИИН владельца регистрация на портале не пройдёт — показываем
+        // это прямо в рабочем списке, чтобы не выяснять на портале.
+        + (_chipFilter === 'notanba' && !owner.iin ? ' · <span class="chip-nochip">нет ИИН владельца</span>' : '')
+        + '</div>'
         + '</div>'
         + '<div class="erow-right">'
         + (p.chip_date?'<span class="erow-date">'+fmtDate(p.chip_date)+'</span>':'')
@@ -294,7 +312,8 @@
           gender: document.getElementById('chip-pet-gender').value,
           breed: document.getElementById('chip-pet-breed').value.trim(),
           chip_number: chip,
-          chip_date: dateStr + 'T12:00:00Z'
+          chip_date: dateStr + 'T12:00:00Z',
+          id_method: 'chip'
         });
       } else {
         // ── Существующее животное ──
@@ -307,7 +326,7 @@
           owner_id: existing.owner_id, name: existing.name, type: existing.type, gender: existing.gender,
           birth_date: existing.birth_date || '', breed: existing.breed || '', color: existing.color || '',
           weight: existing.weight, notes: existing.notes || '',
-          chip_number: chip, chip_date: dateStr + 'T12:00:00Z'
+          chip_number: chip, chip_date: dateStr + 'T12:00:00Z', id_method: 'chip'
         });
       }
     } catch(e) { UI.toast(e.message, 'err', 5000); return; }

@@ -54,6 +54,12 @@ type Pet struct {
 	Color       string     `json:"color,omitempty"`
 	ChipNumber  string     `json:"chip_number,omitempty"`
 	ChipDate    *time.Time `json:"chip_date,omitempty"` // дата чипирования
+	IDMethod    string     `json:"id_method,omitempty"`     // вид средства учёта (ТАҢБА)
+	TanbaNumber string     `json:"tanba_number,omitempty"`  // индивидуальный номер в ТАҢБА
+	TanbaAt     *time.Time `json:"tanba_at,omitempty"`      // дата внесения в ТАҢБА
+	KeepAddress string     `json:"keep_address,omitempty"`  // место содержания
+	Sterilized  int        `json:"sterilized"`
+	SterilizedAt *time.Time `json:"sterilized_at,omitempty"`
 	Weight      *float64   `json:"weight,omitempty"`
 	Status      string     `json:"status"` // active|deceased|transferred|lost
 	DeathDate   *time.Time `json:"death_date,omitempty"`
@@ -224,6 +230,12 @@ type petPayload struct {
 	Color       string   `json:"color,omitempty"`
 	ChipNumber  string   `json:"chip_number,omitempty"`
 	ChipDate    string   `json:"chip_date,omitempty"`
+	IDMethod    string   `json:"id_method,omitempty"`
+	TanbaNumber string   `json:"tanba_number,omitempty"`
+	TanbaAt     string   `json:"tanba_at,omitempty"`
+	KeepAddress string   `json:"keep_address,omitempty"`
+	Sterilized  int      `json:"sterilized,omitempty"`
+	SterilizedAt string  `json:"sterilized_at,omitempty"`
 	Weight      *float64 `json:"weight,omitempty"`
 	Notes       string   `json:"notes,omitempty"`
 	Photo       string   `json:"photo,omitempty"`
@@ -378,6 +390,12 @@ type petSyncRecord struct {
 	Color       string   `json:"color"`
 	ChipNumber  string   `json:"chip_number"`
 	ChipDate    *string  `json:"chip_date"`   // "" или null → nil
+	IDMethod    string   `json:"id_method"`
+	TanbaNumber string   `json:"tanba_number"`
+	TanbaAt     *string  `json:"tanba_at"`
+	KeepAddress string   `json:"keep_address"`
+	Sterilized  int      `json:"sterilized"`
+	SterilizedAt *string `json:"sterilized_at"`
 	Weight      *float64 `json:"weight"`
 	Status      string   `json:"status"`
 	DeathDate   *string  `json:"death_date"`  // "" или null → nil

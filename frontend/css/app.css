@@ -1386,6 +1386,14 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
   margin-bottom: 14px;
 }
 
+/* Чекбокс в форме: подпись кликабельна вместе с квадратом, высота строки
+   выравнена по соседнему полю с меткой сверху. */
+.form-check {
+  display: flex; align-items: center; gap: 10px;
+  cursor: pointer; min-height: var(--ctl-h); font-size: var(--fs-md);
+}
+.form-check input[type="checkbox"] { width: 20px; height: 20px; flex: 0 0 auto; }
+
 /* ── Avatar: более выразительный для owner ─────────────────────── */
 .erow-avatar.owner {
   background: linear-gradient(135deg, #e8f4ff, #d6eaff);
@@ -1859,6 +1867,9 @@ mark {
 .pc-health-value.overdue  { color: var(--danger); }
 .pc-health-value.soon     { color: var(--warn); }
 .pc-health-value.none     { color: var(--text-3); font-weight: 400; }
+
+/* Место содержания под карточками госучёта. */
+.pc-keep-address { margin-top: 10px; }
 
 /* Смерть/потеря */
 .pc-deceased-banner {

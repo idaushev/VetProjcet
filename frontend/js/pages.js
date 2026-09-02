@@ -4234,6 +4234,33 @@
         +'</div>';
     }
 
+    // ── Госучёт (ТАҢБА) ───────────────────────────────────────────
+    // У реестра нет API: карточку туда заводит человек через портал. Поэтому
+    // здесь важно не столько показать номер, сколько честно сказать, что
+    // животное с чипом в реестр ещё не внесено — это работа, а не статус.
+    var idMethodLabel = { chip:'Микрочип', tag:'Бирка', tattoo:'Татуировка', other:'Иное' };
+    var tanbaHTML = '';
+    if (pet.chip_number || pet.tanba_number || pet.keep_address || pet.sterilized) {
+      tanbaHTML = '<div class="pc-section">'
+        +'<div class="pc-section-title">Госучёт (ТАҢБА)</div>'
+        +'<div class="pc-health-grid">'
+        +healthCard(idMethodLabel[pet.id_method] || 'Средство учёта',
+            pet.chip_number ? esc(pet.chip_number) : 'Нет',
+            pet.chip_number ? 'ok' : 'none',
+            pet.chip_date ? 'от '+fmtDate(pet.chip_date) : '')
+        +healthCard('В реестре',
+            pet.tanba_number ? esc(pet.tanba_number) : 'Не внесено',
+            pet.tanba_number ? 'ok' : 'soon',
+            pet.tanba_at ? fmtDate(pet.tanba_at) : (pet.chip_number ? 'Завести на портале' : ''))
+        +healthCard('Стерилизация',
+            pet.sterilized ? 'Да' : 'Нет',
+            pet.sterilized ? 'ok' : 'none',
+            pet.sterilized_at ? fmtDate(pet.sterilized_at) : '')
+        +'</div>'
+        +(pet.keep_address ? '<div class="pc-keep-address text-sm text-muted">'+I('pin')+' Содержится: '+esc(pet.keep_address)+'</div>' : '')
+        +'</div>';
+    }
+
     var healthHTML = '<div class="pc-section">'
       +'<div class="pc-section-title">Медицинская сводка</div>'
       +'<div class="pc-health-grid">'
@@ -4292,7 +4319,7 @@
     // ── Собираем всё ─────────────────────────────────────────────
     UI.showModal({
       title: '',
-      bodyHTML: headerHTML + deceasedBanner + ownerHTML + healthHTML + recentHTML + notesHTML + actionsHTML,
+      bodyHTML: headerHTML + deceasedBanner + ownerHTML + tanbaHTML + healthHTML + recentHTML + notesHTML + actionsHTML,
       size: 'lg',
       onSave: false,
       cancelLabel: 'Закрыть',

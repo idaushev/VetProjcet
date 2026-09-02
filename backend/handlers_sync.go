@@ -313,17 +313,34 @@ func pushPet(ctx context.Context, db *sql.DB, rec petSyncRecord) (bool, error) {
 	birthDate := parseSyncTimePtr(rec.BirthDate)
 	deathDate := parseSyncTimePtr(rec.DeathDate)
 	chipDate := parseSyncTimePtr(rec.ChipDate)
+	tanbaAt := parseSyncTimePtr(rec.TanbaAt)
+	sterilizedAt := parseSyncTimePtr(rec.SterilizedAt)
+	sterilized := rec.Sterilized
+	if sterilizedAt != nil {
+		sterilized = 1
+	}
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO pets (id, owner_id, name, type, gender, birth_date, age, breed, color, chip_number, chip_date, photo, weight,
+		INSERT INTO pets (id, owner_id, name, type, gender, birth_date, age, breed, color, chip_number, chip_date,
+		                  id_method, tanba_number, tanba_at, keep_address, sterilized, sterilized_at,
+		                  photo, weight,
 		                  status, death_date, death_reason, notes,
 		                  updated_at, deleted_at, is_deleted, device_id, version, created_at, client_updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		  owner_id=excluded.owner_id, name=excluded.name, type=excluded.type,
 		  gender=excluded.gender, birth_date=excluded.birth_date, age=excluded.age,
 		  breed=excluded.breed, color=excluded.color, chip_number=excluded.chip_number,
 		  -- Пустая дата чипирования от старого клиента не затирает известную.
 		  chip_date=COALESCE(excluded.chip_date, pets.chip_date),
+		  id_method=excluded.id_method,
+		  -- Номер и дата ТАҢБА приходят с той же оговоркой, что и chip_date:
+		  -- клиент старой версии их вообще не шлёт, и пустое поле не должно
+		  -- стирать номер, который в реестре уже есть.
+		  tanba_number=COALESCE(excluded.tanba_number, pets.tanba_number),
+		  tanba_at=COALESCE(excluded.tanba_at, pets.tanba_at),
+		  keep_address=excluded.keep_address,
+		  sterilized=excluded.sterilized,
+		  sterilized_at=COALESCE(excluded.sterilized_at, pets.sterilized_at),
 		  photo=excluded.photo, weight=excluded.weight,
 		  status=excluded.status, death_date=excluded.death_date,
 		  death_reason=excluded.death_reason, notes=excluded.notes,
@@ -338,7 +355,11 @@ func pushPet(ctx context.Context, db *sql.DB, rec petSyncRecord) (bool, error) {
 		// ФОТО молча не доезжал с планшета (push отвечал 200, запись уходила
 		// в skipped, ошибка оставалась только в логе сервера). Пустую строку
 		// передаём как есть. Остальные поля ниже действительно nullable.
-		nullableString(rec.Color), nullableString(rec.ChipNumber), Tp(chipDate), rec.Photo, rec.Weight, status,
+		nullableString(rec.Color), nullableString(rec.ChipNumber), Tp(chipDate),
+		nullableString(normalizeIDMethod(rec.IDMethod, rec.ChipNumber)),
+		nullableString(rec.TanbaNumber), Tp(tanbaAt), nullableString(rec.KeepAddress),
+		clampFlag(sterilized), Tp(sterilizedAt),
+		rec.Photo, rec.Weight, status,
 		Tp(deathDate), nullableString(rec.DeathReason), nullableString(rec.Notes),
 		serverNow, deletedAt, rec.IsDeleted,
 		nullableString(rec.DeviceID), rec.Version, serverNow, clientAt,
@@ -619,7 +640,10 @@ func pullPets(ctx context.Context, db *sql.DB, since time.Time) ([]Pet, error) {
 // устройство, а ошибка глоталась в continue.
 const petSelectAll = `
 SELECT id, owner_id, name, type, gender, birth_date, age, COALESCE(breed,''),
-       COALESCE(color,''), COALESCE(chip_number,''), chip_date, COALESCE(photo,''), weight, COALESCE(status,'active'),
+       COALESCE(color,''), COALESCE(chip_number,''), chip_date,
+       COALESCE(id_method,''), COALESCE(tanba_number,''), tanba_at, COALESCE(keep_address,''),
+       COALESCE(sterilized,0), sterilized_at,
+       COALESCE(photo,''), weight, COALESCE(status,'active'),
        death_date, COALESCE(death_reason,''), COALESCE(notes,''),
        created_at, updated_at, deleted_at, is_deleted, COALESCE(device_id,''), COALESCE(version,1)
 FROM pets`

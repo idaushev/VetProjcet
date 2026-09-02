@@ -16,6 +16,9 @@
       fmtMoney = C.fmtMoney, fmtQty = C.fmtQty,
       printHTML = C.printHTML, loadClinicSettings = C.loadClinicSettings;
 
+  // Подписи способов учёта по ТАҢБА (значения см. normalizeIDMethod на сервере).
+  var ID_METHOD = { chip:'Микрочип', tag:'Бирка', tattoo:'Татуировка', other:'Средство учёта' };
+
   // ═══════════════════════════════════════════════════════════════════════
   // PRINT VISIT CARD (для владельца животного)
   // ═══════════════════════════════════════════════════════════════════════
@@ -377,7 +380,7 @@ ${visit.notes ? `<div class="section">
       + line('Телефон', owner.phone || '')
       + line('Животное', (pet.name || '') + (pet.type ? ', ' + pet.type : '')
              + (pet.breed ? ', ' + pet.breed : ''))
-      + line('Идентификация (чип)', pet.chip_number || '')
+      + line('Идентификация — ' + ((ID_METHOD[pet.id_method] || 'чип').toLowerCase()), pet.chip_number || '')
       + '</div>'
       + '<div class="row"><span class="lbl">Процедура (вмешательство):</span></div>'
       + '<div class="blank"></div><div class="blank"></div>'
@@ -497,6 +500,11 @@ ${visit.notes ? `<div class="section">
       +'<div class="pet-detail">'+(pet.gender==='m'?'♂ Самец':'♀ Самка')+(ageStr?' · '+ageStr:'')+(pet.weight?' · '+I('scale')+' '+pet.weight+' кг':'')+'</div>'
       +(pet.color?'<div class="pet-detail">Окрас: '+esc(pet.color)+'</div>':'')
       +(pet.birth_date?'<div class="pet-detail">Д/р: '+fmtDate(pet.birth_date)+'</div>':'')
+      // Идентификация — в печатной карточке она нужнее всего: с этим листом
+      // владелец идёт регистрировать животное на портале ТАҢБА.
+      +(pet.chip_number?'<div class="pet-detail">'+(ID_METHOD[pet.id_method]||'Средство учёта')+': '+esc(pet.chip_number)
+          +(pet.chip_date?' (от '+fmtDate(pet.chip_date)+')':'')+'</div>':'')
+      +(pet.tanba_number?'<div class="pet-detail">№ в ТАҢБА: '+esc(pet.tanba_number)+'</div>':'')
       +(pet.notes?'<div class="pet-detail" style="margin-top:4px;font-style:italic">'+esc(pet.notes)+'</div>':'')
       +'</div></div>'
       // Владелец

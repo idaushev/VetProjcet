@@ -337,7 +337,7 @@
     return '<div class="form-grid">'
       +'<div class="form-group form-span-2"><label class="form-label">ФИО <span class="form-req">*</span></label><input id="f-fio" class="form-input" value="'+esc(d.fio||'')+'" placeholder="Иванов Иван Иванович"></div>'
       +'<div class="form-group"><label class="form-label">Телефон <span class="form-req">*</span></label><input id="f-phone" class="form-input" type="tel" value="'+esc(d.phone||'')+'" placeholder="+7 777 000 0000"></div>'
-      +'<div class="form-group"><label class="form-label">ИИН</label><input id="f-iin" class="form-input" value="'+esc(d.iin||'')+'" maxlength="12" placeholder="12 цифр"></div>'
+      +'<div class="form-group"><label class="form-label">ИИН</label><input id="f-iin" class="form-input" inputmode="numeric" value="'+esc(d.iin||'')+'" maxlength="12" placeholder="12 цифр"><div class="form-hint">Нужен для регистрации животного в ТАҢБА</div></div>'
       +'<div class="form-group form-span-2"><label class="form-label">Адрес</label><input id="f-address" class="form-input" value="'+esc(d.address||'')+'" placeholder="Город, улица, дом"></div>'
       +'<div class="form-group form-span-2"><label class="form-label">Примечания</label><textarea id="f-notes" class="form-textarea">'+esc(d.notes||'')+'</textarea></div>'
       +'</div>';
@@ -356,7 +356,7 @@
       var totalMons=(now.getFullYear()-bd.getFullYear())*12+(now.getMonth()-bd.getMonth());
       if(totalMons>0){ageYears=Math.floor(totalMons/12); ageMons=totalMons%12;}
     }
-    return '<div class="form-grid">'
+    return '<div class="form-section"><div class="form-grid">'
       +(ownerHint?'<div class="form-group form-span-2"><div class="text-sm text-muted">Владелец: <b>'+esc(ownerHint)+'</b></div></div>':'')
       +'<div class="form-group"><label class="form-label">Кличка <span class="form-req">*</span></label><input id="f-name" class="form-input" value="'+esc(d.name||'')+'" placeholder="Барсик"></div>'
       +'<div class="form-group"><label class="form-label">Вид <span class="form-req">*</span></label><select id="f-type" class="form-select">'+petTypeOpts(d.type||'кошка')+'</select></div>'
@@ -371,7 +371,6 @@
       +'<div class="form-group form-span-2"><label class="form-label">Дата рождения</label><input id="f-birth" class="form-input" type="date" value="'+esc(birth)+'"></div>'
       +'<div class="form-group"><label class="form-label">Вес (кг)</label><input id="f-weight" class="form-input" type="number" step="0.1" min="0" value="'+esc(d.weight!=null?d.weight:'')+'" placeholder="3.5"></div>'
       +'<div class="form-group"><label class="form-label">Цвет / окрас</label><input id="f-color" class="form-input" value="'+esc(d.color||'')+'" placeholder="Рыжий"></div>'
-      +'<div class="form-group"><label class="form-label">№ чипа</label><input id="f-chip" class="form-input" inputmode="numeric" value="'+esc(d.chip_number||'')+'" placeholder="643094100001234" maxlength="20" oninput="VetUI.checkChip()"><div id="f-chip-hint" class="form-hint"></div></div>'
       +'<div class="form-group form-span-2"><label class="form-label">Примечания</label><textarea id="f-notes" class="form-textarea">'+esc(d.notes||'')+'</textarea></div>'
       +'<input type="hidden" id="f-owner-id" value="'+esc(d.owner_id||'')+'">'
       // Фото
@@ -391,7 +390,36 @@
         +'<button class="btn btn-ghost btn-sm" type="button" onclick="event.preventDefault();VetUI.hideModal();setTimeout(function(){VetPages.showPetHistory(\''+esc(d.id)+'\');},200)">'+I('scale')+' История веса</button>'
         +'</div></div>'
         : '')
-      +'</div>';
+      +'</div>'
+      // ── Госучёт (ТАҢБА) ───────────────────────────────────────────────
+      // Реестр не отдаёт API: карточку в него заводит человек через портал.
+      // Поэтому наша задача — держать полный набор требуемых полей и номер,
+      // который реестр присвоил, чтобы потом было с чем сверяться.
+      +'</div><div class="form-section"><div class="form-section-title">Госучёт (ТАҢБА)</div><div class="form-grid">'
+      +'<div class="form-group"><label class="form-label">Способ учёта</label><select id="f-id-method" class="form-select">'+idMethodOpts(d.id_method||(d.chip_number?'chip':''))+'</select></div>'
+      +'<div class="form-group"><label class="form-label">№ чипа</label><input id="f-chip" class="form-input" inputmode="numeric" value="'+esc(d.chip_number||'')+'" placeholder="643094100001234" maxlength="20" oninput="VetUI.checkChip()"><div id="f-chip-hint" class="form-hint"></div></div>'
+      +'<div class="form-group"><label class="form-label">Дата чипирования</label><input id="f-chip-date" class="form-input" type="date" value="'+esc(dateVal(d.chip_date))+'"></div>'
+      +'<div class="form-group"><label class="form-label">Индивидуальный № в ТАҢБА</label><input id="f-tanba" class="form-input" value="'+esc(d.tanba_number||'')+'" placeholder="Номер из реестра"></div>'
+      +'<div class="form-group form-span-2"><label class="form-label">Внесено в ТАҢБА</label><input id="f-tanba-at" class="form-input" type="date" value="'+esc(dateVal(d.tanba_at))+'"><div class="form-hint">Заполните после регистрации на портале — по этой дате видно, кого ещё не внесли</div></div>'
+      +'<div class="form-group form-span-2"><label class="form-label">Место содержания</label><input id="f-keep-address" class="form-input" value="'+esc(d.keep_address||'')+'" placeholder="Если отличается от адреса владельца"></div>'
+      +'<div class="form-group"><label class="form-check"><input type="checkbox" id="f-sterilized"'+(d.sterilized?' checked':'')+'> Стерилизован(а)</label></div>'
+      +'<div class="form-group"><label class="form-label">Дата стерилизации</label><input id="f-sterilized-at" class="form-input" type="date" value="'+esc(dateVal(d.sterilized_at))+'"></div>'
+      +'</div></div>';
+  }
+
+  // Способ идентификации по Правилам: для кошек и собак с 28.08.2026 допустим
+  // только чип, у прочих животных выбор сохраняется — поэтому список, а не
+  // фиксированное значение.
+  function idMethodOpts(cur) {
+    return [['chip','Микрочип'],['tag','Бирка'],['tattoo','Татуировка'],['other','Иное']]
+      .map(function(o){ return '<option value="'+o[0]+'"'+(cur===o[0]?' selected':'')+'>'+o[1]+'</option>'; })
+      .join('');
+  }
+
+  // ISO-дата для <input type="date">: пустая строка, если значения нет.
+  function dateVal(v) {
+    if (!v) return '';
+    try { return new Date(v).toISOString().slice(0,10); } catch (e) { return ''; }
   }
 
   function petFormAfterOpen() {
@@ -423,6 +451,7 @@
 
   function petFormData() {
     var w=parseFloat(document.getElementById('f-weight').value);
+    var val = function (id) { var e=document.getElementById(id); return e ? e.value.trim() : ''; };
     return {
       name:      document.getElementById('f-name').value.trim(),
       type:      document.getElementById('f-type').value,
@@ -430,6 +459,13 @@
       breed:     document.getElementById('f-breed').value.trim(),
       color:      document.getElementById('f-color').value.trim(),
       chip_number: normalizeChip((document.getElementById('f-chip')||{}).value||''),
+      chip_date:   val('f-chip-date'),
+      id_method:   val('f-id-method'),
+      tanba_number: val('f-tanba'),
+      tanba_at:    val('f-tanba-at'),
+      keep_address: val('f-keep-address'),
+      sterilized:  (document.getElementById('f-sterilized')||{}).checked ? 1 : 0,
+      sterilized_at: val('f-sterilized-at'),
       weight:    isNaN(w)?null:w,
       birth_date:document.getElementById('f-birth').value||'',
       notes:     document.getElementById('f-notes').value.trim(),

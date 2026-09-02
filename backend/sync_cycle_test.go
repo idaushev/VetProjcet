@@ -176,3 +176,74 @@ func TestSyncCyclePetSurvivesRoundTrip(t *testing.T) {
 		t.Errorf("номер чипа потерялся: %v", pets[0]["chip_number"])
 	}
 }
+
+// Поля госучёта ТАҢБА проходят полный цикл. Проверка не формальная: колонка
+// photo (NOT NULL DEFAULT '') в паре с nullableString('') уже роняла INSERT,
+// и питомцы без фото молча уходили в skipped — push при этом отвечал 200.
+func TestSyncCycleTanbaFieldsSurviveRoundTrip(t *testing.T) {
+	a := testApp(t)
+
+	res := doPush(t, a, `{
+		"owners":[{"id":"o-9","fio":"Хозяин","phone":"+7 700 999 9999",
+			"version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"pets":[{"id":"p-9","owner_id":"o-9","name":"Тайга","type":"dog","gender":"f",
+			"chip_number":"643094100999888","chip_date":"2026-08-30T12:00:00Z",
+			"id_method":"chip","tanba_number":"KZ-77-001","tanba_at":"2026-09-01T09:00:00Z",
+			"keep_address":"Алматы, дача","sterilized":1,"sterilized_at":"2026-05-20T12:00:00Z",
+			"version":1,"updated_at":"2026-09-01T10:05:00Z"}]}`)
+	if skipped, _ := res["skipped"].(float64); skipped != 0 {
+		t.Fatalf("сервер пропустил запись (skipped=%v) — питомец не доехал", res["skipped"])
+	}
+
+	pets := doPull(t, a, "")["pets"]
+	if len(pets) != 1 {
+		t.Fatalf("питомец не вернулся из pull (получили %d)", len(pets))
+	}
+	p := pets[0]
+	for _, c := range []struct{ field, want string }{
+		{"id_method", "chip"},
+		{"tanba_number", "KZ-77-001"},
+		{"keep_address", "Алматы, дача"},
+	} {
+		if got, _ := p[c.field].(string); got != c.want {
+			t.Errorf("%s = %q, ожидалось %q", c.field, got, c.want)
+		}
+	}
+	if v, _ := p["sterilized"].(float64); v != 1 {
+		t.Errorf("sterilized = %v, ожидалось 1", p["sterilized"])
+	}
+	if p["tanba_at"] == nil || p["sterilized_at"] == nil {
+		t.Errorf("даты госучёта потерялись: tanba_at=%v sterilized_at=%v", p["tanba_at"], p["sterilized_at"])
+	}
+}
+
+// Клиент старой версии полей ТАҢБА не шлёт вовсе. Его push не должен стирать
+// номер, который в реестре уже есть, — иначе одна синхронизация со старого
+// планшета обнулит работу, сделанную вручную на портале.
+func TestSyncCycleOldClientKeepsTanbaNumber(t *testing.T) {
+	a := testApp(t)
+
+	doPush(t, a, `{
+		"owners":[{"id":"o-10","fio":"Хозяин","phone":"+7 700 111 2222",
+			"version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"pets":[{"id":"p-10","owner_id":"o-10","name":"Рекс","type":"dog","gender":"m",
+			"chip_number":"643094100777666","tanba_number":"KZ-77-002",
+			"version":1,"updated_at":"2026-09-01T10:05:00Z"}]}`)
+
+	// Тот же питомец со старого клиента: полей ТАҢБА в payload нет.
+	doPush(t, a, `{
+		"pets":[{"id":"p-10","owner_id":"o-10","name":"Рекс Второй","type":"dog","gender":"m",
+			"chip_number":"643094100777666",
+			"version":2,"updated_at":"2026-09-01T11:00:00Z"}]}`)
+
+	pets := doPull(t, a, "")["pets"]
+	if len(pets) != 1 {
+		t.Fatalf("ожидали одного питомца, получили %d", len(pets))
+	}
+	if got, _ := pets[0]["name"].(string); got != "Рекс Второй" {
+		t.Errorf("обновление имени не применилось: %q", got)
+	}
+	if got, _ := pets[0]["tanba_number"].(string); got != "KZ-77-002" {
+		t.Errorf("старый клиент затёр номер ТАҢБА: %q", got)
+	}
+}

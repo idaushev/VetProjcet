@@ -90,7 +90,10 @@ func (a *app) listPets(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	q := `SELECT id, owner_id, name, type, gender, birth_date, age, COALESCE(breed,''),
-	             COALESCE(color,''), COALESCE(chip_number,''), chip_date, COALESCE(photo,''), weight, COALESCE(status,'active'),
+	             COALESCE(color,''), COALESCE(chip_number,''), chip_date,
+       COALESCE(id_method,''), COALESCE(tanba_number,''), tanba_at, COALESCE(keep_address,''),
+       COALESCE(sterilized,0), sterilized_at,
+       COALESCE(photo,''), weight, COALESCE(status,'active'),
 	             death_date, COALESCE(death_reason,''), COALESCE(notes,''),
 	             created_at, updated_at, deleted_at, is_deleted, COALESCE(device_id,''), COALESCE(version,1)
 	      FROM pets WHERE is_deleted=0`
@@ -197,12 +200,15 @@ func (a *app) createPet(w http.ResponseWriter, r *http.Request) {
 	}
 	now := T(nowUTC())
 	if _, err := a.db.ExecContext(ctx,
-		`INSERT INTO pets (id, owner_id, name, type, gender, birth_date, age, breed, color, chip_number, chip_date, photo, weight,
+		`INSERT INTO pets (id, owner_id, name, type, gender, birth_date, age, breed, color, chip_number, chip_date,
+		                   id_method, tanba_number, tanba_at, keep_address, sterilized, sterilized_at, photo, weight,
 		                   status, notes, created_at, updated_at, version)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, 1)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, 1)`,
 		pet.ID, pet.OwnerID, pet.Name, pet.Type, pet.Gender,
 		nullableTime(pet.BirthDate), pet.Age, nullableString(pet.Breed),
-		nullableString(pet.Color), nullableString(pet.ChipNumber), nullableTime(pet.ChipDate), pet.Photo,
+		nullableString(pet.Color), nullableString(pet.ChipNumber), nullableTime(pet.ChipDate),
+		nullableString(pet.IDMethod), nullableString(pet.TanbaNumber), nullableTime(pet.TanbaAt),
+		nullableString(pet.KeepAddress), pet.Sterilized, nullableTime(pet.SterilizedAt), pet.Photo,
 		pet.Weight, nullableString(pet.Notes),
 		now, now,
 	); err != nil {
@@ -240,23 +246,33 @@ func (a *app) updatePet(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 
-	// chip_date: явную дату из payload пишем; иначе COALESCE сохраняет старую,
-	// а если чип появился впервые — ставим сегодня.
+	// chip_date выбирается по трём аргументам, в порядке приоритета:
+	// явная дата из формы → уже сохранённая → сегодня (чип появился впервые).
+	//
+	// Раньше в SQL стояло COALESCE(chip_date, ?) — сохранённая дата била
+	// присланную, и поле в форме было бы нередактируемым. Просто поменять
+	// местами нельзя: клиент, который chip_date не шлёт, подставлял бы
+	// сегодняшнюю дату и затирал настоящую при каждом сохранении.
 	var chipDateArg interface{} = nullableTime(pet.ChipDate)
-	if pet.ChipDate == nil && pet.ChipNumber != "" {
+	var chipDateFallback interface{}
+	if pet.ChipNumber != "" {
 		t := nowUTC()
-		chipDateArg = nullableTime(&t)
+		chipDateFallback = nullableTime(&t)
 	}
 	res, err := a.db.ExecContext(ctx,
 		`UPDATE pets SET owner_id=?, name=?, type=?, gender=?, birth_date=?, age=?,
 		                 breed=?, color=?, chip_number=?,
-		                 chip_date=CASE WHEN ?='' THEN NULL ELSE COALESCE(chip_date, ?) END,
+		                 chip_date=CASE WHEN ?='' THEN NULL ELSE COALESCE(?, chip_date, ?) END,
+		                 id_method=?, tanba_number=?, tanba_at=?, keep_address=?,
+		                 sterilized=?, sterilized_at=?,
 		                 photo=?, weight=?, notes=?, updated_at=?, version=version+1
 		 WHERE id=? AND is_deleted=0`,
 		pet.OwnerID, pet.Name, pet.Type, pet.Gender,
 		nullableTime(pet.BirthDate), pet.Age,
 		nullableString(pet.Breed), nullableString(pet.Color), nullableString(pet.ChipNumber),
-		pet.ChipNumber, chipDateArg,
+		pet.ChipNumber, chipDateArg, chipDateFallback,
+		nullableString(pet.IDMethod), nullableString(pet.TanbaNumber), nullableTime(pet.TanbaAt),
+		nullableString(pet.KeepAddress), pet.Sterilized, nullableTime(pet.SterilizedAt),
 		pet.Photo,
 		pet.Weight, nullableString(pet.Notes), T(nowUTC()), id,
 	)
@@ -397,7 +413,10 @@ func resolvePetID(ctx context.Context, tx *sql.Tx, pet Pet) (string, error) {
 
 const petSelectByID = `
 SELECT id, owner_id, name, type, gender, birth_date, age, COALESCE(breed,''),
-       COALESCE(color,''), COALESCE(chip_number,''), chip_date, COALESCE(photo,''), weight, COALESCE(status,'active'),
+       COALESCE(color,''), COALESCE(chip_number,''), chip_date,
+       COALESCE(id_method,''), COALESCE(tanba_number,''), tanba_at, COALESCE(keep_address,''),
+       COALESCE(sterilized,0), sterilized_at,
+       COALESCE(photo,''), weight, COALESCE(status,'active'),
        death_date, COALESCE(death_reason,''), COALESCE(notes,''),
        created_at, updated_at, deleted_at, is_deleted, COALESCE(device_id,''), COALESCE(version,1)
 FROM pets WHERE id=?`
@@ -414,11 +433,14 @@ func scanPet(rows interface{ Scan(...interface{}) error }) (Pet, error) {
 func scanPetRow(s interface{ Scan(...interface{}) error }) (Pet, error) {
 	var p Pet
 	var birthDate, chipDate, deathDate, createdAt, updatedAt, deletedAt timeScanner
+	var tanbaAt, sterilizedAt timeScanner
 	var weight sql.NullFloat64
 	var age sql.NullInt64
 	err := s.Scan(
 		&p.ID, &p.OwnerID, &p.Name, &p.Type, &p.Gender,
-		&birthDate, &age, &p.Breed, &p.Color, &p.ChipNumber, &chipDate, &p.Photo, &weight,
+		&birthDate, &age, &p.Breed, &p.Color, &p.ChipNumber, &chipDate,
+		&p.IDMethod, &p.TanbaNumber, &tanbaAt, &p.KeepAddress, &p.Sterilized, &sterilizedAt,
+		&p.Photo, &weight,
 		&p.Status, &deathDate, &p.DeathReason, &p.Notes,
 		&createdAt, &updatedAt, &deletedAt,
 		&p.IsDeleted, &p.DeviceID, &p.Version,
@@ -428,6 +450,8 @@ func scanPetRow(s interface{ Scan(...interface{}) error }) (Pet, error) {
 	}
 	p.BirthDate = birthDate.ptr()
 	p.ChipDate = chipDate.ptr()
+	p.TanbaAt = tanbaAt.ptr()
+	p.SterilizedAt = sterilizedAt.ptr()
 	p.DeathDate = deathDate.ptr()
 	p.DeletedAt = deletedAt.ptr()
 	if createdAt.t != nil { p.CreatedAt = *createdAt.t }
@@ -494,6 +518,30 @@ func validateChip(chip string) error {
 	return nil
 }
 
+// normalizeIDMethod — вид средства учёта по ТАҢБА.
+//
+// Для кошек и собак с 28.08.2026 допустим только микрочип, но у прочих
+// животных выбор способа идентификации сохраняется, поэтому поле есть.
+// Пустое значение при заполненном номере считаем чипом: карточки, заведённые
+// до появления поля, не должны выглядеть «без способа учёта».
+func normalizeIDMethod(m, chip string) string {
+	switch strings.ToLower(strings.TrimSpace(m)) {
+	case "chip", "tag", "tattoo", "other":
+		return strings.ToLower(strings.TrimSpace(m))
+	}
+	if chip != "" {
+		return "chip"
+	}
+	return ""
+}
+
+func clampFlag(v int) int {
+	if v != 0 {
+		return 1
+	}
+	return 0
+}
+
 func petFromPayload(p petPayload) (Pet, error) {
 	pet := Pet{
 		ID:         strings.TrimSpace(p.ID),
@@ -505,6 +553,10 @@ func petFromPayload(p petPayload) (Pet, error) {
 		Breed:      strings.TrimSpace(p.Breed),
 		Color:      strings.TrimSpace(p.Color),
 		ChipNumber: normalizeChip(p.ChipNumber),
+		IDMethod:    normalizeIDMethod(p.IDMethod, normalizeChip(p.ChipNumber)),
+		TanbaNumber: strings.TrimSpace(p.TanbaNumber),
+		KeepAddress: strings.TrimSpace(p.KeepAddress),
+		Sterilized:  clampFlag(p.Sterilized),
 		Photo:      strings.TrimSpace(p.Photo),
 		Weight:     p.Weight,
 		Notes:      strings.TrimSpace(p.Notes),
@@ -529,6 +581,21 @@ func petFromPayload(p petPayload) (Pet, error) {
 		if cd, err := parseFlexibleDate(strings.TrimSpace(p.ChipDate)); err == nil {
 			pet.ChipDate = &cd
 		}
+	}
+	if strings.TrimSpace(p.TanbaAt) != "" {
+		if td, err := parseFlexibleDate(strings.TrimSpace(p.TanbaAt)); err == nil {
+			pet.TanbaAt = &td
+		}
+	}
+	if strings.TrimSpace(p.SterilizedAt) != "" {
+		if sd, err := parseFlexibleDate(strings.TrimSpace(p.SterilizedAt)); err == nil {
+			pet.SterilizedAt = &sd
+		}
+	}
+	// Дата без флага — всё равно «стерилизован»: иначе отметка,
+	// проставленная одной только датой, молча пропадёт.
+	if pet.SterilizedAt != nil {
+		pet.Sterilized = 1
 	}
 	if p.BirthDate != "" {
 		t, err := parseFlexibleDate(p.BirthDate)

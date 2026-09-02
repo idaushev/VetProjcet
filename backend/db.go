@@ -121,6 +121,14 @@ CREATE TABLE IF NOT EXISTS pets (
     color        TEXT,
     chip_number  TEXT,
     chip_date    DATETIME,            -- дата чипирования (для реестра чипов)
+    -- Поля под госреестр ТАҢБА. Все nullable: колонка NOT NULL DEFAULT ''
+    -- в паре с nullableString('') уже роняла синк питомцев (см. photo).
+    id_method    TEXT,                -- вид средства учёта: chip|tag|tattoo|other
+    tanba_number TEXT,                -- индивидуальный номер животного в ТАҢБА
+    tanba_at     DATETIME,            -- когда карточку внесли в ТАҢБА
+    keep_address TEXT,                -- место содержания, если не совпадает с адресом владельца
+    sterilized   INTEGER NOT NULL DEFAULT 0,
+    sterilized_at DATETIME,
     photo        TEXT NOT NULL DEFAULT '',
     weight       REAL,
     status       TEXT NOT NULL DEFAULT 'active',
@@ -378,6 +386,16 @@ var migrations = []string{
 	   WHERE chip_number IS NOT NULL AND chip_number <> '' AND is_deleted = 0`,
 	`CREATE INDEX IF NOT EXISTS idx_pets_chip ON pets(chip_number)`,
 	`ALTER TABLE pets ADD COLUMN photo TEXT DEFAULT ''`,
+	// Госреестр ТАҢБА: чипирование кошек и собак обязательно с 28.08.2026,
+	// API у реестра нет — данные вносит человек через портал, поэтому наша
+	// задача держать полный набор полей и видеть, кого ещё не внесли.
+	`ALTER TABLE pets ADD COLUMN id_method TEXT`,
+	`ALTER TABLE pets ADD COLUMN tanba_number TEXT`,
+	`ALTER TABLE pets ADD COLUMN tanba_at DATETIME`,
+	`ALTER TABLE pets ADD COLUMN keep_address TEXT`,
+	`ALTER TABLE pets ADD COLUMN sterilized INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE pets ADD COLUMN sterilized_at DATETIME`,
+	`CREATE INDEX IF NOT EXISTS idx_pets_tanba ON pets(tanba_number)`,
 	`CREATE INDEX IF NOT EXISTS idx_pets_status  ON pets(status)`,
 	`CREATE INDEX IF NOT EXISTS idx_pets_updated ON pets(updated_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_pets_deleted ON pets(is_deleted)`,
