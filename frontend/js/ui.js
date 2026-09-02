@@ -279,6 +279,26 @@
     overlay.classList.add('open');
     if (cfg.afterOpen) setTimeout(cfg.afterOpen, 40);
 
+    // UX-029: фокус в первое значимое поле формы. Только для указательных
+    // устройств: на планшете автофокус поднял бы экранную клавиатуру и закрыл
+    // половину формы, что хуже одного касания. Пропускаем скрытые поля, поля
+    // только для чтения и модалки без сохранения (карточки, просмотры).
+    if (cfg.onSave && window.matchMedia && window.matchMedia('(pointer: fine)').matches) {
+      setTimeout(function () {
+        if (!overlay.classList.contains('open')) return;
+        if (document.activeElement && modalBody.contains(document.activeElement)) return;
+        var first = null;
+        var cands = modalBody.querySelectorAll('input, select, textarea');
+        for (var i = 0; i < cands.length; i++) {
+          var el = cands[i];
+          if (el.disabled || el.readOnly || el.type === 'hidden') continue;
+          if (!el.offsetParent) continue;            // скрыт (свёрнутая секция)
+          first = el; break;
+        }
+        if (first) { try { first.focus(); } catch (e) {} }
+      }, 90); // после afterOpen: он дорисовывает поля формы
+    }
+
     // Защита от потери данных: запоминаем состояние формы после открытия.
     // Guard включаем только у модалок с сохранением (onSave) — у карточек
     // и просмотров терять нечего. Снимок с задержкой: afterOpen дорисовывает

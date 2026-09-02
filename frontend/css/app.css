@@ -361,6 +361,12 @@ h4 { font-size: var(--fs-md);   font-weight: 600; }
 
 .nav-list { padding: 8px 10px; flex: 1; }
 .nav-list > li { margin-bottom: 2px; }
+/* UX-026: одиночный пункт вне групп (Настройки). Отделён чертой — служебный
+   раздел не должен читаться как ещё одна операционная группа. */
+.nav-list-standalone {
+  flex: 0 0 auto; padding-top: 6px; margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
 
 .nav-item {
   display: flex; align-items: center; gap: 10px;
@@ -1082,8 +1088,15 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 .ac-item:hover, .ac-item.focused {
   background: var(--bg-hover);
 }
+/* UX-028: строка результата = текст + быстрое действие справа. */
+.ac-item:has(.ac-quick) { display: flex; align-items: center; gap: 10px; }
+.ac-item-main  { flex: 1 1 auto; min-width: 0; }
+.ac-quick      { flex: 0 0 auto; white-space: nowrap; }
 .ac-item-title { font-weight: 600; color: var(--text); }
 .ac-item-sub   { font-size: var(--fs-sm); color: var(--text-2); margin-top: 2px; }
+/* Длинные ФИО/клички не должны выдавливать кнопку за край выпадашки. */
+.ac-item-main .ac-item-title,
+.ac-item-main .ac-item-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ac-create     { color: var(--accent); font-weight: 600; }
 .ac-create:hover { background: var(--accent-dim) !important; }
 
@@ -2413,6 +2426,10 @@ body[data-role="reception"] #ssg-analytics { display: none; }
   z-index: 3000;
   max-height: 320px;
   overflow-y: auto;
+  /* UX-028: результат теперь несёт быстрое действие, и ширины поля поиска на
+     планшете не хватает — имя сжималось до нечитаемого. Выпадашка шире поля:
+     тянется вправо, но не за край экрана. */
+  min-width: min(360px, calc(100vw - 24px));
 }
 @media (max-width: 640px) {
   .topbar-search { max-width: none; margin: 0 8px; }

@@ -277,16 +277,18 @@
       </div>
 
       <!-- Настройки — всегда в низу навигации (Пользователи внутри, вкладкой) -->
-      <div class="ss-group" id="ssg-settings">
-        <ul class="nav-list ss-body" style="padding-top:0">
-          <li>
-            <a class="nav-item" data-page="settings" href="#settings" title="Настройки клиники" aria-label="Настройки клиники">
-              <i data-icon="settings" data-icon-size="22" class="nav-icon"></i>
-              <span class="nav-text">Настройки</span>
-            </a>
-          </li>
-        </ul>
-      </div>
+      <!-- UX-026: настройки — не «группа без заголовка», а отдельный пункт
+           в конце меню. Группа-обёртка вокруг одного пункта без названия была
+           технической деталью, вылезшей в интерфейс: свернуть её нельзя
+           (нет ss-label), а ритм списка групп она ломала. -->
+      <ul class="nav-list nav-list-standalone" id="nav-settings">
+        <li>
+          <a class="nav-item" data-page="settings" href="#settings" title="Настройки клиники" aria-label="Настройки клиники">
+            <i data-icon="settings" data-icon-size="22" class="nav-icon"></i>
+            <span class="nav-text">Настройки</span>
+          </a>
+        </li>
+      </ul>
 
       </div><!-- /sidebar-nav -->
 
@@ -344,18 +346,9 @@
         <div class="page-header">
           <h1 class="page-title">Обзор</h1>
           <div class="page-actions">
-            <!-- Быстрый переход в склад: сама страница SPA, поэтому navigate().
-                 Кнопка живёт только при включённом модуле — гейт через
-                 body.mod-warehouse-on (его ставит applyWarehouseModuleUI). -->
-            <a class="btn btn-ghost needs-mod-warehouse" href="#warehouse"
-               data-act="nav.go" data-page="warehouse" data-act-prevent="1" title="Открыть склад" aria-label="Открыть склад">
-              Склад ↗
-            </a>
-            <!-- Кабинет владельца — отдельное приложение, новая вкладка. -->
-            <a class="btn btn-ghost needs-mod-portal" id="dash-portal-link" href="/portal" target="_blank" rel="noopener"
-               title="Открыть кабинет владельца в новой вкладке" aria-label="Открыть кабинет владельца в новой вкладке">
-              Кабинет владельца ↗
-            </a>
+            <!-- UX-023: зона действий содержит только действия. Переходы в склад
+                 и в кабинет владельца жили здесь и конкурировали с главной
+                 кнопкой; оба перехода остались в сайдбаре — место навигации там. -->
             <button class="btn btn-primary" data-act="visit.newFromDashboard">
               + Новый приём
             </button>
@@ -444,7 +437,7 @@
         <div class="page-header">
           <h1 class="page-title">Владельцы</h1>
           <div class="page-actions">
-            <button class="btn btn-primary" id="btn-add-owner">+ Добавить</button>
+            <button class="btn btn-primary" id="btn-add-owner">+ Владелец</button>
           </div>
         </div>
         <div class="toolbar">
@@ -461,7 +454,7 @@
         <div class="page-header">
           <h1 class="page-title">Животные</h1>
           <div class="page-actions">
-            <button class="btn btn-primary" id="btn-add-pet">+ Добавить</button>
+            <button class="btn btn-primary" id="btn-add-pet">+ Животное</button>
           </div>
         </div>
         <div class="toolbar">
@@ -541,7 +534,7 @@
         <div class="page-header">
           <h1 class="page-title">Вакцинации</h1>
           <div class="page-actions">
-            <button class="btn btn-primary" id="btn-add-vaccination">+ Добавить</button>
+            <button class="btn btn-primary" id="btn-add-vaccination">+ Вакцинация</button>
           </div>
         </div>
         <div class="toolbar">
@@ -675,7 +668,7 @@
               <i data-icon="upload" data-icon-size="16"></i> Импорт Excel
               <input type="file" id="excel-import-input" accept=".xlsx,.xls" style="display:none" data-act="items.import" data-act-on="change">
             </label>
-            <button class="btn btn-primary" id="btn-add-item">+ Добавить</button>
+            <button class="btn btn-primary" id="btn-add-item">+ Позиция</button>
           </div>
         </div>
         <div class="toolbar">
@@ -697,7 +690,7 @@
         <div class="page-header">
           <h1 class="page-title">Персонал</h1>
           <div class="page-actions">
-            <button class="btn btn-primary" id="btn-add-staff">+ Добавить</button>
+            <button class="btn btn-primary" id="btn-add-staff">+ Сотрудник</button>
           </div>
         </div>
         <div class="toolbar">
@@ -1004,7 +997,7 @@
             <div class="card" style="max-width:820px;">
               <div class="card-header">
                 <span class="card-title">Учётные записи</span>
-                <button class="btn btn-primary btn-sm" id="btn-add-user">+ Добавить</button>
+                <button class="btn btn-primary btn-sm" id="btn-add-user">+ Пользователь</button>
               </div>
               <div class="card-body" style="padding:16px 20px;">
                 <div class="text-sm text-muted" style="margin-bottom:10px;">

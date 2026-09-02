@@ -117,7 +117,10 @@ func (a *app) createItem(w http.ResponseWriter, r *http.Request) {
 
 	now := T(nowUTC())
 	if _, err := a.db.ExecContext(ctx,
-		`INSERT INTO items (id, name, type, price, cost_price, cost_mode, cost_percent, purchase_price, is_active, created_at, updated_at, version)
+		// result_mode и protocol_id отсутствовали в списке колонок, хотя значения
+		// для них передавались: 12 колонок против 14 значений — INSERT падал,
+		// и создать позицию каталога было нельзя вообще.
+		`INSERT INTO items (id, name, type, price, cost_price, cost_mode, cost_percent, purchase_price, result_mode, protocol_id, is_active, created_at, updated_at, version)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 1)`,
 		id, strings.TrimSpace(p.Name), normalizeItemType(p.Type), p.Price, cost, mode, percent, p.PurchasePrice,
 		normalizeResultMode(p.ResultMode), nullableString(p.ProtocolID), now, now,

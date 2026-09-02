@@ -1994,7 +1994,8 @@
   }
 
   async function deleteVaccination(id) {
-    var ok = await UI.confirm('Удалить запись о вакцинации?', '');
+    var ok = await UI.confirm('Удалить запись о вакцинации?',
+      'Запись исчезнет из истории животного, и срок следующей вакцинации по ней считаться не будет. Действие необратимо.');
     if (!ok) return;
     try { await api('DELETE', '/vaccinations/'+id);
       // Прямой DELETE на сервер (гарантирует удаление даже если sync/push не работает)
@@ -5806,21 +5807,45 @@
         dd.classList.add('show');
         return;
       }
+      // UX-028: у найденного — сразу действие. Самое частое намерение после
+      // «нашёл» — начать приём; раньше для этого нужно было открыть карточку.
+      // Умершим животным приём не предлагаем.
+      function quickBtn(kind, id) {
+        return '<button type="button" class="btn btn-ghost btn-sm ac-quick" data-quick="'+kind+'" data-qid="'+id+'"'
+             + ' title="Новый приём" aria-label="Новый приём">+ Приём</button>';
+      }
       dd.innerHTML =
         ownerHits.map(function(o) {
           return '<div class="ac-item" data-kind="owner" data-id="'+o.id+'">'
+            + '<div class="ac-item-main">'
             + '<div class="ac-item-title">'+I('user')+' '+esc(o.fio)+'</div>'
-            + '<div class="ac-item-sub">'+esc(o.phone||'')+'</div></div>';
+            + '<div class="ac-item-sub">'+esc(o.phone||'')+'</div></div>'
+            + quickBtn('owner', o.id) + '</div>';
         }).join('')
         + petHits.map(function(p) {
             var o = ownersMap[p.owner_id] || {};
             return '<div class="ac-item" data-kind="pet" data-id="'+p.id+'">'
+              + '<div class="ac-item-main">'
               + '<div class="ac-item-title">'+I('paw')+' '+esc(p.name)+(p.status==='deceased'?' †':'')+'</div>'
-              + '<div class="ac-item-sub">'+esc(p.type||'')+(o.fio?' · '+esc(o.fio):'')+'</div></div>';
+              + '<div class="ac-item-sub">'+esc(p.type||'')+(o.fio?' · '+esc(o.fio):'')+'</div></div>'
+              + (p.status === 'deceased' ? '' : quickBtn('pet', p.id)) + '</div>';
           }).join('');
       dd.classList.add('show');
+      // Быстрое действие: вешаем раньше строки и гасим всплытие, иначе
+      // сработает переход в карточку (обработчик строки — на том же mousedown).
+      dd.querySelectorAll('.ac-quick').forEach(function(btn) {
+        btn.onmousedown = function(e) {
+          e.preventDefault(); e.stopPropagation();
+          dd.classList.remove('show');
+          inp.value = '';
+          var id = btn.dataset.qid;
+          if (btn.dataset.quick === 'pet') newVisitForPet(id);
+          else newVisitForOwner(id);
+        };
+      });
       dd.querySelectorAll('.ac-item[data-id]').forEach(function(el) {
         el.onmousedown = function(e) { // mousedown — раньше blur, иначе dropdown закроется до клика
+          if (e.target.closest && e.target.closest('.ac-quick')) return; // клик по кнопке
           e.preventDefault();
           dd.classList.remove('show');
           inp.value = '';
