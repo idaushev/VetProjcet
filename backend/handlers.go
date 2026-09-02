@@ -104,6 +104,9 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /backups",      a.requireAdmin(a.handleBackups))
 	mux.HandleFunc("POST /backups/run", a.requireAdmin(a.handleBackupRun))
 
+	// Отзывы после приёма (NPS) — сводка для владельца клиники.
+	mux.HandleFunc("GET /feedback", a.requireAdmin(a.handleFeedback))
+
 	// Задачи сотрудникам (см. handlers_tasks.go). Права общие: задача —
 	// рабочая заметка, а не медицинские данные.
 	mux.HandleFunc("GET /tasks",         a.handleTasks)

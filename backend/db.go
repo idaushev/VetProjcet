@@ -606,6 +606,20 @@ var migrations = []string{
 	`ALTER TABLE stock_movements ADD COLUMN batch TEXT`,
 	`ALTER TABLE stock_movements ADD COLUMN expires_at DATETIME`,
 
+	// Отзывы после приёма (NPS). Живут вне общего синка: ответы приходят
+	// в бот на сервере, на планшете не правятся.
+	`CREATE TABLE IF NOT EXISTS visit_feedback (
+	    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	    visit_id    TEXT NOT NULL,
+	    owner_id    TEXT NOT NULL,
+	    score       INTEGER,
+	    comment     TEXT,
+	    asked_at    DATETIME,
+	    answered_at DATETIME
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_feedback_owner ON visit_feedback(owner_id)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_visit ON visit_feedback(visit_id)`,
+
 	// Ручные задачи сотрудникам («перезвонить клиенту», «заказать препарат»).
 	// Автоматический список «Требуют внимания» на дашборде закрывает только
 	// то, что система может вывести сама; всё остальное сейчас живёт

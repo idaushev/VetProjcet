@@ -104,6 +104,7 @@ func (a *app) startTelegramNotifier() {
 		for {
 			if a.tgToken() != "" && a.remindersEnabled() {
 				a.reminderSweep()
+				a.askFeedbackSweep()
 			}
 			time.Sleep(time.Hour)
 		}
@@ -383,6 +384,16 @@ func (a *app) handleTelegramUpdate(u tgUpdate) {
 	_ = a.db.QueryRowContext(ctx,
 		`SELECT owner_id FROM owner_telegram WHERE chat_id=?`, chatID).Scan(&ownerID)
 	if ownerID != "" && text != "/start" {
+		// Оценка визита и комментарий к низкой оценке разбираются ДО выдачи
+		// пароля: иначе ответ «9» на вопрос «оцените приём» вернул бы
+		// владельцу пароль, а отзыв потерялся бы (см. feedback.go).
+		if a.tryRecordFeedback(ctx, chatID, ownerID, text) {
+			return
+		}
+		if a.tryRecordFeedbackComment(ctx, ownerID, text) {
+			a.telegramReply(ctx, chatID, "Спасибо, передали руководителю клиники.", nil)
+			return
+		}
 		a.sendPortalCode(ctx, chatID, ownerID, "")
 		return
 	}

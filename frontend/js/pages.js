@@ -2374,6 +2374,25 @@
       });
       var returnPct = cohort ? Math.round(returned * 100 / cohort) : null;
 
+      // Оценки приёмов (NPS) — только у админа: маршрут под requireAdmin.
+      var npsRow = '';
+      try {
+        if (window.VetAuth && VetAuth.user() && VetAuth.user().role === 'admin' && navigator.onLine) {
+          var base = (window.VetAppConfig && window.VetAppConfig.apiBase) || '';
+          var nf = window.__nativeFetch || window.fetch.bind(window);
+          var fbRes = await nf(base + '/feedback?from=' + fromStr + '&to=' + toStr, {
+            headers: { 'X-Bypass-Local': '1', 'X-Auth-Token': (VetAuth.token && VetAuth.token()) || '' }
+          });
+          var fbBody = await fbRes.json();
+          if (fbRes.ok && fbBody.status === 'ok' && fbBody.data && fbBody.data.count) {
+            var fb = fbBody.data;
+            npsRow = '<tr><td>Оценка приёма (NPS)</td><td class="num">' + fb.nps
+              + ' <span class="text-muted">(средняя ' + fb.average.toFixed(1)
+              + ' по ' + fb.count + ' ответам)</span></td></tr>';
+          }
+        }
+      } catch (e) { if (window.VetLog) window.VetLog.warn('metrics:nps', e); }
+
       var metricsHTML =
         '<div class="report-group"><div class="report-group-title">' + I('chart') + ' Показатели клиники</div>'
         + '<table class="report-table"><tbody>'
@@ -2387,6 +2406,7 @@
             ? '<tr><td>Возвращаемость новых пациентов</td><td class="num text-muted">нет новых за период</td></tr>'
             : '<tr><td>Вернулись в течение 90 дней</td><td class="num">' + returnPct + '%'
               + ' <span class="text-muted">(' + returned + ' из ' + cohort + ' новых)</span></td></tr>')
+        + npsRow
         + '</tbody></table>'
         + '<div class="text-sm text-muted" style="padding:8px 0 0;">'
         + 'Возвращаемость считается по питомцам, впервые пришедшим в выбранный период; '
