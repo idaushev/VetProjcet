@@ -3270,7 +3270,7 @@
         return;
       }
       el.innerHTML = items.map(function (r) {
-        return '<div class="erow" style="padding-left:0;padding-right:0;">'
+        return '<div class="erow flush-x">'
           + '<div class="erow-body">'
           + '<div class="erow-title">' + esc(r.title || '—') + '</div>'
           + '<div class="erow-sub">' + esc(r.label || '')
@@ -3804,7 +3804,7 @@
       title: 'Новая задача',
       size: 'lg',
       bodyHTML:
-        '<div style="display:grid;gap:12px;">'
+        '<div class="form-stack">'
         + '<div class="form-group"><label class="form-label">Что сделать<span class="form-req">*</span></label>'
         + '<input id="task-title" class="form-input" value="' + esc(prefillTitle || '') + '" placeholder="Перезвонить по результатам анализов"></div>'
         + '<div class="form-group"><label class="form-label">Срок</label>'
@@ -4618,7 +4618,7 @@
     }
     el.innerHTML = list.map(function (d) {
       var hint = [d.treatment, d.recommendations].filter(Boolean).join(' · ');
-      return '<div class="erow" style="padding-left:0;padding-right:0;">'
+      return '<div class="erow flush-x">'
         + '<div class="erow-body"><div class="erow-title">' + esc(d.name) + '</div>'
         + '<div class="erow-sub">' + esc(hint ? hint.slice(0, 90) : 'без заготовки') + '</div></div>'
         + '<div class="erow-right">'
@@ -4644,7 +4644,7 @@
       title: cur ? 'Изменить диагноз' : 'Новый диагноз',
       size: 'lg',
       bodyHTML:
-        '<div style="display:grid;gap:12px;">'
+        '<div class="form-stack">'
         + '<div class="form-group"><label class="form-label">Диагноз<span class="form-req">*</span></label>'
         + '<input id="diag-name" class="form-input" value="' + esc(cur ? cur.name : '') + '" placeholder="Отит наружного уха"></div>'
         + '<div class="form-group"><label class="form-label">Назначение и лечение</label>'
@@ -4784,7 +4784,7 @@
       title: 'Настройка клиники',
       size: 'lg',
       bodyHTML: wizardHeader()
-        + '<div class="form-grid" style="display:grid;gap:12px;">'
+        + '<div class="form-grid form-stack">'
         + '<div class="form-group"><label class="form-label">Название клиники<span class="form-req">*</span></label>'
         + '<input id="wiz-name" class="form-input" value="' + esc(st.name || '') + '" placeholder="Ветклиника «Айболит»"></div>'
         + '<div class="form-group"><label class="form-label">Телефон</label>'
@@ -4827,7 +4827,7 @@
     try { staff = (await window.VetDB.getAll('staff')).filter(function (s) { return !s.is_deleted; }); } catch (e) {}
     var list = staff.length
       ? '<div style="margin-bottom:12px;">' + staff.map(function (s) {
-          return '<div class="erow" style="padding-left:0;padding-right:0;"><div class="erow-body">'
+          return '<div class="erow flush-x"><div class="erow-body">'
                + '<div class="erow-title">' + esc(s.name) + '</div>'
                + '<div class="erow-sub">' + esc(ROLE_LABELS[s.role] || s.role || '') + '</div></div></div>';
         }).join('') + '</div>'
@@ -4841,7 +4841,7 @@
       title: 'Кто принимает',
       size: 'lg',
       bodyHTML: wizardHeader() + list
-        + '<div style="display:grid;gap:12px;">'
+        + '<div class="form-stack">'
         + '<div class="form-group"><label class="form-label">ФИО сотрудника</label>'
         + '<input id="wiz-staff-name" class="form-input" placeholder="Иванов Иван"></div>'
         + '<div class="form-group"><label class="form-label">Должность</label>'

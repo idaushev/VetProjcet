@@ -499,7 +499,7 @@
             <option value="deceased">Умершие</option>
             <option value="all">Все</option>
           </select>
-          <select class="filter-select" id="filter-owner-id" style="max-width:var(--ctl-w-md);" aria-label="Владелец">
+          <select class="filter-select ctl-md" id="filter-owner-id" aria-label="Владелец">
             <option value="">Все владельцы</option>
           </select>
         </div>
@@ -517,11 +517,11 @@
         <div class="toolbar" style="flex-wrap:wrap;gap:10px;">
           <div class="flex-gap" style="align-items:center;">
             <button class="btn btn-ghost btn-sm" id="sched-prev" title="Предыдущий день" aria-label="Предыдущий день">←</button>
-            <input type="date" id="sched-date" class="form-input" style="width:var(--ctl-w-sm);" aria-label="Дата расписания">
+            <input type="date" id="sched-date" class="form-input" class="ctl-sm" aria-label="Дата расписания">
             <button class="btn btn-ghost btn-sm" id="sched-next" title="Следующий день" aria-label="Следующий день">→</button>
             <button class="btn btn-ghost btn-sm" id="sched-today">Сегодня</button>
           </div>
-          <select class="filter-select" id="sched-doctor" aria-label="Врач" style="max-width:var(--ctl-w-md);">
+          <select class="filter-select ctl-md" id="sched-doctor" aria-label="Врач">
             <option value="">Все врачи</option>
           </select>
           <div id="sched-view" class="flex-gap" role="group" aria-label="Вид расписания">
@@ -553,7 +553,7 @@
             <button class="filter-btn active" data-period="today">Сегодня</button>
             <button class="filter-btn" data-period="week">Неделя</button>
           </div>
-          <select class="filter-select" id="visit-doctor-filter" aria-label="Врач" style="max-width:var(--ctl-w-md);">
+          <select class="filter-select ctl-md" id="visit-doctor-filter" aria-label="Врач">
             <option value="">Все врачи</option>
           </select>
         </div>
@@ -598,7 +598,7 @@
               <label class="form-label">Дата</label>
               <div class="flex-gap" style="align-items:center;">
                 <button class="btn btn-ghost btn-sm" id="report-date-prev" title="Предыдущий день" aria-label="Предыдущий день">←</button>
-                <input type="date" id="report-date" class="form-input" style="width:var(--ctl-w-sm);" aria-label="Дата отчёта">
+                <input type="date" id="report-date" class="form-input" class="ctl-sm" aria-label="Дата отчёта">
                 <button class="btn btn-ghost btn-sm" id="report-date-next" title="Следующий день" aria-label="Следующий день">→</button>
                 <button class="btn btn-ghost btn-sm" id="report-date-today">Сегодня</button>
               </div>
@@ -627,11 +627,11 @@
           <div class="report-controls">
             <div class="form-group">
               <label class="form-label">С</label>
-              <input type="date" id="revenue-from" class="form-input" style="width:var(--ctl-w-sm);">
+              <input type="date" id="revenue-from" class="form-input" class="ctl-sm">
             </div>
             <div class="form-group">
               <label class="form-label">По</label>
-              <input type="date" id="revenue-to" class="form-input" style="width:var(--ctl-w-sm);">
+              <input type="date" id="revenue-to" class="form-input" class="ctl-sm">
             </div>
             <div class="revenue-presets">
               <button class="btn btn-sm btn-ghost" data-preset="week">Неделя</button>
@@ -747,7 +747,7 @@
             <div class="stat-card stat-card-link" data-cf="none" role="button" tabindex="0" title="Показать животных без чипа"><div class="stat-value" id="chip-stat-none">—</div><div class="stat-label">Без чипа ↗</div></div>
             <div class="stat-card stat-card-link" data-cf="month" role="button" tabindex="0" title="Чипированные за последние 30 дней"><div class="stat-value" id="chip-stat-month">—</div><div class="stat-label">Чипировано за 30 дней ↗</div></div>
           </div>
-          <div class="toolbar" style="padding-left:0;padding-right:0;">
+          <div class="toolbar flush-x">
             <div class="toolbar-search">
               <i data-icon="search" data-icon-size="18" class="toolbar-search-icon"></i>
               <input type="search" class="search-input" id="search-chips" aria-label="Поиск по чипам"
@@ -777,17 +777,17 @@
         </div>
         <div class="page-inner">
           <div class="settings-panel active" data-whpanel="stock">
-            <div class="toolbar" style="padding-left:0;padding-right:0;">
+            <div class="toolbar flush-x">
               <div class="toolbar-search">
                 <i data-icon="search" data-icon-size="18" class="toolbar-search-icon"></i>
                 <input type="search" class="search-input" id="wh-stock-search" aria-label="Поиск по остаткам" placeholder="Поиск позиции...">
               </div>
-              <select class="filter-select" id="wh-stock-warehouse" aria-label="Склад" style="max-width:var(--ctl-w-md);"></select>
+              <select class="filter-select ctl-md" id="wh-stock-warehouse" aria-label="Склад"></select>
             </div>
             <div id="wh-stock-list" class="entity-list"></div>
           </div>
           <div class="settings-panel" data-whpanel="moves" style="display:none;">
-            <div class="toolbar" style="padding-left:0;padding-right:0;">
+            <div class="toolbar flush-x">
               <div class="toolbar-search">
                 <i data-icon="search" data-icon-size="18" class="toolbar-search-icon"></i>
                 <input type="search" class="search-input" id="wh-moves-search" aria-label="Поиск по движениям" placeholder="Поиск позиции...">
@@ -806,18 +806,18 @@
             <div class="report-controls">
               <div class="form-group">
                 <label class="form-label">С</label>
-                <input type="date" id="wh-rep-from" class="form-input" style="width:var(--ctl-w-sm);">
+                <input type="date" id="wh-rep-from" class="form-input" class="ctl-sm">
               </div>
               <div class="form-group">
                 <label class="form-label">По</label>
-                <input type="date" id="wh-rep-to" class="form-input" style="width:var(--ctl-w-sm);">
+                <input type="date" id="wh-rep-to" class="form-input" class="ctl-sm">
               </div>
               <div class="revenue-presets">
                 <button class="btn btn-sm btn-ghost" data-wrep="week">Неделя</button>
                 <button class="btn btn-sm btn-ghost" data-wrep="month">Месяц</button>
                 <button class="btn btn-sm btn-ghost" data-wrep="prev-month">Пред. месяц</button>
               </div>
-              <select class="filter-select" id="wh-rep-warehouse" aria-label="Склад" style="max-width:var(--ctl-w-md);"></select>
+              <select class="filter-select ctl-md" id="wh-rep-warehouse" aria-label="Склад"></select>
             </div>
             <div id="wh-report-content"></div>
           </div>
