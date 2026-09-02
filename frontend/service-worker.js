@@ -12,7 +12,7 @@
 
 // ── Версия ────────────────────────────────────────────────────────
 // Поднимайте при каждом деплое → старые кэши удалятся автоматически
-var APP_VERSION  = "2.79.0"; // bumped: расписание вынесено в modules/schedule.js
+var APP_VERSION  = "2.80.0"; // bumped: печатные формы в modules/print.js
 var CACHE_APP    = "vet-app-"   + APP_VERSION;  // версионированные ресурсы
 var CACHE_FONTS  = "vet-fonts-1";               // шрифты (стабильный кэш)
 
@@ -41,6 +41,7 @@ var PRECACHE = [
   "/js/pages.js",
   "/js/modules/chips.js",
   "/js/modules/schedule.js",
+  "/js/modules/print.js",
   "/js/modules/warehouse.js",
   "/js/modules/telegram.js",
   "/icons/icon.svg",
