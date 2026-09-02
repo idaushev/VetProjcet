@@ -2925,3 +2925,28 @@ body.mod-portal-off .needs-mod-portal { display: none !important; }
 }
 .proto-range { display: flex; gap: 8px; }
 .proto-range .form-input { min-width: 0; }
+
+
+/* ── Настройка прав пользователя ───────────────────────────────────── */
+
+.perm-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+/* Пояснение под названием раздела: что именно попадает под это право. */
+.perm-hint {
+  display: block; font-size: var(--fs-sm); font-weight: 400;
+  color: var(--text-3); margin-top: 2px;
+}
+
+/* Предупреждение о настройке, которая молча ничего не покажет. */
+.perm-warn { color: var(--warn); }
+.perm-warn:empty { display: none; }
+
+/* Сводка прав в списке пользователей. */
+.perm-summary { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px; }
+.perm-chip {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  font-size: var(--fs-sm); background: var(--bg-2, rgba(0,0,0,.04)); color: var(--text-2);
+}
+.perm-chip-all  { color: var(--accent); }
+.perm-chip-off  { color: var(--danger); }
+.perm-chip-warn { color: var(--warn); font-weight: 600; }

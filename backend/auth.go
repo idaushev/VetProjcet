@@ -311,13 +311,15 @@ func pathTable(p string) string {
 		return "owners"
 	case strings.HasPrefix(p, "/pets"):
 		return "pets"
-	// Записи расписания живут под правами приёмов: отдельная настройка
-	// не нужна — кто ведёт приёмы, тот и управляет записью.
-	// Шаблоны диагнозов — часть приёма: кто ведёт приёмы, тот и правит шаблоны.
-	// Раньше путь не был известен pathTable, и любой вошедший мог их менять
-	// независимо от выданных прав.
+	// Расписание — СВОЁ право. Раньше жило под правами приёмов, но это
+	// смешивает две разные работы: регистратура записывает клиентов, не имея
+	// доступа к медицинской части, а врач ведёт приём, не трогая чужую сетку.
+	case strings.HasPrefix(p, "/appointments"):
+		return "appointments"
+	// Вложения, шаблоны диагнозов и результаты — части приёма, отдельной
+	// настройки не требуют: кто ведёт приём, тот и работает с ними.
 	case strings.HasPrefix(p, "/visits"), strings.HasPrefix(p, "/visit-items"),
-		strings.HasPrefix(p, "/attachments"), strings.HasPrefix(p, "/appointments"),
+		strings.HasPrefix(p, "/attachments"),
 		strings.HasPrefix(p, "/diagnoses"), strings.HasPrefix(p, "/results"):
 		return "visits"
 	case strings.HasPrefix(p, "/vaccinations"):
@@ -577,6 +579,21 @@ func validateUserPayload(p userPayload, isCreate bool) error {
 	}
 	if !isCreate && p.Password != "" && len(p.Password) < 6 {
 		return errors.New("Пароль не короче 6 символов")
+	}
+	// «Только свои суммы» без связи с сотрудником — молчаливая поломка:
+	// sumsVisible сравнивает staff_id приёма с u.StaffID, и при пустом
+	// StaffID не совпадает НИЧТО. Человек видит нули вместо выручки и не
+	// понимает, почему. Ловим на входе, а не оставляем выяснять в бою.
+	if len(p.Permissions) > 0 {
+		var ps permSet
+		if json.Unmarshal(p.Permissions, &ps) == nil {
+			if ps.Sums == "own" && strings.TrimSpace(p.StaffID) == "" {
+				return errors.New("«Только свои суммы» требует связи с сотрудником — выберите сотрудника или смените режим сумм")
+			}
+			if ps.Sums == "selected" && len(ps.SumsStaff) == 0 {
+				return errors.New("Выбран режим «суммы выбранных врачей», но ни один врач не отмечен")
+			}
+		}
 	}
 	return nil
 }

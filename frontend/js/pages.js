@@ -5468,6 +5468,31 @@
     return r ? r.l : v;
   }
 
+  // Короткая сводка прав в списке: раньше настройку было видно, только открыв
+  // каждого пользователя, и «почему регистратура правит цены» выяснялось
+  // перебором. Показываем то, что отличается от полного доступа.
+  function permSummary(u) {
+    if (u.role === 'admin') return '<span class="perm-chip perm-chip-all">полный доступ</span>';
+    var p = u.permissions || {};
+    var t = p.tables || {};
+    var chips = [];
+    if (!p.tables) {
+      // Пустые права = полный доступ (см. tableLevel на сервере). Это легко
+      // проглядеть при заведении пользователя, поэтому говорим прямо.
+      chips.push('<span class="perm-chip perm-chip-warn">права не настроены — доступ ко всему</span>');
+    } else {
+      var closed = PERM_TABLES.filter(function (x) { return t[x.v] === 'none'; }).map(function (x) { return x.l; });
+      var ro     = PERM_TABLES.filter(function (x) { return t[x.v] === 'view'; }).map(function (x) { return x.l; });
+      if (closed.length) chips.push('<span class="perm-chip perm-chip-off">закрыто: '+esc(closed.join(', '))+'</span>');
+      if (ro.length)     chips.push('<span class="perm-chip">только чтение: '+esc(ro.join(', '))+'</span>');
+      if (!closed.length && !ro.length) chips.push('<span class="perm-chip perm-chip-all">полный доступ</span>');
+    }
+    if (p.sums === 'own')      chips.push('<span class="perm-chip">суммы: свои</span>');
+    if (p.sums === 'selected') chips.push('<span class="perm-chip">суммы: выбранных врачей</span>');
+    if (p.portal_codes)        chips.push('<span class="perm-chip">выдаёт пароли в кабинет</span>');
+    return chips.join(' ');
+  }
+
   function renderUserList() {
     var el = document.getElementById('users-list');
     if (!el) return;
@@ -5479,6 +5504,7 @@
         + '<div class="erow-title">'+esc(u.display_name)
         + (u.is_active?'':' <span class="badge badge-inactive">Отключён</span>')+'</div>'
         + '<div class="erow-sub">'+esc(u.login)+' · '+esc(userRoleLabel(u.role))+'</div>'
+        + '<div class="erow-sub perm-summary">'+permSummary(u)+'</div>'
         + '</div>'
         + '<div class="erow-right"><div class="erow-actions">'
         + '<button class="btn btn-icon" data-act="user.edit" data-id="'+u.id+'" title="Редактировать">'+UI.icon('edit','')+'</button>'
@@ -5502,7 +5528,7 @@
       + '<div class="form-group"><label class="form-label">'+(u.id?'Новый пароль (пусто — не менять)':'Пароль <span class="form-req">*</span>')+'</label>'
       + '<input id="fu-password" class="form-input" type="password" autocomplete="new-password" placeholder="минимум 6 символов"></div>'
       + '<div class="form-group form-span-2"><label class="form-label">Сотрудник клиники (необязательно)</label>'
-      + '<select id="fu-staff" class="form-select"><option value="">— не связан —</option>'
+      + '<select id="fu-staff" class="form-select" data-act="user.staffChange" data-act-on="change"><option value="">— не связан —</option>'
       + staff.map(function(st){ return '<option value="'+st.id+'"'+(st.id===u.staff_id?' selected':'')+'>'+esc(st.name)+'</option>'; }).join('')
       + '</select>'
       + '<div class="form-hint">Пользователь не обязан быть врачом: админ или регистратор — тоже пользователи.</div></div>'
@@ -5517,13 +5543,44 @@
   // ── Конструктор прав ────────────────────────────────────────────
   // Для роли admin блок скрыт: админ может всё, права не редактируются.
   var PERM_TABLES = [
-    { v: 'visits',       l: 'Приёмы' },
-    { v: 'owners',       l: 'Владельцы' },
-    { v: 'pets',         l: 'Животные' },
-    { v: 'vaccinations', l: 'Вакцинации' },
-    { v: 'items',        l: 'Каталог' },
-    { v: 'staff',        l: 'Персонал' },
+    { v: 'visits',       l: 'Приёмы',      hint: 'вложения, шаблоны диагнозов и результаты анализов — здесь же' },
+    { v: 'appointments', l: 'Расписание',  hint: 'запись клиентов; не даёт доступа к медицинской части' },
+    { v: 'owners',       l: 'Владельцы',   hint: '' },
+    { v: 'pets',         l: 'Животные',    hint: '' },
+    { v: 'vaccinations', l: 'Вакцинации',  hint: '' },
+    { v: 'items',        l: 'Каталог',     hint: 'услуги и препараты, цены' },
+    { v: 'staff',        l: 'Персонал',    hint: '' },
   ];
+
+  // Типовые наборы прав. Роль сама по себе ничего не ограничивала: врач и
+  // регистратура получали полный доступ ко всему, пока администратор вручную
+  // не выставит семь списков. Пресет — отправная точка, дальше можно править.
+  //
+  // Администратора здесь нет намеренно: у него доступ всюду по определению
+  // (см. tableLevel), и блок прав для него скрыт.
+  var ROLE_PRESETS = {
+    doctor: {
+      title: 'Врач',
+      note: 'Ведёт приёмы и медкарты. Каталог и персонал — только смотрит, суммы видит свои.',
+      tables: { visits:'edit', appointments:'edit', owners:'edit', pets:'edit',
+                vaccinations:'edit', items:'view', staff:'view' },
+      sums: 'own', portal_codes: false
+    },
+    reception: {
+      title: 'Регистратура',
+      note: 'Записывает и заводит клиентов. Медкарты видит, но не правит. Выдаёт пароли в кабинет владельца.',
+      tables: { visits:'view', appointments:'edit', owners:'edit', pets:'edit',
+                vaccinations:'view', items:'view', staff:'view' },
+      sums: 'all', portal_codes: true
+    },
+    warehouse: {
+      title: 'Склад',
+      note: 'Работает с каталогом и остатками. К медицинской части доступа нет.',
+      tables: { visits:'none', appointments:'none', owners:'none', pets:'none',
+                vaccinations:'none', items:'edit', staff:'none' },
+      sums: 'all', portal_codes: false
+    }
+  };
   var PERM_LEVELS = [
     { v: 'none',   l: 'Нет доступа (скрыть раздел)' },
     { v: 'view',   l: 'Только просмотр' },
@@ -5540,19 +5597,26 @@
 
     var rows = PERM_TABLES.map(function(t){
       var cur = tables[t.v] || 'edit';
-      return '<div class="perm-row"><span class="perm-table">'+t.l+'</span>'
+      return '<div class="perm-row">'
+        + '<span class="perm-table">'+t.l
+        + (t.hint ? '<span class="perm-hint">'+esc(t.hint)+'</span>' : '')
+        + '</span>'
         + '<select class="form-select perm-select" data-table="'+t.v+'">'
         + PERM_LEVELS.map(function(l){ return '<option value="'+l.v+'"'+(l.v===cur?' selected':'')+'>'+l.l+'</option>'; }).join('')
         + '</select></div>';
     }).join('');
 
     var staffChecks = staff.map(function(st){
-      return '<label class="perm-staff-check"><input type="checkbox" data-sums-staff="'+st.id+'"'
+      return '<label class="perm-staff-check"><input type="checkbox" data-act="user.sumsStaffToggle" data-sums-staff="'+st.id+'"'
         + (sumsStaff.indexOf(st.id)>=0?' checked':'')+'> '+esc(st.name)+'</label>';
     }).join('');
 
     return '<div class="form-group form-span-2" id="fu-perms-block"'+(isAdmin?' style="display:none"':'')+'>'
+      + '<div class="perm-head">'
       + '<label class="form-label">Права доступа</label>'
+      + '<button type="button" class="btn btn-ghost btn-sm" data-act="user.preset">Типовые для роли</button>'
+      + '</div>'
+      + '<div id="fu-preset-note" class="form-hint"></div>'
       + '<div class="perm-grid">'+rows+'</div>'
       + '<div style="margin-top:12px;">'
       + '<label class="form-label">Какие суммы видит</label>'
@@ -5562,6 +5626,7 @@
       + '<option value="selected"'+(sums==='selected'?' selected':'')+'>Суммы выбранных врачей</option>'
       + '</select>'
       + '<div id="fu-sums-staff" class="perm-staff-list" style="'+(sums==='selected'?'':'display:none')+'">'+staffChecks+'</div>'
+      + '<div id="fu-sums-warn" class="form-hint perm-warn"></div>'
       + '</div>'
       + '<div style="margin-top:12px;">'
       + '<label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">'
@@ -5571,6 +5636,50 @@
       + '</div>'
       + '<div class="form-hint">«Нет доступа» прячет раздел из меню. Сервер не примет правки сверх этих прав, но данные на устройство синхронизируются целиком.</div>'
       + '</div>';
+  }
+
+  // Подставляет типовой набор для выбранной роли, не трогая остальную форму.
+  function applyRolePreset() {
+    var role = (document.getElementById('fu-role') || {}).value;
+    var preset = ROLE_PRESETS[role];
+    if (!preset) {
+      UI.toast(role === 'admin'
+        ? 'У администратора доступ ко всем разделам — настраивать нечего'
+        : 'Для этой роли типового набора нет', 'warn');
+      return;
+    }
+    document.querySelectorAll('.perm-select').forEach(function (sel) {
+      var lvl = preset.tables[sel.dataset.table];
+      if (lvl) sel.value = lvl;
+    });
+    var sums = document.getElementById('fu-sums');
+    if (sums) { sums.value = preset.sums; sums.dispatchEvent(new Event('change', { bubbles: true })); }
+    var pc = document.getElementById('fu-portal-codes');
+    if (pc) pc.checked = !!preset.portal_codes;
+    var note = document.getElementById('fu-preset-note');
+    if (note) note.textContent = preset.title + ': ' + preset.note;
+    checkSumsStaff();
+    UI.toast('Права выставлены по роли «' + preset.title + '» — поправьте, если нужно', 'ok');
+  }
+
+  // «Только свои суммы» без связи с сотрудником не работает вовсе: сравнение
+  // идёт по staff_id, и при пустой связи не совпадает ничто — человек видит
+  // нули вместо выручки. Сервер это отклонит, но сказать надо раньше.
+  function checkSumsStaff() {
+    var warn = document.getElementById('fu-sums-warn');
+    if (!warn) return;
+    var sums = (document.getElementById('fu-sums') || {}).value;
+    var staff = (document.getElementById('fu-staff') || {}).value;
+    if (sums === 'own' && !staff) {
+      warn.textContent = 'Выберите сотрудника выше — иначе «свои суммы» не с чем сравнивать и человек не увидит ни одной суммы.';
+      warn.style.display = '';
+    } else if (sums === 'selected' && !document.querySelector('[data-sums-staff]:checked')) {
+      warn.textContent = 'Отметьте хотя бы одного врача — иначе суммы не будет видно вовсе.';
+      warn.style.display = '';
+    } else {
+      warn.textContent = '';
+      warn.style.display = 'none';
+    }
   }
 
   function collectPermissions() {
@@ -5609,6 +5718,7 @@
 
   async function addUser() {
     UI.showModal({ title: 'Новый пользователь', bodyHTML: await userFormHTML(), size: 'lg',
+      afterOpen: checkSumsStaff,
       onSave: async function() {
         var d = userFormData(false);
         try { await api('POST', '/users', d); UI.toast('Пользователь создан', 'ok'); UI.hideModal(); await initUsers(); }
@@ -5621,6 +5731,7 @@
     var u = _users.find(function(x){ return x.id===id; });
     if (!u) return;
     UI.showModal({ title: 'Пользователь: '+u.display_name, bodyHTML: await userFormHTML(u), size: 'lg',
+      afterOpen: checkSumsStaff,
       onSave: async function() {
         var d = userFormData(true);
         try { await api('PUT', '/users/'+id, d); UI.toast('Сохранено', 'ok'); UI.hideModal(); await initUsers(); }
@@ -5947,7 +6058,11 @@
       'user.sumsChange': function (el) {
         var b = document.getElementById('fu-sums-staff');
         if (b) b.style.display = el.value === 'selected' ? '' : 'none';
-      }
+        checkSumsStaff();
+      },
+      'user.preset':     function () { applyRolePreset(); },
+      'user.staffChange': function () { checkSumsStaff(); },
+      'user.sumsStaffToggle': function () { checkSumsStaff(); }
     });
   }
 
