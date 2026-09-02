@@ -195,6 +195,9 @@ func (a *app) handleHealth(w http.ResponseWriter, r *http.Request) {
 		Data: map[string]string{
 			"service": "vetclinic",
 			"env":     a.config.Env,
+			// Версия сервера нужна поддержке и скрипту обновления: по ней
+			// видно, что после замены exe поднялась именно новая сборка.
+			"version": serverVersion,
 			"time":    time.Now().UTC().Format(time.RFC3339),
 		},
 	})

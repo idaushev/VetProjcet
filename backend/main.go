@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+// serverVersion — версия серверной сборки. Отдаётся в /health: скрипт
+// обновления по ней проверяет, что поднялась именно новая сборка, а
+// поддержка — что стоит у клиники. Поднимать при выпуске.
+const serverVersion = "2.71.0"
+
 func main() {
 	logger := log.New(os.Stdout, "[vet] ", log.LstdFlags)
 
