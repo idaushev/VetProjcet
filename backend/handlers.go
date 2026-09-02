@@ -231,7 +231,14 @@ func sameOrigin(origin string, r *http.Request) bool {
 // животных хранятся data-URL внутри записи.
 const contentSecurityPolicy = "default-src 'self'; " +
 	"script-src 'self'; " +
+	// style-src-elem без 'unsafe-inline': инлайновых <style> не осталось,
+	// печатные документы и портал грузят свои файлы из /css. Внедрённый
+	// <style> опаснее атрибута — селекторами он умеет вытягивать содержимое
+	// страницы. Атрибуты style= в разметке ещё есть, поэтому style-src-attr
+	// пока мягкий; общий style-src оставлен запасным для старых браузеров.
 	"style-src 'self' 'unsafe-inline'; " +
+	"style-src-elem 'self'; " +
+	"style-src-attr 'unsafe-inline'; " +
 	"img-src 'self' data: blob:; " +
 	"font-src 'self' data:; " +
 	"connect-src 'self'; " +

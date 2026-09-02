@@ -1652,13 +1652,32 @@
       setTimeout(function () { frame.remove(); }, 60000);
     }
 
-    // Ждём картинки (логотип клиники), иначе печать уйдёт без них.
-    if (frame.contentWindow.document.images.length) {
-      frame.onload = fire;
-      setTimeout(fire, opts.timeout || 1500); // страховка, если onload не придёт
-    } else {
-      setTimeout(fire, opts.delay || 300);
+    // Стили печатного документа теперь внешние (/css/print-*.css): их надо
+    // дождаться, иначе лист уйдёт без оформления. Потолок обязателен —
+    // недоступная таблица не должна навсегда заблокировать печать.
+    function whenStylesReady(cb) {
+      var links = doc.querySelectorAll('link[rel="stylesheet"]');
+      if (!links.length) { cb(); return; }
+      var left = links.length, done = false;
+      function finish() { if (!done) { done = true; cb(); } }
+      function tick() { if (--left <= 0) finish(); }
+      for (var i = 0; i < links.length; i++) {
+        if (links[i].sheet) { tick(); continue; }   // уже применилась
+        links[i].addEventListener('load', tick);
+        links[i].addEventListener('error', tick);
+      }
+      setTimeout(finish, 2000);
     }
+
+    whenStylesReady(function () {
+      // Ждём картинки (логотип клиники), иначе печать уйдёт без них.
+      if (frame.contentWindow.document.images.length) {
+        frame.onload = fire;
+        setTimeout(fire, opts.timeout || 1500); // страховка, если onload не придёт
+      } else {
+        setTimeout(fire, opts.delay || 300);
+      }
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════════

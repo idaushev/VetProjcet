@@ -12,7 +12,7 @@
 
 // ── Версия ────────────────────────────────────────────────────────
 // Поднимайте при каждом деплое → старые кэши удалятся автоматически
-var APP_VERSION  = "2.85.0"; // bumped: инлайновые обработчики -> делегирование, строгая CSP
+var APP_VERSION  = "2.86.0"; // bumped: блоки <style> вынесены в файлы
 var CACHE_APP    = "vet-app-"   + APP_VERSION;  // версионированные ресурсы
 var CACHE_FONTS  = "vet-fonts-1";               // шрифты (стабильный кэш)
 
@@ -23,6 +23,13 @@ var PRECACHE = [
   "/offline.html",
   "/manifest.json",
   "/css/app.css",
+  "/css/print-visit.css",
+  "/css/print-pet.css",
+  "/css/print-consent.css",
+  "/css/print-owner.css",
+  "/css/print-vacc.css",
+  "/css/print-chip.css",
+  "/css/portal.css",
   "/vendor/xlsx.full.min.js",
   "/vendor/fonts/inter.css",
   // Предзагружаем только те начертания, что нужны с первого экрана;

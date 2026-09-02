@@ -373,18 +373,7 @@
     var settings = await loadClinicSettings();
 
     var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Сертификат чипирования — '+esc(pet.name)+'</title>'
-      + '<style>'
-      + 'body{font-family:Arial,sans-serif;color:#1a2434;max-width:640px;margin:24px auto;padding:0 16px;}'
-      + '.head{display:flex;align-items:center;gap:14px;border-bottom:2px solid #1a8c5e;padding-bottom:12px;margin-bottom:18px;}'
-      + '.head img{height:56px;} h1{font-size:18pt;margin:0;} .sub{color:#526070;font-size:10pt;}'
-      + '.chip{font-family:Consolas,monospace;font-size:20pt;font-weight:bold;letter-spacing:2px;'
-      +   'border:2px solid #1a8c5e;border-radius:10px;padding:12px 18px;text-align:center;margin:16px 0;}'
-      + 'table{width:100%;border-collapse:collapse;font-size:11pt;} td{padding:7px 4px;border-bottom:1px solid #e0e8f2;}'
-      + 'td:first-child{color:#526070;width:42%;}'
-      + '.sign{display:flex;justify-content:space-between;margin-top:36px;font-size:10pt;color:#526070;}'
-      + '.sign div{border-top:1px solid #5d6f81;padding-top:6px;width:40%;text-align:center;}'
-      + '@media print{.no-print{display:none}}'
-      + '</style></head><body>'
+      + '<link rel="stylesheet" href="/css/print-chip.css"></head><body>'
       + '<div class="head">'
       + (settings.logo ? '<img src="'+settings.logo+'">' : '')
       + '<div><h1>Сертификат чипирования</h1>'

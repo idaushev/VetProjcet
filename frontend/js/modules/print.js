@@ -56,75 +56,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Карточка приёма — ${esc(pet.name||'')}</title>
-<style>
-  * { box-sizing:border-box; margin:0; padding:0; }
-  body { font-family: 'Arial', sans-serif; font-size:13pt; color:#1a2434; line-height:1.5;
-         max-width:700px; margin:0 auto; padding:20px; }
-  .header { display:flex; align-items:center; gap:16px; border-bottom:3px solid #1a8c5e;
-             padding-bottom:14px; margin-bottom:20px; }
-  .header-logo { width:64px; height:64px; object-fit:contain; flex-shrink:0; border-radius:8px; }
-  .header-logo-placeholder { width:64px; height:64px; display:flex; align-items:center;
-             justify-content:center; font-size:2.5rem; flex-shrink:0; }
-  .header-text { flex:1; }
-  .clinic-name { font-size:16pt; font-weight:900; color:#1a8c5e; letter-spacing:.5px; }
-  .clinic-info { font-size:10pt; color:#526070; margin-top:2px; }
-  .doc-title { font-size:11pt; color:#526070; margin-top:4px; }
-  .visit-date { font-size:10pt; color:#5d6f81; margin-top:2px; }
-  .repeat-badge { display:inline-block; background:#fff2f3; color:#dc3545; border:1.5px solid rgba(220,53,69,.3);
-                  padding:3px 12px; border-radius:999px; font-size:10pt; font-weight:700;
-                  margin-top:4px; }
-  .section { margin-bottom:18px; }
-  .section-title {
-    font-size:9pt; font-weight:800; text-transform:uppercase; letter-spacing:.8px;
-    color:#1a8c5e; border-bottom:1.5px solid #e0e8f2; padding-bottom:4px; margin-bottom:10px;
-  }
-  .field-row { display:flex; gap:10px; margin-bottom:5px; }
-  .field-label { font-weight:700; min-width:120px; color:#526070; font-size:11pt; }
-  .field-value { color:#1a2434; font-size:11pt; }
-  .diagnosis-box {
-    background:#eaf5ee; border-left:4px solid #1a8c5e;
-    padding:12px 16px; border-radius:6px; font-size:13pt; font-weight:700; color:#1a2434;
-  }
-  .treatment-box {
-    background:#f7fafd; border:1px solid #e0e8f2; border-radius:6px;
-    padding:14px 16px; font-size:12pt; line-height:1.7;
-  }
-  .drug-list { list-style:none; }
-  .drug-list li {
-    display:flex; align-items:flex-start; gap:10px;
-    padding:8px 12px; border:1px solid #e0e8f2; border-radius:6px;
-    margin-bottom:7px; background:#fff;
-  }
-  .drug-checkbox {
-    width:18px; height:18px; border:2px solid #1a8c5e; border-radius:3px;
-    flex-shrink:0; margin-top:1px;
-  }
-  .drug-name { font-weight:700; }
-  .drug-qty  { color:#526070; font-size:11pt; }
-  .next-visit-box {
-    background:#1a8c5e; color:#fff; padding:14px 18px; border-radius:8px;
-    display:flex; align-items:center; justify-content:space-between;
-  }
-  .next-visit-label { font-size:10pt; font-weight:700; text-transform:uppercase; letter-spacing:.5px; opacity:.85; }
-  .next-visit-date  { font-size:16pt; font-weight:900; }
-  .notes-box {
-    background:#fef8ec; border-left:4px solid #c97a0a; padding:12px 16px; border-radius:6px;
-  }
-  .signature-row {
-    display:flex; gap:40px; margin-top:24px; padding-top:16px;
-    border-top:1px solid #e0e8f2;
-  }
-  .sign-field { flex:1; }
-  .sign-label { font-size:9pt; color:#5d6f81; margin-bottom:20px; }
-  .sign-line  { border-bottom:1px solid #1a2434; height:1px; }
-  .no-print   { background:#1a2434; color:#fff; border:none; padding:12px 24px;
-                font-size:12pt; font-weight:700; border-radius:8px; cursor:pointer;
-                display:block; margin:20px auto 0; }
-  @media print {
-    body { padding:0; max-width:100%; }
-    .no-print { display:none !important; }
-  }
-</style>
+<link rel="stylesheet" href="/css/print-visit.css">
 </head>
 <body>
 
@@ -279,25 +211,7 @@ ${visit.notes ? `<div class="section">
 
     var html = '<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8">'
       +'<title>Карточка клиента — '+esc(owner.fio)+'</title>'
-      +'<style>'
-      +'*{box-sizing:border-box;margin:0;padding:0}'
-      +'body{font-family:Arial,sans-serif;font-size:12pt;color:#1a2434;line-height:1.5;max-width:750px;margin:0 auto;padding:20px}'
-      +'.header{display:flex;align-items:center;gap:16px;border-bottom:3px solid #1a8c5e;padding-bottom:14px;margin-bottom:20px}'
-      +'.header-logo{width:56px;height:56px;object-fit:contain;flex-shrink:0;border-radius:8px}'
-      +'.clinic-name{font-size:15pt;font-weight:900;color:#1a8c5e}'
-      +'.clinic-info{font-size:9pt;color:#526070;margin-top:2px}'
-      +'.doc-title{font-size:10pt;color:#526070;margin-top:3px}'
-      +'.owner-block{background:#eaf5ee;border-radius:8px;padding:16px 20px;margin-bottom:18px}'
-      +'.owner-name{font-size:16pt;font-weight:900;color:#1a2434;margin-bottom:6px}'
-      +'.owner-detail{font-size:11pt;color:#526070;margin-bottom:3px}'
-      +'.section-title{font-size:9pt;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:#1a8c5e;border-bottom:1.5px solid #e0e8f2;padding-bottom:4px;margin:16px 0 10px}'
-      +'table{width:100%;border-collapse:collapse;font-size:10.5pt}'
-      +'th{background:#eaf5ee;color:#1a8c5e;font-weight:700;text-align:left;padding:7px 10px;font-size:9pt;text-transform:uppercase;letter-spacing:.4px}'
-      +'td{padding:7px 10px;border-bottom:1px solid #e0e8f2;vertical-align:top}'
-      +'tr:last-child td{border-bottom:none}'
-      +'.no-print{background:#1a2434;color:#fff;border:none;padding:10px 22px;font-size:11pt;font-weight:700;border-radius:8px;cursor:pointer;display:block;margin:20px auto 0}'
-      +'@media print{body{padding:0;max-width:100%}.no-print{display:none!important}}'
-      +'</style></head><body>'
+      +'<link rel="stylesheet" href="/css/print-pet.css"></head><body>'
       +'<div class="header">'
       +(clinicLogo?'<img class="header-logo" src="'+clinicLogo+'" alt="">':'<div style="font-size:2.2rem;flex-shrink:0">'+I('hospital')+'</div>')
       +'<div><div class="clinic-name">'+esc(clinicName)+'</div>'
@@ -359,18 +273,7 @@ ${visit.notes ? `<div class="section">
     };
 
     var html =
-      '<html><head><meta charset="utf-8"><title>Согласие на процедуру</title><style>'
-      + 'body{font-family:Georgia,serif;font-size:11pt;line-height:1.5;padding:24px;color:#111;}'
-      + 'h1{font-size:14pt;text-align:center;margin:0 0 4px;}'
-      + '.clinic{text-align:center;font-size:10pt;color:#444;margin-bottom:18px;}'
-      + '.row{margin-bottom:7px;}'
-      + '.lbl{color:#444;}'
-      + '.val{border-bottom:1px solid #999;display:inline-block;min-width:60%;}'
-      + '.blank{border-bottom:1px solid #999;display:block;height:18px;margin:6px 0;}'
-      + 'p{margin:10px 0;text-align:justify;}'
-      + '.sign{display:flex;justify-content:space-between;margin-top:28px;gap:30px;}'
-      + '.sign div{border-top:1px solid #555;padding-top:5px;width:45%;text-align:center;font-size:9pt;color:#555;}'
-      + '</style></head><body>'
+      '<html><head><meta charset="utf-8"><title>Согласие на процедуру</title><link rel="stylesheet" href="/css/print-consent.css"></head><body>'
       + '<h1>' + esc(clinicName) + '</h1>'
       + (clinicInfo ? '<div class="clinic">' + clinicInfo + '</div>' : '')
       + '<h1>Информированное согласие на ветеринарную процедуру</h1>'
@@ -462,28 +365,7 @@ ${visit.notes ? `<div class="section">
 
     var html = '<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8">'
       +'<title>Паспорт — '+esc(pet.name)+'</title>'
-      +'<style>'
-      +'*{box-sizing:border-box;margin:0;padding:0}'
-      +'body{font-family:Arial,sans-serif;font-size:12pt;color:#1a2434;line-height:1.5;max-width:750px;margin:0 auto;padding:20px}'
-      +'.header{display:flex;align-items:center;gap:16px;border-bottom:3px solid #1a8c5e;padding-bottom:14px;margin-bottom:20px}'
-      +'.header-logo{width:56px;height:56px;object-fit:contain;flex-shrink:0;border-radius:8px}'
-      +'.clinic-name{font-size:15pt;font-weight:900;color:#1a8c5e}'
-      +'.clinic-info{font-size:9pt;color:#526070;margin-top:2px}'
-      +'.doc-title{font-size:10pt;color:#526070;margin-top:3px}'
-      +'.pet-block{display:flex;gap:20px;background:#eaf5ee;border-radius:8px;padding:16px 20px;margin-bottom:18px;align-items:flex-start}'
-      +'.pet-photo{width:90px;height:90px;object-fit:cover;border-radius:8px;flex-shrink:0}'
-      +'.pet-icon{width:90px;height:90px;border-radius:8px;background:#c6e8d7;display:flex;align-items:center;justify-content:center;font-size:3rem;flex-shrink:0}'
-      +'.pet-name{font-size:16pt;font-weight:900;color:#1a2434;margin-bottom:6px}'
-      +'.pet-detail{font-size:11pt;color:#526070;margin-bottom:3px}'
-      +'.owner-box{background:#f7fafd;border:1px solid #e0e8f2;border-radius:6px;padding:10px 14px;margin-bottom:16px}'
-      +'.section-title{font-size:9pt;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:#1a8c5e;border-bottom:1.5px solid #e0e8f2;padding-bottom:4px;margin:16px 0 10px}'
-      +'table{width:100%;border-collapse:collapse;font-size:10pt}'
-      +'th{background:#eaf5ee;color:#1a8c5e;font-weight:700;text-align:left;padding:7px 10px;font-size:8.5pt;text-transform:uppercase;letter-spacing:.4px}'
-      +'td{padding:7px 10px;border-bottom:1px solid #e0e8f2;vertical-align:top}'
-      +'tr:last-child td{border-bottom:none}'
-      +'.no-print{background:#1a2434;color:#fff;border:none;padding:10px 22px;font-size:11pt;font-weight:700;border-radius:8px;cursor:pointer;display:block;margin:20px auto 0}'
-      +'@media print{body{padding:0;max-width:100%}.no-print{display:none!important}}'
-      +'</style></head><body>'
+      +'<link rel="stylesheet" href="/css/print-owner.css"></head><body>'
       +'<div class="header">'
       +(clinicLogo?'<img class="header-logo" src="'+clinicLogo+'" alt="">':'<div style="font-size:2.2rem;flex-shrink:0">'+I('hospital')+'</div>')
       +'<div><div class="clinic-name">'+esc(clinicName)+'</div>'
@@ -552,28 +434,7 @@ ${visit.notes ? `<div class="section">
 
     var html = '<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8">'
       +'<title>Справка о вакцинации — '+esc(pet.name)+'</title>'
-      +'<style>'
-      +'*{box-sizing:border-box;margin:0;padding:0}'
-      +'body{font-family:Arial,sans-serif;font-size:12pt;color:#1a2434;line-height:1.6;max-width:680px;margin:0 auto;padding:24px}'
-      +'.header{display:flex;align-items:center;gap:16px;border-bottom:3px solid #1a8c5e;padding-bottom:14px;margin-bottom:22px}'
-      +'.header-logo{width:56px;height:56px;object-fit:contain;border-radius:8px;flex-shrink:0}'
-      +'.clinic-name{font-size:15pt;font-weight:900;color:#1a8c5e}'
-      +'.clinic-info{font-size:9pt;color:#526070;margin-top:2px}'
-      +'.cert-title{font-size:14pt;font-weight:900;text-align:center;color:#1a2434;margin:0 0 20px;text-transform:uppercase;letter-spacing:.5px}'
-      +'.field-row{display:flex;gap:10px;margin-bottom:9px;align-items:baseline}'
-      +'.field-label{font-weight:700;min-width:160px;color:#526070;font-size:11pt;flex-shrink:0}'
-      +'.field-value{color:#1a2434;font-size:12pt}'
-      +'.vacc-box{background:#eaf5ee;border-left:5px solid #1a8c5e;padding:16px 20px;border-radius:6px;margin:18px 0}'
-      +'.vacc-name{font-size:15pt;font-weight:900;color:#1a8c5e;margin-bottom:10px}'
-      +'.next-box{background:#1a8c5e;color:#fff;padding:14px 20px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;margin:18px 0}'
-      +'.next-label{font-size:9pt;font-weight:700;text-transform:uppercase;letter-spacing:.5px;opacity:.85}'
-      +'.next-date{font-size:16pt;font-weight:900}'
-      +'.signature-row{display:flex;gap:40px;margin-top:30px;padding-top:16px;border-top:1px solid #e0e8f2}'
-      +'.sign-label{font-size:9pt;color:#5d6f81;margin-bottom:22px}'
-      +'.sign-line{border-bottom:1px solid #1a2434;height:1px}'
-      +'.no-print{background:#1a2434;color:#fff;border:none;padding:10px 22px;font-size:11pt;font-weight:700;border-radius:8px;cursor:pointer;display:block;margin:20px auto 0}'
-      +'@media print{body{padding:0;max-width:100%}.no-print{display:none!important}}'
-      +'</style></head><body>'
+      +'<link rel="stylesheet" href="/css/print-vacc.css"></head><body>'
       +'<div class="header">'
       +(clinicLogo?'<img class="header-logo" src="'+clinicLogo+'" alt="">':'<div style="font-size:2.2rem;flex-shrink:0">'+I('hospital')+'</div>')
       +'<div><div class="clinic-name">'+esc(clinicName)+'</div>'
