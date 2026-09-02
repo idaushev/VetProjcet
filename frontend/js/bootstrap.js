@@ -39,7 +39,11 @@
   // ── SPA Navigation ─────────────────────────────────────────────────
   var currentPage = 'dashboard';
 
-  function navigate(page) {
+  // UX-015. Раньше переход писался через replaceState — история не копилась,
+  // и «назад» уводил из приложения, а в установленной PWA закрывал его. Теперь
+  // переход добавляет запись (pushState), а popstate возвращает раздел.
+  // fromHistory=true — мы уже внутри popstate, повторно писать историю нельзя.
+  function navigate(page, fromHistory) {
     // Меню закрываем до проверки «та же страница»: клик по логотипу в шапке
     // сайдбара, когда уже открыт «Обзор», иначе оставлял бы меню висеть.
     if (isMobile()) {
@@ -65,7 +69,12 @@
     // чтобы на планшете было видно «вы где-то в меню», а не «нигде».
     var bnMoreBtn = document.getElementById('bn-more');
     if (bnMoreBtn) bnMoreBtn.classList.toggle('active', ['dashboard','schedule','visits'].indexOf(page) === -1);
-    window.history.replaceState(null, '', '#' + page);
+    if (fromHistory) {
+      // Пришли из popstate: адрес уже правильный, запись в истории есть.
+      window.history.replaceState({ vetPage: page }, '', '#' + page);
+    } else {
+      window.history.pushState({ vetPage: page }, '', '#' + page);
+    }
 
     // Initialize page
     if (window.VetPages) VetPages.init(page);
@@ -80,6 +89,34 @@
   // Make navigate global
   window.navigate = navigate;
   window.VetNav   = { go: navigate };
+
+  // UX-015. «Назад»:
+  //   1) открыта модалка — закрываем её, раздел не трогаем (иначе жест «назад»
+  //      уносил бы сразу и форму, и страницу);
+  //   2) иначе — возвращаем предыдущий раздел.
+  // Если форма грязная, requestHideModal спросит; при отказе возвращаем запись
+  // модалки в историю, чтобы следующий «назад» снова вёл к ней, а не мимо.
+  window.addEventListener('popstate', function (e) {
+    var ov = document.getElementById('modal-overlay');
+    if (ov && ov.classList.contains('open')) {
+      if (window.VetUI && VetUI.requestHideModal) {
+        Promise.resolve(VetUI.requestHideModal()).then(function () {
+          if (ov.classList.contains('open')) {
+            // Пользователь остался в форме — восстанавливаем запись истории.
+            window.history.pushState({ vetModal: true }, '', window.location.hash);
+          }
+        });
+      } else if (window.VetUI && VetUI.hideModal) {
+        VetUI.hideModal();
+      }
+      return;
+    }
+    var page = (e.state && e.state.vetPage)
+      || (window.location.hash || '').replace('#', '').split('?')[0]
+      || 'dashboard';
+    if (validPages.indexOf(page) === -1) page = 'dashboard';
+    navigate(page, true);
+  });
 
   document.querySelectorAll('.nav-item').forEach(function (link) {
     link.addEventListener('click', function (e) {
@@ -169,9 +206,13 @@
   }
   window.switchReportTab = switchReportTab;
   var initialHash = (window.location.hash || '').replace('#', '').split('?')[0];
+  // Стартовая запись истории помечается разделом — иначе первый popstate
+  // придёт с пустым state и не знал бы, куда возвращаться.
+  try { window.history.replaceState({ vetPage: initialHash || currentPage }, '', window.location.hash || '#' + currentPage); } catch (e) {}
   if (initialHash && validPages.indexOf(initialHash) !== -1) {
-    // Delayed: ждём загрузки VetPages
-    setTimeout(function() { navigate(initialHash); }, 0);
+    // Delayed: ждём загрузки VetPages. fromHistory=true — это восстановление
+    // адреса, а не переход: лишняя запись в истории не нужна.
+    setTimeout(function() { navigate(initialHash, true); }, 0);
   }
 
   // ── Авто-обновление текущей страницы при изменении данных ──────────

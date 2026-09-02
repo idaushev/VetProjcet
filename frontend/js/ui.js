@@ -276,6 +276,13 @@
       if (cfg.onSave) save.onclick = cfg.onSave;
       footer.appendChild(cancel); footer.appendChild(save);
     }
+    // UX-015: своя запись в истории — чтобы «назад» (в т.ч. жест на планшете)
+    // закрывал форму, а не уносил весь раздел. Адрес не меняем: модалка живёт
+    // на той же странице.
+    if (!(window.history.state && window.history.state.vetModal)) {
+      try { window.history.pushState({ vetModal: true }, '', window.location.hash); } catch (e) {}
+    }
+
     overlay.classList.add('open');
     if (cfg.afterOpen) setTimeout(cfg.afterOpen, 40);
 
@@ -310,6 +317,13 @@
   function hideModal() {
     _modalGuard = false; _modalSnapshot = null;
     document.getElementById('modal-overlay').classList.remove('open');
+    // UX-015: снимаем свою запись из истории при обычном закрытии (крестик,
+    // «Отмена», после сохранения). Когда закрытие пришло ИЗ «назад», запись
+    // уже снята браузером — состояние тут не vetModal, и мы ничего не делаем:
+    // так исключён двойной шаг назад.
+    if (window.history.state && window.history.state.vetModal) {
+      try { window.history.back(); } catch (e) {}
+    }
   }
 
   // ── Несохранённые данные в модалке ─────────────────────────────────────
