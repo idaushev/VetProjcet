@@ -104,6 +104,12 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /backups",      a.requireAdmin(a.handleBackups))
 	mux.HandleFunc("POST /backups/run", a.requireAdmin(a.handleBackupRun))
 
+	// Справочник диагнозов с заготовками лечения (см. handlers_diagnoses.go).
+	mux.HandleFunc("GET /diagnoses",         a.handleDiagnoses)
+	mux.HandleFunc("POST /diagnoses",        a.handleDiagnoses)
+	mux.HandleFunc("PUT /diagnoses/{id}",    a.handleDiagnosisByID)
+	mux.HandleFunc("DELETE /diagnoses/{id}", a.handleDiagnosisByID)
+
 	// Корзина: права проверяются внутри по каждой таблице (см. trash.go),
 	// поэтому админом не гейтим — врач должен уметь вернуть свой приём.
 	mux.HandleFunc("GET /trash",          a.handleTrash)

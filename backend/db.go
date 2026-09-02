@@ -599,6 +599,24 @@ var migrations = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_portal_codes_owner ON portal_codes(owner_id)`,
 
+	// Справочник диагнозов с готовым текстом лечения и рекомендаций.
+	// Врач выбирает диагноз — система подставляет заготовку, врач правит.
+	// Это же даёт статистику «частые диагнозы»: сейчас diagnosis — свободная
+	// строка, и посчитать по ней ничего нельзя.
+	`CREATE TABLE IF NOT EXISTS diagnosis_templates (
+	    id              TEXT PRIMARY KEY,
+	    name            TEXT NOT NULL,
+	    treatment       TEXT NOT NULL DEFAULT '',
+	    recommendations TEXT NOT NULL DEFAULT '',
+	    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	    client_updated_at DATETIME,
+	    deleted_at DATETIME,
+	    is_deleted INTEGER NOT NULL DEFAULT 0,
+	    device_id  TEXT,
+	    version    INTEGER NOT NULL DEFAULT 1
+	)`,
+
 	// Служебное состояние бота (offset длинного опроса getUpdates и т.п.)
 	`CREATE TABLE IF NOT EXISTS telegram_state (
 	    key   TEXT PRIMARY KEY,

@@ -3151,6 +3151,9 @@
     if (diagBtn) diagBtn.onclick = renderDiagLog;
     renderDiagLog();
 
+    // Справочник диагнозов
+    if (document.getElementById('diagnoses-list')) renderDiagnoses();
+
     // Корзина: доступна всем, кто видит настройки — восстановление идёт
     // через обычный синк и подчиняется тем же правам, что и правка.
     var trashBtn = document.getElementById('btn-trash-refresh');
@@ -4937,6 +4940,136 @@ ${visit.notes ? `<div class="section">
     reader.readAsArrayBuffer(file);
   }
 
+  // ── Справочник диагнозов с заготовками ───────────────────────────────────
+  // diagnosis у визита — свободная строка: посчитать частые диагнозы нельзя,
+  // а «Лечение» и «Рекомендации» врач набирает с нуля каждый раз. Отсюда же
+  // берутся приёмы «Без диагноза» — проще не заполнить, чем печатать.
+  //
+  // Справочник живёт обычной синкуемой таблицей, поэтому работает офлайн.
+
+  async function loadDiagnoses() {
+    try {
+      var all = await window.VetDB.getAll('diagnosis_templates');
+      return (all || []).filter(function (d) { return !d.is_deleted; })
+                        .sort(function (a, b) { return String(a.name||'').localeCompare(String(b.name||''), 'ru'); });
+    } catch (e) {
+      if (window.VetLog) window.VetLog.warn('diagnoses:load', e);
+      return [];
+    }
+  }
+
+  async function renderDiagnoses() {
+    var el = document.getElementById('diagnoses-list');
+    if (!el) return;
+    var list = await loadDiagnoses();
+    if (!list.length) {
+      el.innerHTML = '<div class="text-sm text-muted">Справочник пуст. Добавьте частые диагнозы — '
+        + 'при заполнении приёма система подставит готовый текст лечения.</div>';
+      return;
+    }
+    el.innerHTML = list.map(function (d) {
+      var hint = [d.treatment, d.recommendations].filter(Boolean).join(' · ');
+      return '<div class="erow" style="padding-left:0;padding-right:0;">'
+        + '<div class="erow-body"><div class="erow-title">' + esc(d.name) + '</div>'
+        + '<div class="erow-sub">' + esc(hint ? hint.slice(0, 90) : 'без заготовки') + '</div></div>'
+        + '<div class="erow-right">'
+        + '<button class="btn btn-icon diag-edit" data-id="' + esc(d.id) + '" title="Изменить">'
+        + UI.icon('edit', '') + '</button>'
+        + '<button class="btn btn-icon danger diag-del" data-id="' + esc(d.id) + '" title="Удалить">'
+        + UI.icon('trash', '') + '</button>'
+        + '</div></div>';
+    }).join('');
+
+    el.onclick = function (ev) {
+      var e = ev.target.closest && ev.target.closest('.diag-edit');
+      var d = ev.target.closest && ev.target.closest('.diag-del');
+      if (e) diagnosisDialog(e.dataset.id);
+      else if (d) deleteDiagnosis(d.dataset.id);
+    };
+  }
+
+  async function diagnosisDialog(id) {
+    var list = await loadDiagnoses();
+    var cur = id ? list.find(function (d) { return d.id === id; }) : null;
+    UI.showModal({
+      title: cur ? 'Изменить диагноз' : 'Новый диагноз',
+      size: 'lg',
+      bodyHTML:
+        '<div style="display:grid;gap:12px;">'
+        + '<div class="form-group"><label class="form-label">Диагноз<span class="form-req">*</span></label>'
+        + '<input id="diag-name" class="form-input" value="' + esc(cur ? cur.name : '') + '" placeholder="Отит наружного уха"></div>'
+        + '<div class="form-group"><label class="form-label">Назначение и лечение</label>'
+        + '<textarea id="diag-treatment" class="form-textarea" rows="4">' + esc(cur ? cur.treatment : '') + '</textarea></div>'
+        + '<div class="form-group"><label class="form-label">Рекомендации владельцу</label>'
+        + '<textarea id="diag-rec" class="form-textarea" rows="3">' + esc(cur ? cur.recommendations : '') + '</textarea></div>'
+        + '</div>'
+        + '<div class="text-sm text-muted" style="margin-top:10px;">'
+        + 'Текст подставится в приём как заготовка — врач сможет его поправить.</div>',
+      saveLabel: 'Сохранить',
+      onSave: async function () {
+        var name = (document.getElementById('diag-name') || {}).value || '';
+        if (!name.trim()) { UI.markInvalid(['diag-name']); UI.toast('Укажите диагноз', 'err'); return; }
+        var body = {
+          name: name.trim(),
+          treatment: (document.getElementById('diag-treatment') || {}).value.trim(),
+          recommendations: (document.getElementById('diag-rec') || {}).value.trim()
+        };
+        try {
+          if (cur) await api('PUT', '/diagnoses/' + cur.id, body);
+          else await api('POST', '/diagnoses', body);
+          UI.hideModal();
+          UI.toast('Сохранено', 'ok');
+          if (window.VetSync && VetSync.pullFull) { try { await VetSync.pullFull(); } catch (e) {} }
+          renderDiagnoses();
+        } catch (e) {
+          UI.toast('Не удалось сохранить: ' + (e && e.message || e), 'err');
+        }
+      }
+    });
+  }
+
+  async function deleteDiagnosis(id) {
+    var ok = await UI.confirm('Удалить диагноз?', 'Записи приёмов не изменятся — удаляется только заготовка.');
+    if (!ok) return;
+    try {
+      await api('DELETE', '/diagnoses/' + id);
+      if (window.VetSync && VetSync.pullFull) { try { await VetSync.pullFull(); } catch (e) {} }
+      UI.toast('Удалено', 'ok');
+      renderDiagnoses();
+    } catch (e) {
+      UI.toast('Не удалось удалить: ' + (e && e.message || e), 'err');
+    }
+  }
+
+  // Подстановка в форму приёма: врач выбирает диагноз из справочника,
+  // поля заполняются заготовкой. Уже введённый текст не затираем молча —
+  // спрашиваем, иначе легко потерять написанное вручную.
+  async function applyDiagnosisTemplate(id) {
+    var list = await loadDiagnoses();
+    var d = list.find(function (x) { return x.id === id; });
+    if (!d) return;
+
+    var fDiag = document.getElementById('f-diagnosis');
+    // В форме приёма одно поле «Назначение и рекомендации» — значит и
+    // заготовку кладём туда целиком, склеивая обе части справочника.
+    var fTreat = document.getElementById('f-treatment');
+    var text = [d.treatment, d.recommendations].filter(Boolean).join(String.fromCharCode(10,10));
+
+    if (fTreat && fTreat.value.trim() && text) {
+      var ok = await UI.confirm('Заменить текст?',
+        'В поле «Назначение и рекомендации» уже есть текст. Заменить его заготовкой из справочника?',
+        { yes: 'Заменить', no: 'Оставить' });
+      if (!ok) {
+        if (fDiag) fDiag.value = d.name; // диагноз всё равно проставим
+        return;
+      }
+    }
+    if (fDiag) fDiag.value = d.name;
+    if (fTreat && text) fTreat.value = text;
+    if (UI._autoGrowAll) UI._autoGrowAll();
+    UI.toast('Заготовка подставлена', 'ok');
+  }
+
   // ── Мастер первого запуска ───────────────────────────────────────────────
   // Настройка размазана по вкладкам, и порядок знает только тот, кто
   // разрабатывал. Новой клинике нужен один линейный путь: кто мы → кто
@@ -6337,6 +6470,8 @@ ${visit.notes ? `<div class="section">
     issuePortalCode:    issuePortalCode,
     restoreFromTrash:   restoreFromTrash,
     startSetupWizard:   startSetupWizard,
+    diagnosisDialog:    diagnosisDialog,
+    applyDiagnosisTemplate: applyDiagnosisTemplate,
     downloadClientsTemplate: downloadClientsTemplate,
     importClientsExcel: importClientsExcel,
     printOwnerCard:     printOwnerCard,

@@ -1502,15 +1502,28 @@
     dd.style.top   = (rect.bottom + 4) + 'px';
     dd.style.width = rect.width + 'px';
 
-    window.VetDB.getAll('visits').then(function(visits) {
+    // Подсказки из двух источников: справочник диагнозов (у него есть
+    // готовая заготовка лечения) и то, что врач уже писал раньше.
+    Promise.all([
+      window.VetDB.getAll('diagnosis_templates').catch(function(){ return []; }),
+      window.VetDB.getAll('visits').catch(function(){ return []; })
+    ]).then(function(_res) {
+      var templates = _res[0] || [], visits = _res[1] || [];
       var seen = {};
       var suggestions = [];
+      templates.forEach(function(t) {
+        if (t.is_deleted || !t.name) return;
+        if (!t.name.toLowerCase().includes(q.toLowerCase())) return;
+        if (seen[t.name]) return;
+        seen[t.name] = true;
+        suggestions.push({ text: t.name, id: t.id, hasTemplate: !!(t.treatment || t.recommendations) });
+      });
       visits.forEach(function(v) {
         if (!v.is_deleted && v.diagnosis) {
           v.diagnosis.split('\n').forEach(function(line) {
             line = line.trim();
             if (line && line.toLowerCase().includes(q.toLowerCase())) {
-              if (!seen[line]) { seen[line] = true; suggestions.push(line); }
+              if (!seen[line]) { seen[line] = true; suggestions.push({ text: line }); }
             }
           });
         }
@@ -1519,13 +1532,21 @@
       if (!suggestions.length) { dd.style.display = 'none'; return; }
       dd.innerHTML = suggestions.map(function(s) {
         return '<div class="ac-item" style="padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);font-size:.88rem;">'
-          + '<div style="font-weight:600;color:var(--text);">' + esc(s) + '</div></div>';
+          + '<div style="font-weight:600;color:var(--text);">' + esc(s.text)
+          + (s.hasTemplate ? ' <span style="font-weight:400;color:var(--accent);">- с заготовкой</span>' : '')
+          + '</div></div>';
       }).join('');
       dd.style.display = 'block';
       dd.querySelectorAll('.ac-item').forEach(function(item, idx) {
         item.onclick = function() {
-          textarea.value = suggestions[idx];
+          var sug = suggestions[idx];
           dd.style.display = 'none';
+          // У записи из справочника подставляем ещё и текст лечения.
+          if (sug.id && window.VetPages && VetPages.applyDiagnosisTemplate) {
+            VetPages.applyDiagnosisTemplate(sug.id);
+          } else {
+            textarea.value = sug.text;
+          }
         };
       });
     }).catch(function() { dd.style.display = 'none'; });

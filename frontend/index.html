@@ -1062,6 +1062,20 @@
                 </button>
               </div>
             </div>
+            <div class="card set-card" id="diagnoses-card">
+              <div class="card-header">
+                <span class="card-title">Справочник диагнозов</span>
+                <button class="btn btn-ghost btn-sm" onclick="VetPages.diagnosisDialog()">Добавить</button>
+              </div>
+              <div class="card-body">
+                <p style="font-size:var(--fs-sm);color:var(--text-2);margin-bottom:12px;">
+                  Частые диагнозы с готовым текстом лечения. При заполнении
+                  приёма врач выбирает диагноз — текст подставляется,
+                  остаётся поправить под пациента.
+                </p>
+                <div id="diagnoses-list"></div>
+              </div>
+            </div>
             <div class="card set-card" id="import-clients-card">
               <div class="card-header">
                 <span class="card-title">Импорт клиентской базы</span>

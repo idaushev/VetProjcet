@@ -159,6 +159,13 @@ func coreSyncEntities() []syncEntity {
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullAppointments(ctx, db, since) },
 		},
 		{
+			Name: "diagnosis_templates",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "diagnosis_templates", "items", "diagnosis_templates", uid, cp, pushDiagnosis, res)
+			},
+			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullDiagnoses(ctx, db, since) },
+		},
+		{
 			Name:    "attachments", // только pull: метаданные вложений, файлы качаются отдельно
 			pushAll: nil,
 			pull:    func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullAttachments(ctx, db, since) },
