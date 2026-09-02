@@ -615,7 +615,8 @@
         +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editPet(\''+p.id+'\')" title="Редактировать" aria-label="Редактировать">'+UI.icon('edit','')+'</button>'
         +UI.rowMenu([
             {label:'История приёмов', icon:'clipboard', onclick:"VetPages.showPetHistory('"+p.id+"')"},
-            {label:'Печать паспорта', icon:'print', onclick:"VetPages.printPetCard('"+p.id+"')"}
+            {label:'Печать паспорта', icon:'print', onclick:"VetPages.printPetCard('"+p.id+"')"},
+            {label:'Согласие на процедуру', icon:'print', onclick:"VetPages.printConsentForm('"+p.id+"')"}
           ].concat(deceasedItem).concat([
             {sep:true},
             {label:'Удалить', icon:'trash', danger:true, onclick:"VetPages.deletePet('"+p.id+"','"+esc(p.name)+"')"}
@@ -4043,6 +4044,84 @@ ${visit.notes ? `<div class="section">
   // PRINT: PET CARD (паспорт животного)
   // ═══════════════════════════════════════════════════════════════════════
 
+  // ── Печать: согласие на процедуру ────────────────────────────────────────
+  // Юридически значимый документ: подпись владельца под информированным
+  // согласием — то, чем клиника защищается при споре об исходе операции
+  // или анестезии. Печатные формы у нас были только справочные
+  // (карточка, сертификат чипирования), а этой не хватало.
+  //
+  // Данные подставляем из карточки, но поля процедуры и рисков оставляем
+  // пустыми строками для заполнения от руки: формулировка зависит от
+  // конкретного случая, и подсовывать готовый текст здесь опасно.
+
+  async function printConsentForm(petId) {
+    var pets = await window.VetDB.getAll('pets');
+    var owners = await window.VetDB.getAll('owners');
+    var settings = await loadClinicSettings();
+
+    var pet = pets.find(function (p) { return p.id === petId; });
+    if (!pet) { UI.toast('Животное не найдено', 'err'); return; }
+    var owner = owners.find(function (o) { return o.id === pet.owner_id; }) || {};
+
+    var today = fmtDate(new Date().toISOString());
+    var clinicName = (settings && settings.name) || 'Ветеринарная клиника';
+    var clinicInfo = [settings && settings.address, settings && settings.phone]
+                     .filter(Boolean).map(esc).join(' · ');
+
+    var line = function (label, value) {
+      return '<div class="row"><span class="lbl">' + label + ':</span> '
+           + '<span class="val">' + (value ? esc(value) : '') + '</span></div>';
+    };
+
+    var html =
+      '<html><head><meta charset="utf-8"><title>Согласие на процедуру</title><style>'
+      + 'body{font-family:Georgia,serif;font-size:11pt;line-height:1.5;padding:24px;color:#111;}'
+      + 'h1{font-size:14pt;text-align:center;margin:0 0 4px;}'
+      + '.clinic{text-align:center;font-size:10pt;color:#444;margin-bottom:18px;}'
+      + '.row{margin-bottom:7px;}'
+      + '.lbl{color:#444;}'
+      + '.val{border-bottom:1px solid #999;display:inline-block;min-width:60%;}'
+      + '.blank{border-bottom:1px solid #999;display:block;height:18px;margin:6px 0;}'
+      + 'p{margin:10px 0;text-align:justify;}'
+      + '.sign{display:flex;justify-content:space-between;margin-top:28px;gap:30px;}'
+      + '.sign div{border-top:1px solid #555;padding-top:5px;width:45%;text-align:center;font-size:9pt;color:#555;}'
+      + '</style></head><body>'
+      + '<h1>' + esc(clinicName) + '</h1>'
+      + (clinicInfo ? '<div class="clinic">' + clinicInfo + '</div>' : '')
+      + '<h1>Информированное согласие на ветеринарную процедуру</h1>'
+      + '<div style="margin:16px 0;">'
+      + line('Дата', today)
+      + line('Владелец', owner.fio || '')
+      + line('Телефон', owner.phone || '')
+      + line('Животное', (pet.name || '') + (pet.type ? ', ' + pet.type : '')
+             + (pet.breed ? ', ' + pet.breed : ''))
+      + line('Идентификация (чип)', pet.chip_number || '')
+      + '</div>'
+      + '<div class="row"><span class="lbl">Процедура (вмешательство):</span></div>'
+      + '<div class="blank"></div><div class="blank"></div>'
+      + '<p>Я, нижеподписавшийся владелец (представитель владельца) животного, '
+      + 'подтверждаю, что мне в понятной форме разъяснены характер и цель '
+      + 'предстоящей процедуры, возможные осложнения и риски, включая риски, '
+      + 'связанные с анестезией, а также альтернативные варианты и вероятные '
+      + 'последствия отказа от вмешательства.</p>'
+      + '<p>Я подтверждаю достоверность сообщённых мною сведений о состоянии '
+      + 'здоровья животного, перенесённых заболеваниях, аллергических реакциях, '
+      + 'проведённых вакцинациях и кормлении перед процедурой. Мне разъяснено, '
+      + 'что сокрытие таких сведений может повлиять на исход.</p>'
+      + '<p>Я понимаю, что ветеринарная медицина не даёт гарантии результата, '
+      + 'и добровольно даю согласие на проведение процедуры, а также на '
+      + 'необходимые дополнительные манипуляции, если потребность в них '
+      + 'возникнет по ходу вмешательства и промедление будет угрожать жизни '
+      + 'животного.</p>'
+      + '<div class="row" style="margin-top:14px;"><span class="lbl">Особые отметки и ограничения:</span></div>'
+      + '<div class="blank"></div>'
+      + '<div class="sign"><div>Владелец (подпись, расшифровка)</div>'
+      + '<div>Врач (подпись, расшифровка)</div></div>'
+      + '</body></html>';
+
+    printHTML(html);
+  }
+
   async function printPetCard(petId) {
     var allPets   = await window.VetDB.getAll('pets');
     var allOwners = await window.VetDB.getAll('owners');
@@ -6507,6 +6586,7 @@ ${visit.notes ? `<div class="section">
     issuePortalCode:    issuePortalCode,
     restoreFromTrash:   restoreFromTrash,
     startSetupWizard:   startSetupWizard,
+    printConsentForm:   printConsentForm,
     exportReportXlsx:   exportReportXlsx,
     diagnosisDialog:    diagnosisDialog,
     applyDiagnosisTemplate: applyDiagnosisTemplate,
