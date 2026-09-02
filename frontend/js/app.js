@@ -542,6 +542,10 @@
     // ним. Отсутствующее поле приезжает в Go как false — позиция, заведённая
     // офлайн, синхронизировалась и пропадала из каталога.
     if (storeName === "items" && body.is_active === undefined) body.is_active = true;
+    // Сервер по умолчанию считает владельца физлицом (normalizeOwnerType).
+    // Дублируем локально, иначе владелец, заведённый офлайн, до первой
+    // синхронизации остаётся без типа и подписи полей «плывут».
+    if (storeName === "owners" && !body.owner_type) body.owner_type = "individual";
     var record = await window.VetDB.save(storeName, Object.assign({ id: window.VetDB.uuid() }, body));
     await refreshStore(storeName);
     emitChange(storeName);

@@ -473,6 +473,7 @@
 
   async function addOwner() {
     UI.showModal({ title: 'Новый владелец', bodyHTML: UI.ownerFormHTML(), size: 'lg',
+      afterOpen: UI.checkIIN,
       onSave: async function() {
         var d = UI.ownerFormData();
         if (!d.fio || !d.phone) { UI.markInvalid(['f-fio','f-phone']); UI.toast('Заполните обязательные поля', 'err'); return; }
@@ -490,6 +491,9 @@
     var owner = _owners.find(function(o){ return o.id === id; });
     if (!owner) return;
     UI.showModal({ title: 'Редактировать владельца', bodyHTML: UI.ownerFormHTML(owner), size: 'lg',
+      // Считаем подсказку сразу: старый ИИН с опечаткой должен быть виден
+      // при открытии карточки, а не только после правки поля.
+      afterOpen: UI.checkIIN,
       onSave: async function() {
         var d = UI.ownerFormData();
         if (!d.fio || !d.phone) { UI.markInvalid(['f-fio','f-phone']); UI.toast('Заполните обязательные поля', 'err'); return; }
@@ -3965,7 +3969,7 @@
       +'<div class="oc-name">'+esc(owner.fio||'—')+'</div>'
       +'<div class="oc-contact-row">'
       +(owner.phone?'<span class="oc-phone" onclick="location.href=\'tel:'+esc(owner.phone)+'\'">'+I('phone')+' '+esc(owner.phone)+'</span>':'')
-      +(owner.iin?'<span class="oc-iin">ИИН: '+esc(owner.iin)+'</span>':'')
+      +(owner.iin?'<span class="oc-iin">'+(owner.owner_type==='legal'?'БИН':'ИИН')+': '+esc(owner.iin)+'</span>':'')
       +'</div>'
       +(owner.address?'<div class="oc-address">'+I('pin')+' '+esc(owner.address)+'</div>':'')
       +(owner.notes?'<div style="font-size:.78rem;color:var(--text-3);margin-top:3px;">'+esc(owner.notes)+'</div>':'')
@@ -5075,7 +5079,7 @@
         ownerRef = { newIndex: plan.owners.length };
         plan.owners.push({
           fio: fio, phone: String(phoneRaw || '').trim(),
-          iin: String(r[2] || '').trim(), address: String(r[3] || '').trim()
+          iin: String(r[2] || '').replace(/\D/g, ''), address: String(r[3] || '').trim()
         });
       }
 

@@ -247,3 +247,42 @@ func TestSyncCycleOldClientKeepsTanbaNumber(t *testing.T) {
 		t.Errorf("старый клиент затёр номер ТАҢБА: %q", got)
 	}
 }
+
+// Юрлицо и ИИН владельца проходят полный цикл, а push со старого клиента,
+// который owner_type и iin не шлёт, не стирает уже введённый номер.
+func TestSyncCycleOwnerTypeAndIIN(t *testing.T) {
+	a := testApp(t)
+
+	doPush(t, a, `{
+		"owners":[{"id":"o-20","fio":"ОФ Приют Друг","owner_type":"legal",
+			"iin":"880101 300123","phone":"+7 727 000 0000","address":"Алматы, Абая 1",
+			"version":1,"updated_at":"2026-09-01T10:00:00Z"}]}`)
+
+	owners := doPull(t, a, "")["owners"]
+	if len(owners) != 1 {
+		t.Fatalf("владелец не вернулся из pull (получили %d)", len(owners))
+	}
+	if got, _ := owners[0]["owner_type"].(string); got != "legal" {
+		t.Errorf("owner_type = %q, ожидалось legal", got)
+	}
+	// Пробелы из номера должны быть срезаны, иначе поиск дублей его не найдёт.
+	if got, _ := owners[0]["iin"].(string); got != "880101300123" {
+		t.Errorf("iin = %q, ожидалось 880101300123", got)
+	}
+
+	// Старый клиент: полей owner_type и iin в payload нет.
+	doPush(t, a, `{
+		"owners":[{"id":"o-20","fio":"ОФ Приют Друг","phone":"+7 727 111 1111",
+			"version":2,"updated_at":"2026-09-01T11:00:00Z"}]}`)
+
+	owners = doPull(t, a, "")["owners"]
+	if got, _ := owners[0]["phone"].(string); got != "+7 727 111 1111" {
+		t.Errorf("обновление телефона не применилось: %q", got)
+	}
+	if got, _ := owners[0]["iin"].(string); got != "880101300123" {
+		t.Errorf("старый клиент затёр ИИН: %q", got)
+	}
+	if got, _ := owners[0]["owner_type"].(string); got != "legal" {
+		t.Errorf("старый клиент разжаловал юрлицо в %q", got)
+	}
+}

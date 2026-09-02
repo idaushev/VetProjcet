@@ -217,6 +217,11 @@
       + '<input id="chip-owner-fio" class="form-input" placeholder="Иванов Иван Иванович"></div>'
       + '<div class="form-group chip-block-new chip-owner-new" style="display:none"><label class="form-label">Телефон владельца <span class="form-req">*</span></label>'
       + '<input id="chip-owner-phone" class="form-input" type="tel" placeholder="+7 700 000 0000"></div>'
+      // ИИН спрашиваем именно здесь: чипируют ради регистрации в ТАҢБА, а без
+      // ИИН владельца она не пройдёт. Если не спросить сейчас — карточка сразу
+      // попадёт в список «не внесено» и за номером придётся звонить.
+      + '<div class="form-group chip-block-new chip-owner-new" style="display:none"><label class="form-label">ИИН владельца</label>'
+      + '<input id="chip-owner-iin" class="form-input" inputmode="numeric" maxlength="12" placeholder="12 цифр — нужен для ТАҢБА"></div>'
       + '<div class="form-group chip-block-new" style="display:none"><label class="form-label">Кличка <span class="form-req">*</span></label>'
       + '<input id="chip-pet-name" class="form-input" placeholder="Барсик"></div>'
       + '<div class="form-group chip-block-new" style="display:none"><label class="form-label">Вид</label>'
@@ -299,7 +304,8 @@
 
         // ── Владелец: существующий или новый ──
         if (makeNewOwner) {
-          var newOwner = await api('POST', '/owners', { fio: fio, phone: phone });
+          var iin = ((document.getElementById('chip-owner-iin')||{}).value || '').replace(/\D/g, '');
+          var newOwner = await api('POST', '/owners', { fio: fio, phone: phone, iin: iin });
           ownerId = newOwner.id;
         } else {
           ownerId = ownerSel.value;

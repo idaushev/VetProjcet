@@ -332,18 +332,95 @@
   }
 
   // ── Owner form ─────────────────────────────────────────────────────────
+  // Владелец. Правила ТАҢБА требуют ИИН физлица либо БИН юрлица — владельцами
+  // бывают приюты и питомники, у которых ФИО нет. Поле в базе одно (оба
+  // номера двенадцатизначные), тип меняет только подписи.
   function ownerFormHTML(d) {
     d=d||{};
+    var legal = d.owner_type === 'legal';
     return '<div class="form-grid">'
-      +'<div class="form-group form-span-2"><label class="form-label">ФИО <span class="form-req">*</span></label><input id="f-fio" class="form-input" value="'+esc(d.fio||'')+'" placeholder="Иванов Иван Иванович"></div>'
+      +'<div class="form-group form-span-2"><label class="form-label">Владелец</label><select id="f-owner-type" class="form-select" onchange="VetUI.ownerTypeSwitch()">'
+      +'<option value="individual"'+(legal?'':' selected')+'>Физическое лицо</option>'
+      +'<option value="legal"'+(legal?' selected':'')+'>Юридическое лицо</option>'
+      +'</select></div>'
+      +'<div class="form-group form-span-2"><label class="form-label" id="f-fio-label">'+(legal?'Наименование организации':'ФИО')+' <span class="form-req">*</span></label><input id="f-fio" class="form-input" value="'+esc(d.fio||'')+'" placeholder="'+(legal?'ОФ «Приют Друг»':'Иванов Иван Иванович')+'"></div>'
       +'<div class="form-group"><label class="form-label">Телефон <span class="form-req">*</span></label><input id="f-phone" class="form-input" type="tel" value="'+esc(d.phone||'')+'" placeholder="+7 777 000 0000"></div>'
-      +'<div class="form-group"><label class="form-label">ИИН</label><input id="f-iin" class="form-input" inputmode="numeric" value="'+esc(d.iin||'')+'" maxlength="12" placeholder="12 цифр"><div class="form-hint">Нужен для регистрации животного в ТАҢБА</div></div>'
-      +'<div class="form-group form-span-2"><label class="form-label">Адрес</label><input id="f-address" class="form-input" value="'+esc(d.address||'')+'" placeholder="Город, улица, дом"></div>'
+      +'<div class="form-group"><label class="form-label" id="f-iin-label">'+(legal?'БИН':'ИИН')+'</label><input id="f-iin" class="form-input" inputmode="numeric" value="'+esc(d.iin||'')+'" maxlength="12" placeholder="12 цифр" oninput="VetUI.checkIIN()"><div id="f-iin-hint" class="form-hint">Нужен для регистрации животного в ТАҢБА</div></div>'
+      +'<div class="form-group form-span-2"><label class="form-label" id="f-address-label">'+(legal?'Юридический адрес':'Адрес (место жительства)')+'</label><input id="f-address" class="form-input" value="'+esc(d.address||'')+'" placeholder="Город, улица, дом"></div>'
       +'<div class="form-group form-span-2"><label class="form-label">Примечания</label><textarea id="f-notes" class="form-textarea">'+esc(d.notes||'')+'</textarea></div>'
       +'</div>';
   }
+
+  // Переключение физлицо/юрлицо меняет только подписи — данные те же.
+  function ownerTypeSwitch() {
+    var legal = (document.getElementById('f-owner-type')||{}).value === 'legal';
+    var set = function(id, text){ var e=document.getElementById(id); if (e) e.innerHTML = text; };
+    set('f-fio-label', (legal?'Наименование организации':'ФИО')+' <span class="form-req">*</span>');
+    set('f-iin-label', legal?'БИН':'ИИН');
+    set('f-address-label', legal?'Юридический адрес':'Адрес (место жительства)');
+    var fio = document.getElementById('f-fio');
+    if (fio) fio.placeholder = legal ? 'ОФ «Приют Друг»' : 'Иванов Иван Иванович';
+    checkIIN();
+  }
+
+  // Подсказка под ИИН/БИН. По образцу checkChip: сохранение не блокируем —
+  // клиента заводят на приёме, номер могут вписать позже, и запись должна
+  // доехать. Но опечатку показываем сразу: с неверным номером регистрация
+  // в ТАҢБА не пройдёт, а узнавать об этом на портале уже поздно.
+  function checkIIN() {
+    var input = document.getElementById('f-iin');
+    var hint  = document.getElementById('f-iin-hint');
+    if (!input || !hint) return;
+    var legal = (document.getElementById('f-owner-type')||{}).value === 'legal';
+    var label = legal ? 'БИН' : 'ИИН';
+    var v = String(input.value||'').replace(/\D/g, '');
+    if (!v) {
+      hint.textContent = 'Нужен для регистрации животного в ТАҢБА';
+      hint.style.color = '';
+      return;
+    }
+    if (v.length !== 12) {
+      hint.textContent = label + ': 12 цифр (сейчас ' + v.length + ')';
+      hint.style.color = 'var(--danger, #c0392b)';
+      return;
+    }
+    if (!validIINChecksum(v)) {
+      hint.textContent = 'Проверьте ' + label + ': контрольная цифра не сходится — похоже на опечатку';
+      hint.style.color = 'var(--warning, #b7791f)';
+      return;
+    }
+    hint.textContent = '✓ ' + label + ' корректен';
+    hint.style.color = 'var(--success, #1a8c5e)';
+  }
+
+  // Контрольный разряд ИИН/БИН РК. Логика повторяет серверную
+  // (validIINChecksum в handlers_owners.go): планшет офлайн обязан
+  // предупредить сам, не дожидаясь сервера.
+  function validIINChecksum(v) {
+    if (!/^\d{12}$/.test(v)) return false;
+    var d = v.split('').map(Number);
+    var sum = function (w) {
+      var t = 0;
+      for (var i = 0; i < 11; i++) t += d[i] * w[i];
+      return t % 11;
+    };
+    var k = sum([1,2,3,4,5,6,7,8,9,10,11]);
+    if (k === 10) k = sum([3,4,5,6,7,8,9,10,11,1,2]);
+    if (k === 10) return false;
+    return k === d[11];
+  }
+
   function ownerFormData() {
-    return { fio:document.getElementById('f-fio').value.trim(), phone:document.getElementById('f-phone').value.trim(), iin:document.getElementById('f-iin').value.trim(), address:document.getElementById('f-address').value.trim(), notes:document.getElementById('f-notes').value.trim() };
+    return {
+      fio:        document.getElementById('f-fio').value.trim(),
+      owner_type: (document.getElementById('f-owner-type')||{}).value || 'individual',
+      phone:      document.getElementById('f-phone').value.trim(),
+      // Номер нормализуем на клиенте: в базу он должен лечь без пробелов,
+      // иначе поиск дублей по ИИН его не найдёт.
+      iin:        document.getElementById('f-iin').value.replace(/\D/g, ''),
+      address:    document.getElementById('f-address').value.trim(),
+      notes:      document.getElementById('f-notes').value.trim()
+    };
   }
 
   // ── Pet form (полный, с возрастом, фото, ссылками на отчёты) ────────────
@@ -1630,6 +1707,7 @@
     petFormHTML:petFormHTML, petFormData:petFormData, petFormAfterOpen:petFormAfterOpen,
     itemFormHTML:itemFormHTML, itemFormData:itemFormData, recalcItemCost:recalcItemCost,
     checkChip:checkChip, normalizeChip:normalizeChip,
+    checkIIN:checkIIN, validIINChecksum:validIINChecksum, ownerTypeSwitch:ownerTypeSwitch,
     _autoGrow:_autoGrow, _autoGrowAll:_autoGrowAll,
     recalcTreatment:recalcTreatment, treatmentUntil:treatmentUntil,
     staffFormHTML:staffFormHTML, staffFormData:staffFormData,

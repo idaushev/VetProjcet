@@ -31,9 +31,10 @@ type Item struct {
 }
 
 type Owner struct {
-	ID      string `json:"id"`
-	FIO     string `json:"fio"`
-	IIN     string `json:"iin,omitempty"`
+	ID        string `json:"id"`
+	FIO       string `json:"fio"`
+	OwnerType string `json:"owner_type,omitempty"` // individual | legal
+	IIN       string `json:"iin,omitempty"`        // ИИН физлица либо БИН юрлица
 	Phone   string `json:"phone"`
 	Address string `json:"address,omitempty"`
 	Notes   string `json:"notes,omitempty"`
@@ -210,9 +211,10 @@ type itemPayload struct {
 }
 
 type ownerPayload struct {
-	ID      string `json:"id,omitempty"`
-	FIO     string `json:"fio"`
-	IIN     string `json:"iin,omitempty"`
+	ID        string `json:"id,omitempty"`
+	FIO       string `json:"fio"`
+	OwnerType string `json:"owner_type,omitempty"`
+	IIN       string `json:"iin,omitempty"`
 	Phone   string `json:"phone"`
 	Address string `json:"address,omitempty"`
 	Notes   string `json:"notes,omitempty"`
@@ -367,6 +369,7 @@ type visitFullResponse struct {
 type ownerSyncRecord struct {
 	ID        string  `json:"id"`
 	FIO       string  `json:"fio"`
+	OwnerType string  `json:"owner_type"`
 	IIN       string  `json:"iin"`
 	Phone     string  `json:"phone"`
 	Address   string  `json:"address"`

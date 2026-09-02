@@ -42,7 +42,7 @@ func (a *app) listOwners(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	q := `SELECT id, fio, COALESCE(iin,''), phone, COALESCE(address,''), COALESCE(notes,''),
+	q := `SELECT id, fio, COALESCE(owner_type,'individual'), COALESCE(iin,''), phone, COALESCE(address,''), COALESCE(notes,''),
 	             created_at, updated_at, deleted_at, is_deleted, COALESCE(device_id,''), COALESCE(version,1)
 	      FROM owners WHERE is_deleted=0`
 	args := make([]interface{}, 0)
@@ -112,9 +112,9 @@ func (a *app) createOwner(w http.ResponseWriter, r *http.Request) {
 
 	now := T(nowUTC())
 	if _, err := a.db.ExecContext(ctx,
-		`INSERT INTO owners (id, fio, iin, phone, address, notes, created_at, updated_at, version)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-		id, strings.TrimSpace(p.FIO), nullableString(p.IIN),
+		`INSERT INTO owners (id, fio, owner_type, iin, phone, address, notes, created_at, updated_at, version)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+		id, strings.TrimSpace(p.FIO), normalizeOwnerType(p.OwnerType), nullableString(normalizeIIN(p.IIN)),
 		strings.TrimSpace(p.Phone), nullableString(p.Address), nullableString(p.Notes),
 		now, now,
 	); err != nil {
@@ -142,9 +142,9 @@ func (a *app) updateOwner(w http.ResponseWriter, r *http.Request, id string) {
 	defer cancel()
 
 	res, err := a.db.ExecContext(ctx,
-		`UPDATE owners SET fio=?, iin=?, phone=?, address=?, notes=?, updated_at=?, version=version+1
+		`UPDATE owners SET fio=?, owner_type=?, iin=?, phone=?, address=?, notes=?, updated_at=?, version=version+1
 		 WHERE id=? AND is_deleted=0`,
-		strings.TrimSpace(p.FIO), nullableString(p.IIN),
+		strings.TrimSpace(p.FIO), normalizeOwnerType(p.OwnerType), nullableString(normalizeIIN(p.IIN)),
 		strings.TrimSpace(p.Phone), nullableString(p.Address), nullableString(p.Notes),
 		T(nowUTC()), id,
 	)
@@ -213,18 +213,18 @@ func upsertOwner(ctx context.Context, tx *sql.Tx, owner Owner) (Owner, error) {
 			}
 		}
 		_, err = tx.ExecContext(ctx,
-			`INSERT INTO owners (id, fio, iin, phone, address, notes, created_at, updated_at, version)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-			owner.ID, owner.FIO, nullableString(owner.IIN),
+			`INSERT INTO owners (id, fio, owner_type, iin, phone, address, notes, created_at, updated_at, version)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+			owner.ID, owner.FIO, normalizeOwnerType(owner.OwnerType), nullableString(normalizeIIN(owner.IIN)),
 			owner.Phone, nullableString(owner.Address), nullableString(owner.Notes),
 			now, now,
 		)
 	} else {
 		owner.ID = existingID
 		_, err = tx.ExecContext(ctx,
-			`UPDATE owners SET fio=?, iin=?, phone=?, address=?, notes=?, updated_at=?, version=version+1
+			`UPDATE owners SET fio=?, owner_type=?, iin=?, phone=?, address=?, notes=?, updated_at=?, version=version+1
 			 WHERE id=?`,
-			owner.FIO, nullableString(owner.IIN),
+			owner.FIO, normalizeOwnerType(owner.OwnerType), nullableString(normalizeIIN(owner.IIN)),
 			owner.Phone, nullableString(owner.Address), nullableString(owner.Notes),
 			now, owner.ID,
 		)
@@ -234,7 +234,7 @@ func upsertOwner(ctx context.Context, tx *sql.Tx, owner Owner) (Owner, error) {
 	}
 
 	row := tx.QueryRowContext(ctx,
-		`SELECT id, fio, COALESCE(iin,''), phone, COALESCE(address,''), COALESCE(notes,''),
+		`SELECT id, fio, COALESCE(owner_type,'individual'), COALESCE(iin,''), phone, COALESCE(address,''), COALESCE(notes,''),
 		        created_at, updated_at, deleted_at, is_deleted, COALESCE(device_id,''), COALESCE(version,1)
 		 FROM owners WHERE id=?`, owner.ID)
 	return scanOwner(row)
@@ -247,7 +247,9 @@ func resolveOwnerID(ctx context.Context, tx *sql.Tx, owner Owner) (string, error
 	}
 	for _, c := range []candidate{
 		{`SELECT id FROM owners WHERE id=? AND is_deleted=0 LIMIT 1`, owner.ID},
-		{`SELECT id FROM owners WHERE iin=? AND iin!='' AND is_deleted=0 LIMIT 1`, owner.IIN},
+		// Ищем по нормализованному номеру: в базе он лежит без пробелов,
+		// и «880101 300123» из импорта иначе завёл бы дубль владельца.
+		{`SELECT id FROM owners WHERE iin=? AND iin!='' AND is_deleted=0 LIMIT 1`, normalizeIIN(owner.IIN)},
 		{`SELECT id FROM owners WHERE phone=? AND is_deleted=0 LIMIT 1`, owner.Phone},
 	} {
 		if c.arg == "" {
@@ -363,7 +365,7 @@ func softDeleteVisitCascade(ctx context.Context, tx *sql.Tx, visitID string) err
 
 func (a *app) getOwnerByID(ctx context.Context, id string) (Owner, error) {
 	row := a.db.QueryRowContext(ctx,
-		`SELECT id, fio, COALESCE(iin,''), phone, COALESCE(address,''), COALESCE(notes,''),
+		`SELECT id, fio, COALESCE(owner_type,'individual'), COALESCE(iin,''), phone, COALESCE(address,''), COALESCE(notes,''),
 		        created_at, updated_at, deleted_at, is_deleted, COALESCE(device_id,''), COALESCE(version,1)
 		 FROM owners WHERE id=?`, id)
 	return scanOwner(row)
@@ -373,7 +375,7 @@ func scanOwner(s interface{ Scan(...interface{}) error }) (Owner, error) {
 	var o Owner
 	var createdAt, updatedAt, deletedAt timeScanner
 	err := s.Scan(
-		&o.ID, &o.FIO, &o.IIN, &o.Phone, &o.Address, &o.Notes,
+		&o.ID, &o.FIO, &o.OwnerType, &o.IIN, &o.Phone, &o.Address, &o.Notes,
 		&createdAt, &updatedAt, &deletedAt,
 		&o.IsDeleted, &o.DeviceID, &o.Version,
 	)
@@ -397,5 +399,68 @@ func validateOwnerPayload(p ownerPayload) error {
 	if strings.TrimSpace(p.Phone) == "" {
 		return errors.New("phone is required")
 	}
+	// Длину проверяем, контрольный разряд — нет.
+	//
+	// Правила требуют ИИН физлица или БИН юрлица, и с неверным номером
+	// регистрация в ТАҢБА не пройдёт. Но ронять сохранение карточки из-за
+	// этого нельзя: клиента заводят на приёме, ИИН могут вписать позже или
+	// с ошибкой, а запись должна доехать. Про контрольный разряд
+	// предупреждает интерфейс — там ошибку есть кому исправить.
+	if iin := normalizeIIN(p.IIN); iin != "" && len(iin) != 12 {
+		return errors.New("iin: ИИН/БИН должен содержать 12 цифр")
+	}
 	return nil
+}
+
+// normalizeIIN оставляет только цифры: номер часто вписывают с пробелами.
+func normalizeIIN(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// normalizeOwnerType — тип владельца. Пустое значение считаем физлицом:
+// карточки, заведённые до появления поля, менять смысла нет.
+func normalizeOwnerType(t string) string {
+	if strings.ToLower(strings.TrimSpace(t)) == "legal" {
+		return "legal"
+	}
+	return "individual"
+}
+
+// validIINChecksum — контрольный разряд ИИН/БИН РК (алгоритм общий для обоих).
+//
+// Сумма первых одиннадцати цифр с весами 1..11 берётся по модулю 11. Если
+// вышло 10 — пересчёт со сдвинутыми весами; второе 10 означает, что такого
+// номера не существует. Используется только для предупреждений.
+func validIINChecksum(iin string) bool {
+	if len(iin) != 12 {
+		return false
+	}
+	d := make([]int, 12)
+	for i, r := range iin {
+		if r < '0' || r > '9' {
+			return false
+		}
+		d[i] = int(r - '0')
+	}
+	sum := func(w []int) int {
+		t := 0
+		for i := 0; i < 11; i++ {
+			t += d[i] * w[i]
+		}
+		return t % 11
+	}
+	k := sum([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11})
+	if k == 10 {
+		k = sum([]int{3, 4, 5, 6, 7, 8, 9, 10, 11, 1, 2})
+	}
+	if k == 10 {
+		return false
+	}
+	return k == d[11]
 }

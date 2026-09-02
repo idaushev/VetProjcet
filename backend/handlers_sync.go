@@ -276,17 +276,29 @@ func pushOwner(ctx context.Context, db *sql.DB, rec ownerSyncRecord) (bool, erro
 	// Время клиента сохраняем как есть — по нему разрешаются будущие конфликты.
 	clientAt := Tp(parseSyncTimePtr(&rec.UpdatedAt))
 	deletedAt := Tp(parseSyncTimePtr(rec.DeletedAt))
+	// Тип владельца не присланным полем считаем «неизвестно», а не «физлицо».
+	// Клиент старой версии owner_type не шлёт вовсе, и схлопывание пустого
+	// значения в individual молча разжаловало бы приют или питомник в
+	// физлицо при первой же синхронизации со старого планшета.
+	var ownerType interface{}
+	if strings.TrimSpace(rec.OwnerType) != "" {
+		ownerType = normalizeOwnerType(rec.OwnerType)
+	}
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO owners (id, fio, iin, phone, address, notes, updated_at, deleted_at, is_deleted, device_id, version, created_at, client_updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO owners (id, fio, owner_type, iin, phone, address, notes, updated_at, deleted_at, is_deleted, device_id, version, created_at, client_updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
-		  fio=excluded.fio, iin=excluded.iin, phone=excluded.phone,
+		  fio=excluded.fio,
+		  owner_type=COALESCE(excluded.owner_type, owners.owner_type),
+		  -- ИИН от старого клиента приходит пустым: он это поле не шлёт.
+		  -- Пустое значение не должно стирать уже введённый номер.
+		  iin=COALESCE(excluded.iin, owners.iin), phone=excluded.phone,
 		  address=excluded.address, notes=excluded.notes,
 		  updated_at=excluded.updated_at, deleted_at=excluded.deleted_at,
 		  is_deleted=excluded.is_deleted, device_id=excluded.device_id,
 		  version=excluded.version,
 		  client_updated_at=excluded.client_updated_at`,
-		rec.ID, rec.FIO, nullableString(rec.IIN), rec.Phone,
+		rec.ID, rec.FIO, ownerType, nullableString(normalizeIIN(rec.IIN)), rec.Phone,
 		nullableString(rec.Address), nullableString(rec.Notes),
 		serverNow, deletedAt, rec.IsDeleted,
 		nullableString(rec.DeviceID), rec.Version, serverNow, clientAt,
@@ -567,7 +579,7 @@ func pushStaff(ctx context.Context, db *sql.DB, rec staffSyncRecord) (bool, erro
 // ─── Pull helpers ─────────────────────────────────────────────────────────────
 
 func pullOwners(ctx context.Context, db *sql.DB, since time.Time) ([]Owner, error) {
-	q := `SELECT id, fio, COALESCE(iin,''), phone, COALESCE(address,''), COALESCE(notes,''),
+	q := `SELECT id, fio, COALESCE(owner_type,'individual'), COALESCE(iin,''), phone, COALESCE(address,''), COALESCE(notes,''),
 	             created_at, updated_at, deleted_at, is_deleted, COALESCE(device_id,''), COALESCE(version,1)
 	      FROM owners`
 	if !since.IsZero() {

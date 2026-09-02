@@ -90,6 +90,11 @@ CREATE INDEX IF NOT EXISTS idx_staff_deleted   ON clinic_staff(is_deleted);
 CREATE TABLE IF NOT EXISTS owners (
     id         TEXT PRIMARY KEY,
     fio        TEXT NOT NULL,
+    -- Правила требуют ИИН для физлица или БИН для юрлица. Оба — 12 цифр,
+    -- поэтому колонка одна, а owner_type говорит, как её подписывать.
+    -- Владельцами бывают приюты и питомники, у них ФИО нет — в fio тогда
+    -- лежит наименование организации.
+    owner_type TEXT,          -- individual | legal
     iin        TEXT,
     phone      TEXT NOT NULL,
     address    TEXT,
@@ -361,6 +366,7 @@ var migrations = []string{
 	`ALTER TABLE owners ADD COLUMN device_id TEXT`,
 	`ALTER TABLE owners ADD COLUMN version INTEGER NOT NULL DEFAULT 1`,
 	`ALTER TABLE owners ADD COLUMN notes TEXT`,
+	`ALTER TABLE owners ADD COLUMN owner_type TEXT`,
 	`CREATE INDEX IF NOT EXISTS idx_owners_updated ON owners(updated_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_owners_deleted ON owners(is_deleted)`,
 
