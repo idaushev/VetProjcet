@@ -1058,6 +1058,20 @@
                 <div id="diagnoses-list"></div>
               </div>
             </div>
+            <div class="card set-card" id="protocols-card">
+              <div class="card-header">
+                <span class="card-title">Шаблоны протоколов</span>
+                <button class="btn btn-ghost btn-sm" data-act="protocol.add">Добавить</button>
+              </div>
+              <div class="card-body">
+                <p style="font-size:var(--fs-sm);color:var(--text-2);margin-bottom:12px;">
+                  Что заполнять по услугам, которые требуют результата: анализы,
+                  УЗИ, рентген. Границы нормы задаются здесь — врач сразу видит
+                  отклонение, не сверяясь со справочником.
+                </p>
+                <div id="protocols-list"></div>
+              </div>
+            </div>
             <div class="card set-card" id="import-clients-card">
               <div class="card-header">
                 <span class="card-title">Импорт клиентской базы</span>
@@ -1183,6 +1197,7 @@
 <script src="/js/modules/chips.js"></script>
 <script src="/js/modules/schedule.js"></script>
 <script src="/js/modules/print.js"></script>
+<script src="/js/modules/protocols.js"></script>
 <script src="/js/modules/warehouse.js"></script>
 <script src="/js/modules/telegram.js"></script>
 

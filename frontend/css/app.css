@@ -2885,3 +2885,43 @@ body.mod-portal-off .needs-mod-portal { display: none !important; }
 .module-row-main { display: flex; flex-direction: column; gap: 3px; }
 .module-row-title { font-weight: 600; font-size: var(--fs-md); display: flex; align-items: center; gap: 8px; }
 .module-row-desc { font-size: var(--fs-sm); color: var(--text-2); line-height: 1.4; }
+
+
+/* ── Результаты услуг: анализы, протоколы ──────────────────────────── */
+
+/* Строка результата в карточке животного и в приёме. */
+.res-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 0; border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.res-row:last-child { border-bottom: 0; }
+.res-row-main { flex: 1; min-width: 0; }
+.res-row-title { font-weight: 600; font-size: var(--fs-md); }
+.res-row-sub { font-size: var(--fs-sm); color: var(--text-2); margin-top: 2px; }
+.res-row-go { font-size: var(--fs-sm); color: var(--accent); flex: 0 0 auto; }
+
+/* «Результата ещё нет» — не ошибка, а работа, которую предстоит сделать. */
+.res-pending { color: var(--warn); }
+
+/* Таблица показателей протокола. */
+.res-table { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
+.res-table th {
+  text-align: left; font-size: var(--fs-sm); font-weight: 700;
+  color: var(--text-2); padding: 6px 8px; border-bottom: 1px solid var(--border);
+}
+.res-table td { padding: 7px 8px; border-bottom: 1px solid var(--border); }
+.res-table tr:last-child td { border-bottom: 0; }
+
+/* Выход за норму — ради этого нормы и хранятся в шаблоне. */
+.res-high { color: var(--danger); font-weight: 700; }
+.res-low  { color: var(--blue);   font-weight: 700; }
+
+/* Конструктор: одно поле протокола. */
+.proto-field {
+  padding: 14px; margin-bottom: 12px;
+  border: 1px solid var(--border); border-radius: var(--r-md, 10px);
+  background: var(--bg-2, transparent);
+}
+.proto-range { display: flex; gap: 8px; }
+.proto-range .form-input { min-width: 0; }

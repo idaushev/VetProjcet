@@ -44,6 +44,8 @@
   // ─── Маршрутизация локальных запросов ─────────────────────────────────────
 
   const STORE_MAP = {
+    "/protocols": "protocol_templates",
+    "/results":   "visit_results",
     "/items":        "items",
     "/owners":       "owners",
     "/pets":         "pets",
@@ -441,6 +443,21 @@
       return rows;
     }
 
+    if (storeName === "visit_results") {
+      if (sp.get("visit_id")) rows = rows.filter(function (r) { return r.visit_id === sp.get("visit_id"); });
+      if (sp.get("pet_id"))   rows = rows.filter(function (r) { return r.pet_id === sp.get("pet_id"); });
+      if (sp.get("status"))   rows = rows.filter(function (r) { return r.status === sp.get("status"); });
+      // Свежие сверху: в карточке животного и в приёме нужен последний анализ.
+      return rows.sort(function (a, b) {
+        var ax = a.filled_at || a.created_at || '', bx = b.filled_at || b.created_at || '';
+        return bx > ax ? 1 : -1;
+      });
+    }
+
+    if (storeName === "protocol_templates") {
+      return rows.sort(byField("name"));
+    }
+
     if (storeName === "vaccinations") {
       if (sp.get("pet_id")) rows = rows.filter(function (r) { return r.pet_id === sp.get("pet_id"); });
       return rows.sort(function (a, b) { return b.administered_at > a.administered_at ? 1 : -1; });
@@ -554,6 +571,19 @@
     // Дублируем локально, иначе владелец, заведённый офлайн, до первой
     // синхронизации остаётся без типа и подписи полей «плывут».
     if (storeName === "owners" && !body.owner_type) body.owner_type = "individual";
+    // Сервер нормализует эти поля (normalizeResultKind/Status, defaultJSON).
+    // Дублируем локально: запись, заведённая офлайн, до синка читается тем же
+    // кодом, что и серверная, и пустой values_json уронил бы JSON.parse.
+    if (storeName === "visit_results") {
+      if (!body.kind) body.kind = "protocol";
+      if (!body.status) body.status = "pending";
+      if (!body.values_json) body.values_json = "{}";
+    }
+    if (storeName === "protocol_templates") {
+      if (!body.kind) body.kind = "lab";
+      if (!body.fields) body.fields = "[]";
+    }
+    if (storeName === "items" && !body.result_mode) body.result_mode = "none";
     var record = await window.VetDB.save(storeName, Object.assign({ id: window.VetDB.uuid() }, body));
     await refreshStore(storeName);
     emitChange(storeName);

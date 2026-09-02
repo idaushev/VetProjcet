@@ -2,14 +2,14 @@
   "use strict";
 
   const DB_NAME    = "vetclinic-pwa";
-  const DB_VERSION = 7; // v7: задачи сотрудникам — tasks
+  const DB_VERSION = 8; // v8: результаты услуг — protocol_templates, visit_results
 
   // Список всех object stores: ядро + стораджи модулей (VetModules, M3.1).
   // attachments — только метаданные, приезжают с сервера через pull.
   // Сами файлы на планшете не хранятся: смотреть сканы можно при наличии сети.
   // Стораджи модулей объявляются ВСЕГДА (не зависят от флага): выключение
   // модуля не должно стирать его данные из IndexedDB.
-  const CORE_ENTITY_STORES = ["owners", "pets", "items", "diagnosis_templates", "tasks", "visits", "visit_items", "vaccinations", "staff", "attachments", "appointments"];
+  const CORE_ENTITY_STORES = ["owners", "pets", "items", "diagnosis_templates", "protocol_templates", "tasks", "visits", "visit_items", "visit_results", "vaccinations", "staff", "attachments", "appointments"];
   const MODULE_STORES = (window.VetModules && window.VetModules.stores()) || ["warehouses", "stock_movements"];
   const ENTITY_STORES = CORE_ENTITY_STORES.concat(MODULE_STORES);
   const META_STORES   = ["sync_queue", "sync_state", "devices", "attachment_queue"];
@@ -44,6 +44,13 @@
           if (name === "pets")        { _ensureIndex(store, "owner_id", "owner_id", false); _ensureIndex(store, "status", "status", false); }
           if (name === "visits")      { _ensureIndex(store, "pet_id",   "pet_id",   false); }
           if (name === "visit_items") { _ensureIndex(store, "visit_id", "visit_id", false); }
+          // Результаты ищем и по приёму (блок в форме), и по животному
+          // (раздел «Анализы» в карточке), и по статусу (что ещё не пришло).
+          if (name === "visit_results") {
+            _ensureIndex(store, "visit_id", "visit_id", false);
+            _ensureIndex(store, "pet_id",   "pet_id",   false);
+            _ensureIndex(store, "status",   "status",   false);
+          }
           if (name === "vaccinations"){ _ensureIndex(store, "pet_id",   "pet_id",   false); }
           if (name === "attachments") { _ensureIndex(store, "visit_id", "visit_id", false); _ensureIndex(store, "pet_id", "pet_id", false); }
           if (name === "appointments"){ _ensureIndex(store, "starts_at", "starts_at", false); }

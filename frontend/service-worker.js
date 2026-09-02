@@ -12,7 +12,7 @@
 
 // ── Версия ────────────────────────────────────────────────────────
 // Поднимайте при каждом деплое → старые кэши удалятся автоматически
-var APP_VERSION  = "2.87.0"; // bumped: экран не дёргается при синхронизации
+var APP_VERSION  = "2.88.0"; // bumped: результаты услуг и конструктор протоколов
 var CACHE_APP    = "vet-app-"   + APP_VERSION;  // версионированные ресурсы
 var CACHE_FONTS  = "vet-fonts-1";               // шрифты (стабильный кэш)
 
@@ -52,6 +52,7 @@ var PRECACHE = [
   "/js/modules/chips.js",
   "/js/modules/schedule.js",
   "/js/modules/print.js",
+  "/js/modules/protocols.js",
   "/js/modules/warehouse.js",
   "/js/modules/telegram.js",
   "/icons/icon.svg",

@@ -42,3 +42,14 @@
   .logout { text-align:center; margin-top:18px; }
   .logout button { background:none; border:none; color:var(--text3); font-size:.82rem; cursor:pointer; text-decoration:underline; }
   .loader { text-align:center; color:var(--text3); padding:30px 0; }
+
+/* Результаты анализов: показатель — значение — норма. */
+.res-lines { margin-top: 8px; }
+.res-line {
+  display: grid; grid-template-columns: 1fr auto auto; gap: 10px;
+  align-items: baseline; padding: 4px 0; font-size: .85rem;
+}
+.res-line + .res-line { border-top: 1px solid rgba(0,0,0,.05); }
+.res-norm { color: #8a95a5; font-size: .78rem; }
+.res-high { color: #c0392b; font-weight: 700; }
+.res-low  { color: #2563eb; font-weight: 700; }

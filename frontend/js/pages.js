@@ -284,6 +284,29 @@
           sortKey: '1'+(v.next_due_at||'')
         });
       });
+      // 0) Незаполненные результаты — пробу взяли, документа нет.
+      //    Ради этого пункта status='pending' и заводится: иначе забытый
+      //    анализ всплывает через неделю, когда владелец звонит сам.
+      try {
+        var pendingRes = (await window.VetDB.getAll('visit_results') || [])
+          .filter(function (r) { return !r.is_deleted && r.status !== 'done'; });
+        var petsById = {};
+        (await window.VetDB.getAll('pets') || []).forEach(function (p) { petsById[p.id] = p; });
+        pendingRes.forEach(function (r) {
+          var pet = petsById[r.pet_id] || {};
+          var day = (r.created_at || '').slice(0, 10);
+          var stale = day && day < today;
+          attention.push({
+            icon: 'microscope', tone: stale ? 'danger' : 'blue',
+            title: esc(r.title || 'Результат') + ' — ' + esc(pet.name || 'животное'),
+            sub: stale ? 'результата нет с ' + fmtDate(r.created_at) : 'ожидает результата',
+            phone: '',
+            act: 'result.fill', data: { id: r.id },
+            sortKey: (stale ? '0' : '2') + (day || '')
+          });
+        });
+      } catch (e) {}
+
       // 0) Ручные задачи сотрудников — в той же очереди: у врача один
       //    рабочий список на день, а не отдельный экран задач.
       var manualTasks = await loadTasks();
@@ -983,7 +1006,10 @@
           items: vs.items,
         };
         try {
-          await api('POST', '/visits/full', body);
+          var created = await api('POST', '/visits/full', body);
+          if (created && created.visit) {
+            await ensureVisitResults(created.visit.id, finalPet.id, vs.items);
+          }
           UI.clearVisitDraft();
           UI.toast('Приём сохранён', 'ok');
           UI.hideModal();
@@ -1188,6 +1214,7 @@
           for (var j = 0; j < vs.items.length; j++) {
             await api('POST', '/visit-items', Object.assign({ visit_id: id }, vs.items[j]));
           }
+          await ensureVisitResults(id, finalPet.id, vs.items);
           UI.clearVisitDraft();
           if (!failedDeletes) UI.toast('Приём обновлён', 'ok');
           UI.hideModal();
@@ -1198,6 +1225,73 @@
     });
   }
 
+
+  // ── Результаты услуг ──────────────────────────────────────────────────
+  //
+  // Услуга, помеченная в каталоге флагом «требует результата», заводит в приёме
+  // строку ожидания. Дальше её либо заполняют протоколом, либо к ней цепляют
+  // файл — и до тех пор она висит в списке «результата нет».
+  //
+  // Привязка идёт к паре (приём, услуга каталога), а НЕ к строке приёма:
+  // сохранение правки удаляет все visit_items и создаёт заново, поэтому их id
+  // живут ровно до следующего сохранения. Результат так терялся бы каждый раз.
+  async function ensureVisitResults(visitId, petId, items) {
+    if (!visitId) return;
+    // Каталог читаем из базы, а НЕ из _items: тот массив наполняет initItems,
+    // то есть он пуст, пока врач не заходил на страницу каталога. Приём же
+    // открывают напрямую из расписания или карточки животного.
+    var catalog = [];
+    try { catalog = await window.VetDB.getAll('items') || []; } catch (e) { return; }
+    var catById = {};
+    catalog.forEach(function (c) { catById[c.id] = c; });
+
+    var wanted = {};
+    (items || []).forEach(function (it) {
+      if (!it.item_id) return;
+      var cat = catById[it.item_id];
+      var mode = cat && cat.result_mode;
+      if (!mode || mode === 'none') return;
+      wanted[it.item_id] = {
+        title: it.name || (cat && cat.name) || 'Результат',
+        // file — только документ; protocol и both начинают с протокола,
+        // файл к нему можно прицепить отдельно.
+        kind: mode === 'file' ? 'file' : 'protocol',
+        template_id: (cat && cat.protocol_id) || ''
+      };
+    });
+
+    var all = [];
+    try { all = await window.VetDB.getAll('visit_results'); } catch (e) { return; }
+    var existing = (all || []).filter(function (r) {
+      return r.visit_id === visitId && !r.is_deleted;
+    });
+    var byItem = {};
+    existing.forEach(function (r) { if (r.item_id) byItem[r.item_id] = r; });
+
+    for (var itemId in wanted) {
+      if (byItem[itemId]) continue;
+      try {
+        await api('POST', '/results', {
+          visit_id: visitId, pet_id: petId, item_id: itemId,
+          title: wanted[itemId].title,
+          template_id: wanted[itemId].template_id,
+          kind: wanted[itemId].kind,
+          status: 'pending'
+        });
+      } catch (e) {
+        if (window.VetLog) window.VetLog.warn('results:create', e);
+      }
+    }
+
+    // Услугу убрали из приёма — ожидание снимаем. Но ТОЛЬКО пустое: уже
+    // внесённый результат не должен исчезнуть из-за правки строки приёма.
+    for (var i = 0; i < existing.length; i++) {
+      var r = existing[i];
+      if (r.item_id && !wanted[r.item_id] && r.status !== 'done') {
+        try { await api('DELETE', '/results/' + r.id); } catch (e) {}
+      }
+    }
+  }
 
   // ── Копирование приёма ────────────────────────────────────────────────
   // Открывает форму нового приёма с предзаполненными:
@@ -1964,7 +2058,14 @@
     }).join('');
   }
 
+  // Список шаблонов нужен форме услуги синхронно — подгружаем заранее.
+  async function primeProtocols() {
+    if (!window.VetProtocols) return;
+    try { UI.setProtocols(await VetProtocols.loadTemplates()); } catch (e) {}
+  }
+
   async function addItem() {
+    await primeProtocols();
     UI.showModal({ title: 'Новая позиция каталога', bodyHTML: UI.itemFormHTML(), size: '',
       afterOpen: UI.recalcItemCost,
       onSave: async function() {
@@ -1977,6 +2078,7 @@
   }
 
   async function editItem(id) {
+    await primeProtocols();
     var it = _items.find(function(x){ return x.id===id; });
     if (!it) return;
     UI.showModal({ title: 'Редактировать: '+it.name, bodyHTML: UI.itemFormHTML(it), size: '',
@@ -3248,6 +3350,14 @@
 
     // Справочник диагнозов
     if (document.getElementById('diagnoses-list')) renderDiagnoses();
+    // Шаблоны протоколов правит только администратор — карточку остальным
+    // не показываем: кнопка всё равно получит 403 от сервера.
+    var protoCard = document.getElementById('protocols-card');
+    if (protoCard) {
+      var isAdmin = !!(window.VetAuth && VetAuth.user() && VetAuth.user().role === 'admin');
+      protoCard.style.display = isAdmin ? '' : 'none';
+      if (isAdmin && window.VetProtocols) VetProtocols.init();
+    }
 
     // Корзина: доступна всем, кто видит настройки — восстановление идёт
     // через обычный синк и подчиняется тем же правам, что и правка.
@@ -4318,6 +4428,39 @@
         +'</div>';
     }
 
+    // ── Анализы и результаты ──────────────────────────────────────
+    // Ради этого раздела всё и делалось: врач должен открыть прошлый анализ
+    // из карточки, не разыскивая приём, в котором его прикрепили.
+    var petResults = [];
+    try {
+      petResults = (await window.VetDB.getAll('visit_results') || [])
+        .filter(function(r){ return !r.is_deleted && r.pet_id === petId; })
+        .sort(function(a,b){
+          var ax=a.filled_at||a.created_at||'', bx=b.filled_at||b.created_at||'';
+          return bx > ax ? 1 : -1;
+        });
+    } catch(e) {}
+
+    var resultsHTML = '';
+    if (petResults.length) {
+      resultsHTML = '<div class="pc-section">'
+        +'<div class="pc-section-title">Анализы и результаты ('+petResults.length+')</div>'
+        + petResults.slice(0, 12).map(function(r){
+            var done = r.status === 'done';
+            return '<div class="res-row" data-act="'+(done?'result.view':'result.fill')+'" data-id="'+esc(r.id)+'">'
+              + '<div class="res-row-main">'
+              + '<div class="res-row-title">'+esc(r.title||'Результат')+'</div>'
+              + '<div class="res-row-sub">'+(done
+                  ? (r.filled_at ? fmtDate(r.filled_at) : 'внесён')
+                  : '<span class="res-pending">результата ещё нет</span>')+'</div>'
+              + '</div>'
+              + '<span class="res-row-go">'+(done ? 'смотреть' : 'заполнить')+'</span>'
+              + '</div>';
+          }).join('')
+        + (petResults.length > 12 ? '<div class="text-sm text-muted">Показаны последние 12</div>' : '')
+        + '</div>';
+    }
+
     var healthHTML = '<div class="pc-section">'
       +'<div class="pc-section-title">Медицинская сводка</div>'
       +'<div class="pc-health-grid">'
@@ -4376,7 +4519,7 @@
     // ── Собираем всё ─────────────────────────────────────────────
     UI.showModal({
       title: '',
-      bodyHTML: headerHTML + deceasedBanner + ownerHTML + tanbaHTML + healthHTML + recentHTML + notesHTML + actionsHTML,
+      bodyHTML: headerHTML + deceasedBanner + ownerHTML + tanbaHTML + resultsHTML + healthHTML + recentHTML + notesHTML + actionsHTML,
       size: 'lg',
       onSave: false,
       cancelLabel: 'Закрыть',

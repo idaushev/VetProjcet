@@ -213,6 +213,46 @@
           + '</div>';
       }).join('');
     }).catch(function (e) { vlist.innerHTML = '<div class="loader">' + esc(e.message) + '</div>'; });
+
+    // Результаты: клиника отдаёт только внесённые. Показываем значения с
+    // отметкой выхода за норму — цифра без нормы владельцу ничего не говорит.
+    var rlist = $('results-list');
+    rlist.innerHTML = '<div class="loader">Загрузка…</div>';
+    api('GET', '/portal/pets/' + p.id + '/results').then(function (list) {
+      if (!list || !list.length) { rlist.innerHTML = '<div class="loader">Результатов пока нет</div>'; return; }
+      rlist.innerHTML = list.map(function (r) {
+        var fields = [];
+        try { fields = JSON.parse(r.fields || '[]') || []; } catch (e) {}
+        var values = {};
+        try { values = JSON.parse(r.values_json || '{}') || {}; } catch (e) {}
+
+        var rows = fields.map(function (f) {
+          var v = values[f.key];
+          if (v == null || v === '') return '';
+          var num = parseFloat(String(v).replace(',', '.'));
+          var high = f.ref_high != null && !isNaN(num) && num > f.ref_high;
+          var low  = f.ref_low  != null && !isNaN(num) && num < f.ref_low;
+          var norm = (f.ref_low != null || f.ref_high != null)
+            ? (f.ref_low != null && f.ref_high != null ? f.ref_low + '–' + f.ref_high
+               : (f.ref_low != null ? 'от ' + f.ref_low : 'до ' + f.ref_high))
+            : '';
+          return '<div class="res-line">'
+            + '<span>' + esc(f.label || f.key) + '</span>'
+            + '<span class="' + (high ? 'res-high' : (low ? 'res-low' : '')) + '">'
+            + esc(v) + (f.unit ? ' ' + esc(f.unit) : '') + (high ? ' ↑' : (low ? ' ↓' : '')) + '</span>'
+            + (norm ? '<span class="res-norm">' + esc(norm) + '</span>' : '<span></span>')
+            + '</div>';
+        }).join('');
+
+        return '<div class="visit" style="padding:10px 14px;">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;">'
+          + '<span style="font-weight:600;font-size:.9rem;">' + esc(r.title || 'Результат') + '</span>'
+          + '<span class="pet-sub">' + (r.filled_at ? fmtDate(r.filled_at) : '') + '</span></div>'
+          + (rows ? '<div class="res-lines">' + rows + '</div>' : '')
+          + (r.conclusion ? '<div class="visit-field" style="margin-top:8px;"><b>Заключение</b><div>' + esc(r.conclusion) + '</div></div>' : '')
+          + '</div>';
+      }).join('');
+    }).catch(function (e) { rlist.innerHTML = '<div class="loader">' + esc(e.message) + '</div>'; });
   }
 
   $('btn-back').onclick = openPets;

@@ -594,7 +594,43 @@
       +'<div class="form-group" id="f-cost-fixed-group"><label class="form-label">Сумма (₸)</label><input id="f-cost-price" class="form-input" type="number" min="0" step="0.01" value="'+esc(d.cost_price!=null&&d.cost_price!==0?d.cost_price:'')+'" placeholder="Стоимость по кассе"></div>'
       +'<div class="form-group" id="f-cost-percent-group"><label class="form-label">Процент от цены (%)</label><input id="f-cost-percent" class="form-input" type="number" min="0" max="100" step="0.1" value="'+esc(d.cost_percent!=null&&d.cost_percent!==0?d.cost_percent:'')+'" placeholder="50" data-act="ui.itemCost" data-act-on="input"></div>'
       +'<div class="form-group form-span-2"><div id="f-cost-hint" class="form-hint"></div></div>'
-      +'</div>';
+      +'</div>'
+      // ── Результат услуги ──────────────────────────────────────────────
+      // Анализ, УЗИ, рентген заканчиваются документом. Помеченная услуга
+      // заводит в приёме строку ожидания — так забытая пробирка видна сразу,
+      // а не через неделю по звонку владельца.
+      +'<div class="form-section"><div class="form-section-title">Результат</div><div class="form-grid">'
+      +'<div class="form-group"><label class="form-label">Требует результата</label>'
+      +'<select id="f-result-mode" class="form-select" data-act="ui.resultMode" data-act-on="change">'
+      + resultModeOpts(d.result_mode || 'none') + '</select></div>'
+      +'<div class="form-group" id="f-protocol-group"><label class="form-label">Шаблон протокола</label>'
+      +'<select id="f-protocol" class="form-select">' + _protocolOpts(d.protocol_id || '') + '</select>'
+      +'<div class="form-hint">Список ведёт администратор в Настройках</div></div>'
+      +'</div></div>';
+  }
+
+  function resultModeOpts(cur) {
+    return [['none','Не требует'],['file','Файл (скан, PDF)'],
+            ['protocol','Протокол вручную'],['both','И файл, и протокол']]
+      .map(function(o){ return '<option value="'+o[0]+'"'+(cur===o[0]?' selected':'')+'>'+o[1]+'</option>'; })
+      .join('');
+  }
+
+  // Шаблоны кладём в _protocolCache перед открытием формы: список короткий,
+  // а собирать <select> асинхронно внутри строковой разметки неудобно.
+  var _protocolCache = [];
+  function setProtocols(list) { _protocolCache = list || []; }
+  function _protocolOpts(cur) {
+    return '<option value="">— не выбран —</option>' + _protocolCache.map(function(p){
+      return '<option value="'+esc(p.id)+'"'+(cur===p.id?' selected':'')+'>'+esc(p.name)+'</option>';
+    }).join('');
+  }
+
+  // Шаблон нужен только когда результат заполняется вручную.
+  function resultModeSwitch() {
+    var mode = (document.getElementById('f-result-mode')||{}).value || 'none';
+    var g = document.getElementById('f-protocol-group');
+    if (g) g.style.display = (mode === 'protocol' || mode === 'both') ? '' : 'none';
   }
 
   // ── Курс лечения ───────────────────────────────────────────────────────
@@ -690,7 +726,9 @@
       ? itemCostFromPercent(price, percent)
       : parseFloat(document.getElementById('f-cost-price').value)||0;
     return { name:document.getElementById('f-name').value.trim(), type:document.getElementById('f-type').value,
-             price:price, cost_price:cost, cost_mode:mode, cost_percent:mode==='percent'?percent:0 };
+             price:price, cost_price:cost, cost_mode:mode, cost_percent:mode==='percent'?percent:0,
+             result_mode:(document.getElementById('f-result-mode')||{}).value||'none',
+             protocol_id:(document.getElementById('f-protocol')||{}).value||'' };
   }
 
   // ── Staff form ─────────────────────────────────────────────────────────
@@ -1735,6 +1773,7 @@
       'ui.checkIIN':       function () { checkIIN(); },
       'ui.checkChip':      function () { checkChip(); },
       'ui.itemCost':       function () { recalcItemCost(); },
+      'ui.resultMode':     function () { resultModeSwitch(); },
       'ui.section':        function (el) { _toggleSection(el.dataset.section); },
       'ui.treatment':      function () { recalcTreatment(); },
       'ui.nextVisit':      function (el) { setNextVisitPreset(el.dataset.preset); },
@@ -1765,6 +1804,7 @@
     ownerFormHTML:ownerFormHTML, ownerFormData:ownerFormData,
     petFormHTML:petFormHTML, petFormData:petFormData, petFormAfterOpen:petFormAfterOpen,
     itemFormHTML:itemFormHTML, itemFormData:itemFormData, recalcItemCost:recalcItemCost,
+    setProtocols:setProtocols, resultModeSwitch:resultModeSwitch,
     checkChip:checkChip, normalizeChip:normalizeChip, actAttrs:actAttrs,
     checkIIN:checkIIN, validIINChecksum:validIINChecksum, ownerTypeSwitch:ownerTypeSwitch,
     _autoGrow:_autoGrow, _autoGrowAll:_autoGrowAll,
