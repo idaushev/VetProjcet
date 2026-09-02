@@ -1288,7 +1288,7 @@
       // Полная форма владельца — те же поля что и при обычном создании
       area.innerHTML = '<div class="inline-create-box">'
         +'<div class="inline-create-box-header"><span class="inline-create-label">Новый владелец</span>'
-        +'<button class="btn btn-sm btn-ghost" id="vf-cancel-new-owner">← К поиску</button></div>'
+        +'<button class="btn btn-ghost btn-sm" id="vf-cancel-new-owner">← К поиску</button></div>'
         +'<div class="form-grid">'
         +'<div class="form-group form-span-2"><label class="form-label">ФИО <span class="form-req">*</span></label>'
         +'<input id="vf-new-owner-fio" class="form-input" value="'+esc(_vs.ownerDraft.fio||'')+'" placeholder="Иванов Иван Иванович" autofocus></div>'
@@ -1372,7 +1372,7 @@
       area.innerHTML = '<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;'
         +'background:var(--accent-dim);border:1.5px solid var(--accent-border);border-radius:var(--r-lg);">'
         +petInfo
-        +'<button style="width:32px;height:32px;border-radius:50%;background:none;border:none;color:var(--text-3);cursor:pointer;font-size:1rem;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:background .15s;" id="vf-clear-pet" title="Изменить животное">&times;</button>'
+        +'<button style="width:32px;height:32px;border-radius:50%;background:none;border:none;color:var(--text-3);cursor:pointer;font-size:1rem;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:background .15s;" id="vf-clear-pet" title="Изменить животное" aria-label="Изменить животное">&times;</button>'
         +'</div>';
 
       document.getElementById('vf-clear-pet').onclick = function() {
@@ -1389,7 +1389,7 @@
           : '<span style="font-size:1.1rem;flex-shrink:0;">'+( SPECIES_ICONS_UI[(p.type||'').toLowerCase()] || '🐾' )+'</span>';
         return '<span class="pet-chip" data-id="'+p.id+'">'+chipMedia+' '+esc(p.name)+'</span>';
       }).join('')+'</div>';
-      html+='<button class="btn btn-sm btn-ghost" id="vf-show-new-pet" style="margin-top:8px;">+ Новое животное</button>';
+      html+='<button class="btn btn-ghost btn-sm" id="vf-show-new-pet" style="margin-top:8px;">+ Новое животное</button>';
     }
     if (_vs.showNewPet || !ownerPets || ownerPets.length===0) {
       if (!ownerPets||ownerPets.length===0) html+='<div class="text-sm text-muted" style="margin-bottom:10px;">Нет активных животных. Создайте нового:</div>';
@@ -1397,7 +1397,7 @@
       // Полная форма питомца — те же поля что и при обычном создании
       var pd = _vs.petDraft || {};
       html+='<div class="inline-create-box"><div class="inline-create-box-header"><span class="inline-create-label">Новое животное</span>'
-        +(ownerPets&&ownerPets.length>0?'<button class="btn btn-sm btn-ghost" id="vf-cancel-new-pet">Отмена</button>':'')+'</div>'
+        +(ownerPets&&ownerPets.length>0?'<button class="btn btn-ghost btn-sm" id="vf-cancel-new-pet">Отмена</button>':'')+'</div>'
         +'<div class="form-grid">'
         // Основные
         +'<div class="form-group"><label class="form-label">Кличка <span class="form-req">*</span></label>'
@@ -1509,9 +1509,9 @@
       +'<select class="vitem-input" id="vit-t-'+id+'"><option value="service"'+(prefill.type!=='drug'?' selected':'')+'>Услуга</option><option value="drug"'+(prefill.type==='drug'?' selected':'')+'>Препарат</option></select>'
       +'<input class="vitem-input" type="number" min="0.01" step="0.01" id="vit-q-'+id+'" value="'+esc(prefill.quantity||1)+'">'
       +'<input class="vitem-input" type="number" min="0" step="0.01" id="vit-p-'+id+'" value="'+esc(prefill.price||0)+'">'
-      +'<input class="vitem-input" type="number" min="0" step="0.01" id="vit-c-'+id+'" value="'+esc(prefill.cost_price||0)+'" placeholder="0" title="Себестоимость">'
+      +'<input class="vitem-input" type="number" min="0" step="0.01" id="vit-c-'+id+'" value="'+esc(prefill.cost_price||0)+'" placeholder="0" title="Себестоимость" aria-label="Себестоимость">'
       +'<span class="vitem-total" id="vit-tot-'+id+'">0 ₸</span>'
-      +'<button class="btn btn-icon danger" data-rem="'+id+'">&#x2715;</button>';
+      +'<button class="btn btn-icon danger" data-rem="'+id+'" title="Убрать позицию" aria-label="Убрать позицию">&#x2715;</button>';
     document.getElementById('vitem-rows').appendChild(row);
     var inp=row.querySelector('#vit-n-'+id); var dd=row.querySelector('#vit-dd-'+id);
     inp.addEventListener('input',function(){

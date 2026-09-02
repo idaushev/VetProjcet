@@ -367,7 +367,7 @@
           if (attCount) attCount.textContent = attention.length;
           attEl.innerHTML = attention.slice(0, 12).map(function(x){
             var callBtn = x.phone
-              ? '<a class="btn btn-icon btn-open" href="tel:'+esc(String(x.phone).replace(/[^\d+]/g,''))+'" data-act="noop" title="Позвонить">'+I('phone')+'</a>'
+              ? '<a class="btn btn-icon btn-open" href="tel:'+esc(String(x.phone).replace(/[^\d+]/g,''))+'" data-act="noop" title="Позвонить" aria-label="Позвонить">'+I('phone')+'</a>'
               : '';
             return '<div class="erow" '+UI.actAttrs(x.act, x.data)+'>'
               + '<span class="att-icon att-'+x.tone+'">'+I(x.icon)+'</span>'
@@ -486,7 +486,11 @@
         + '<div class="erow-body">'
         + '<div class="erow-title">'+hl(o.fio,q)+'</div>'
         + '<div class="erow-sub">'+hl(o.phone||'',q)+(o.iin?' &nbsp;·&nbsp; ИИН: '+hl(o.iin,q):'')+'</div>'
-        + (o.address ? '<div class="erow-extra">'+I('pin')+' '+esc(o.address)+'</div>' : '')
+        // Адрес из строки убран намеренно. Он был необязательной третьей
+        // строкой: у владельцев с адресом строка становилась 98px, без него
+        // 77px — список терял ритм. Резервировать пустую строку тоже плохо:
+        // все строки вырастали до 95px, и на экран помещалось меньше.
+        // Адрес при просмотре списка не нужен — он есть в карточке владельца.
         + '</div>'
         + '<div class="erow-right">'
         + (cnt ? '<span class="badge badge-active">'+cnt+' пит.</span>' : '<span style="font-size:.72rem;color:var(--text-3);">нет питомцев</span>')
@@ -658,7 +662,7 @@
       // а фоновых задач на офлайн-планшете нет.
       var course = activeCourse(p.id);
       var courseBadge = course
-        ? '<span class="badge badge-course" title="Курс лечения до '+fmtDate(course.treatment_until)+'">'
+        ? '<span class="badge badge-course" title="Курс лечения до '+fmtDate(course.treatment_until)+'" aria-label="Курс лечения до '+fmtDate(course.treatment_until)+'">'
           + I('heart') + ' Лечение: ' + course.days_left + ' дн.</span>'
         : '';
       var deceasedItem = p.status==='active' ? [{label:'Отметить «умер»', icon:'skull', onclick:"VetPages.markDeceased('"+p.id+"')"}] : [];
@@ -864,15 +868,15 @@
         +'<div class="erow-body">'
         +'<div class="erow-title">'+esc(pet.name||'Неизвестно')+vtTag+'</div>'
         +'<div class="erow-sub">'+esc(owner.fio||'')+(v.diagnosis?' · '+esc(v.diagnosis):(v.anamnesis?' · '+esc(v.anamnesis):''))+'</div>'
-        +((v.animal_weight||v.next_visit_date)?'<div class="erow-extra">'
+        +('<div class="erow-extra">'
           +(v.animal_weight?''+I('scale')+' '+v.animal_weight+' кг':'')
           +(v.animal_weight&&v.next_visit_date?' &nbsp;·&nbsp; ':'')
           +(v.next_visit_date?''+I('calendar')+' Сл. приём: '+fmtDate(v.next_visit_date):'')
-          +'</div>':'')
+          +'</div>')
         +'</div>'
         +'<div class="erow-right">'
         +'<span class="erow-date">'+fmtDate(v.date)+'</span>'
-        +(v.total_amount?(window.VetAuth&&!VetAuth.canSeeSum(v.staff_id)?'<span class="erow-amount" title="Сумма скрыта настройками прав">···</span>':'<span class="erow-amount">'+Number(v.total_amount).toFixed(0)+' ₸</span>'):'')
+        +(v.total_amount?(window.VetAuth&&!VetAuth.canSeeSum(v.staff_id)?'<span class="erow-amount" title="Сумма скрыта настройками прав" aria-label="Сумма скрыта настройками прав">···</span>':'<span class="erow-amount">'+Number(v.total_amount).toFixed(0)+' ₸</span>'):'')
         +'<div class="erow-actions">'
         +'<button class="btn btn-icon" data-act="visit.edit" data-id="'+v.id+'" title="Открыть приём" aria-label="Открыть приём">'+UI.icon('edit','')+'</button>'
         +UI.rowMenu([
@@ -1836,7 +1840,7 @@
           + (err ? ' · не отправлен: ' + esc((q.last_error || '').slice(0, 90))
                  : ' · ждёт отправки на сервер')
           + '</div></div>'
-          + '<button class="btn btn-icon" title="Убрать из очереди" data-act="attach.dropQueued" data-id="' + q.id + '" data-visit="' + visitId + '">' + I('trash') + '</button>'
+          + '<button class="btn btn-icon" title="Убрать из очереди" data-act="attach.dropQueued" data-id="' + q.id + '" data-visit="' + visitId + '" aria-label="Убрать из очереди">' + I('trash') + '</button>'
           + '</div>';
       });
       saved.forEach(function (a) {
@@ -1844,7 +1848,7 @@
           + I(a.mime_type === 'application/pdf' ? 'file' : 'camera')
           + '<div class="attach-body"><a class="attach-name" href="/attachments/' + a.id + '/file?t=' + encodeURIComponent((window.VetAuth&&window.VetAuth.token())||'') + '" target="_blank" rel="noopener">' + esc(a.file_name) + '</a>'
           + '<div class="attach-meta">' + esc(attachKindLabel(a.kind)) + ' · ' + fmtBytes(a.size_bytes) + ' · ' + fmtDate(a.created_at) + '</div></div>'
-          + '<button class="btn btn-icon" title="Удалить" data-act="attach.remove" data-id="' + a.id + '" data-visit="' + visitId + '">' + I('trash') + '</button>'
+          + '<button class="btn btn-icon" title="Удалить" data-act="attach.remove" data-id="' + a.id + '" data-visit="' + visitId + '" aria-label="Удалить">' + I('trash') + '</button>'
           + '</div>';
       });
       html += '</div>';
@@ -3798,13 +3802,13 @@
         visits.forEach(function(v) {
           var pet   = petsMap[v.pet_id]   || {};
           var owner = ownersMap[pet.owner_id] || {};
-          html += '<tr style="cursor:pointer;" title="Открыть приём" '
+          html += '<tr style="cursor:pointer;" title="Открыть приём" aria-label="Открыть приём" '
             + 'data-act="visit.edit.fromReport" data-id="'+v.id+'">'
             + '<td><b>' + esc(pet.name||'—') + '</b> <span style="color:var(--text-3);font-size:.78rem;">' + esc(pet.type||'') + '</span></td>'
             + '<td>' + esc(owner.fio||'—') + '</td>'
             + '<td><a href="tel:' + esc(owner.phone||'') + '" data-act="noop" style="color:var(--accent);">' + esc(owner.phone||'—') + '</a></td>'
             + '<td style="font-size:.82rem;color:var(--text-2);">' + esc(v.diagnosis||v.anamnesis||'—') + '</td>'
-            + '<td><button class="btn btn-sm btn-primary" data-act="pet.newVisit.fromReport" data-id="'+v.pet_id+'">+ Приём</button></td>'
+            + '<td><button class="btn btn-primary btn-sm" data-act="pet.newVisit.fromReport" data-id="'+v.pet_id+'">+ Приём</button></td>'
             + '</tr>';
         });
         html += '</tbody></table></div>';
@@ -3897,7 +3901,7 @@
         ? '<div class="report-group" style="margin-bottom:20px;">'
           + '<div class="report-group-title">Не явились по записи <span style="font-weight:400;color:var(--text-3)">(' + apptNoShows.length + ' за 60 дней)</span></div>'
           + '<table class="history-table"><thead><tr>'
-          + '<th>Когда</th><th>Клиент</th><th>Телефон</th><th>Животное</th><th>Врач</th><th>Причина визита</th>'
+          + '<th>Когда</th><th>Владелец</th><th>Телефон</th><th>Животное</th><th>Врач</th><th>Причина визита</th>'
           + '</tr></thead><tbody>'
           + apptNoShows.map(function(r) {
               return '<tr><td>' + esc(r.when) + '</td><td>' + esc(r.who) + '</td>'
@@ -4095,7 +4099,7 @@
     var allVisits  = await window.VetDB.getAll('visits');
 
     var owner = allOwners.find(function(o){ return o.id===ownerId; });
-    if (!owner) { UI.toast('Клиент не найден', 'err'); return; }
+    if (!owner) { UI.toast('Владелец не найден', 'err'); return; }
 
     var ownerPets = allPets.filter(function(p){ return !p.is_deleted && p.owner_id===ownerId; })
                            .sort(function(a,b){ return a.name.localeCompare(b.name,'ru'); });
@@ -4136,7 +4140,7 @@
       // Пароль от портала — админ или пользователь с правом portal_codes
       // (это доступ к медкартам, право включается в настройках пользователя).
       +(_canIssuePortalCodes()
-         ? '<div class="oc-actions"><button class="btn btn-sm btn-ghost" '
+         ? '<div class="oc-actions"><button class="btn btn-ghost btn-sm" '
            + 'data-act="owner.portalCode" data-id="'+ownerId+'">'
            + UI.icon('key','') + ' Пароль от портала</button></div>'
          : '')
@@ -4848,9 +4852,9 @@
         + '<div class="erow-body"><div class="erow-title">' + esc(d.name) + '</div>'
         + '<div class="erow-sub">' + esc(hint ? hint.slice(0, 90) : 'без заготовки') + '</div></div>'
         + '<div class="erow-right">'
-        + '<button class="btn btn-icon diag-edit" data-id="' + esc(d.id) + '" title="Изменить">'
+        + '<button class="btn btn-icon diag-edit" data-id="' + esc(d.id) + '" title="Изменить" aria-label="Изменить">'
         + UI.icon('edit', '') + '</button>'
-        + '<button class="btn btn-icon danger diag-del" data-id="' + esc(d.id) + '" title="Удалить">'
+        + '<button class="btn btn-icon danger diag-del" data-id="' + esc(d.id) + '" title="Удалить" aria-label="Удалить">'
         + UI.icon('trash', '') + '</button>'
         + '</div></div>';
     }).join('');
@@ -5506,7 +5510,7 @@
         + '<div class="erow-sub perm-summary">'+permSummary(u)+'</div>'
         + '</div>'
         + '<div class="erow-right"><div class="erow-actions">'
-        + '<button class="btn btn-icon" data-act="user.edit" data-id="'+u.id+'" title="Редактировать">'+UI.icon('edit','')+'</button>'
+        + '<button class="btn btn-icon" data-act="user.edit" data-id="'+u.id+'" title="Редактировать" aria-label="Редактировать">'+UI.icon('edit','')+'</button>'
         + '</div></div></div>';
     }).join('');
   }

@@ -174,7 +174,7 @@ ${visit.notes ? `<div class="section">
     var settings  = await loadClinicSettings();
 
     var owner = allOwners.find(function(o){ return o.id===ownerId; });
-    if (!owner) { UI.toast('Клиент не найден', 'err'); return; }
+    if (!owner) { UI.toast('Владелец не найден', 'err'); return; }
 
     var ownerPets  = allPets.filter(function(p){ return !p.is_deleted && p.owner_id===ownerId; })
                             .sort(function(a,b){ return a.name.localeCompare(b.name,'ru'); });
@@ -398,7 +398,7 @@ ${visit.notes ? `<div class="section">
         ?'<div class="section-title">История визитов ('+petVisits.length+')</div>'
          +'<table><thead><tr><th>Дата</th><th>Тип</th><th>Диагноз</th><th>Назначения</th><th>Сумма</th></tr></thead><tbody>'+visitsRows+'</tbody></table>'
          +(petVisits.length>8?'<div style="font-size:9pt;color:#5d6f81;margin-top:6px;text-align:right">Показаны последние 8 из '+petVisits.length+'</div>':'')
-        :'<div style="color:#5d6f81;margin:10px 0;">Визитов нет</div>')
+        :'<div style="color:#5d6f81;margin:10px 0;">Приёмов нет</div>')
       // Вакцинации
       +(petVaccs.length
         ?'<div class="section-title">Вакцинации ('+petVaccs.length+')</div>'

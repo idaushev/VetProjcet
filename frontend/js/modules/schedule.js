@@ -148,7 +148,7 @@
       var fromPortal = a.source === 'portal' || (a.notes||'').indexOf('портал') >= 0;
       var unconfirmed = fromPortal && a.confirmed === 0;
       return '<div class="appt-card '+st.cls+(unconfirmed?' appt-unconfirmed':'')+'" data-act="appt.edit" data-id="'+a.id+'">'
-        + (fromPortal ? '<span class="appt-portal'+(unconfirmed?' unconf':'')+'" title="'+(unconfirmed?'Новая заявка с портала — подтвердите время или перезвоните':'Запись создана владельцем через портал')+'">'+(unconfirmed?'заявка':'портал')+'</span>' : '')
+        + (fromPortal ? '<span class="appt-portal'+(unconfirmed?' unconf':'')+'" title="'+(unconfirmed?'Новая заявка с портала — подтвердите время или перезвоните':'Запись создана владельцем через портал')+'" aria-label="'+(unconfirmed?'Новая заявка с портала — подтвердите время или перезвоните':'Запись создана владельцем через портал')+'">'+(unconfirmed?'заявка':'портал')+'</span>' : '')
         + '<div class="appt-time">'+esc(hm)+'<span class="appt-dur"> · '+(a.duration_min||30)+' мин</span></div>'
         + '<div class="appt-body">'
         + '<div class="appt-title">'+esc(petName || 'Без клички')+(who ? ' <span class="appt-owner">· '+esc(who)+'</span>' : '')+'</div>'
@@ -188,7 +188,7 @@
         var appts = bySlot[t] || [];
         html += '<div class="sched-slot' + (appts.length ? ' has-appts' : '') + '">'
           + '<div class="sched-time">' + t + '</div>'
-          + '<div class="sched-cell" data-act="appt.newAt" data-time="' + t + '" title="Нажмите, чтобы записать на ' + t + '">'
+          + '<div class="sched-cell" data-act="appt.newAt" data-time="' + t + '" title="Нажмите, чтобы записать на ' + t + '" aria-label="Нажмите, чтобы записать на ' + t + '">'
           + appts.map(apptCard).join('')
           + '</div></div>';
       });
@@ -225,7 +225,7 @@
         var clickable = slotTime && c.id;
         html += '<div class="schd-cell' + (appts.length ? ' has' : '') + '"'
           + (clickable ? ' data-act="appt.newForDoc" data-time="' + slotTime + '" data-doc="' + c.id + '" title="Записать на ' + slotTime + '"' : '')
-          + '>' + appts.map(apptCard).join('') + '</div>';
+          + ' aria-label="Записать на ' + slotTime + '">' + appts.map(apptCard).join('') + '</div>';
       });
     }
 

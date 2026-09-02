@@ -132,7 +132,7 @@
           + ' · '+esc(owner.fio||'—')+(owner.phone?' · '+I('phone')+' '+esc(owner.phone):'')+'</div>'
           + '</div>'
           + '<div class="erow-right"><div class="erow-actions">'
-          + (canEdit ? '<button class="btn btn-sm btn-primary" data-act="chip.dialog">Чипировать</button>' : '')
+          + (canEdit ? '<button class="btn btn-primary btn-sm" data-act="chip.dialog">Чипировать</button>' : '')
           + '</div></div></div>';
       }).join('');
       return;
@@ -158,7 +158,7 @@
         + '<div class="erow-right">'
         + (p.chip_date?'<span class="erow-date">'+fmtDate(p.chip_date)+'</span>':'')
         + '<div class="erow-actions">'
-        + '<button class="btn btn-icon btn-print" data-act="chip.certificate" data-id="'+p.id+'" title="Сертификат чипирования">'+UI.icon('print','')+'</button>'
+        + '<button class="btn btn-icon btn-print" data-act="chip.certificate" data-id="'+p.id+'" title="Сертификат чипирования" aria-label="Сертификат чипирования">'+UI.icon('print','')+'</button>'
         + '</div></div></div>';
     }).join('');
   }
