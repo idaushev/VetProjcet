@@ -1061,6 +1061,29 @@
                 </button>
               </div>
             </div>
+            <div class="card set-card" id="import-clients-card">
+              <div class="card-header">
+                <span class="card-title">Импорт клиентской базы</span>
+              </div>
+              <div class="card-body">
+                <p style="font-size:var(--fs-sm);color:var(--text-2);margin-bottom:14px;">
+                  Загрузка владельцев и животных из Excel — по одной строке
+                  на животное. Владельцы с одинаковым телефоном объединяются,
+                  а уже существующие не дублируются. Перед записью показываем,
+                  что получится.
+                </p>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                  <button class="btn btn-ghost btn-sm" onclick="VetPages.downloadClientsTemplate()">
+                    Скачать шаблон
+                  </button>
+                  <label class="btn btn-primary btn-sm" style="cursor:pointer;">
+                    Выбрать файл…
+                    <input type="file" accept=".xlsx,.xls" style="display:none;"
+                           onchange="VetPages.importClientsExcel(this)">
+                  </label>
+                </div>
+              </div>
+            </div>
             <div class="card set-card" id="trash-card">
               <div class="card-header">
                 <span class="card-title">Корзина</span>

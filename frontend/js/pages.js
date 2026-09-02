@@ -4850,6 +4850,242 @@ ${visit.notes ? `<div class="section">
     reader.readAsArrayBuffer(file);
   }
 
+  // ── Импорт клиентской базы (владельцы + животные) ────────────────────────
+  // Условие входа для новой клиники: у неё уже есть сотни карточек в Excel,
+  // и вручную их никто вбивать не станет. Формат — одна строка на животное,
+  // владелец повторяется; так выглядят почти все выгрузки и просто ведённые
+  // таблицы. Владельцы дедуплицируются по телефону — и внутри файла,
+  // и против тех, кто уже есть в базе.
+  //
+  // Импорт двухшаговый: сначала разбор и предпросмотр с проблемными строками,
+  // и только потом запись. Заливать сотни строк вслепую нельзя — ошибку
+  // потом придётся вычищать руками.
+
+  var IMPORT_COLS = ['ФИО владельца', 'Телефон', 'ИИН', 'Адрес',
+                     'Кличка', 'Вид', 'Пол (м/ж)', 'Порода', 'Дата рождения', '№ чипа'];
+
+  function downloadClientsTemplate() {
+    if (typeof XLSX === 'undefined') { UI.toast('Библиотека XLSX не загружена', 'err'); return; }
+    var rows = [
+      IMPORT_COLS,
+      ['Ахметова Динара', '+7 701 111 2233', '', 'Алматы, Абая 10', 'Мурзик', 'кошка', 'м', 'британская', '2021-05-14', ''],
+      ['Ахметова Динара', '+7 701 111 2233', '', '', 'Белла', 'собака', 'ж', '', '', '643094100123456'],
+      ['Сергеев Валентин', '+7 702 222 3344', '', '', 'Рекс', 'собака', 'м', 'овчарка', '', '']
+    ];
+    var ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = IMPORT_COLS.map(function(){ return {wch: 20}; });
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Клиенты');
+    XLSX.writeFile(wb, 'clients_template.xlsx');
+  }
+
+  // Телефон — ключ дедупликации, поэтому сводим к цифрам с кодом страны 7.
+  function importPhoneKey(v) {
+    var d = String(v == null ? '' : v).replace(/\D/g, '');
+    if (d.length === 11 && (d[0] === '8' || d[0] === '7')) d = '7' + d.slice(1);
+    if (d.length === 10) d = '7' + d;
+    return d;
+  }
+
+  var PET_TYPE_SYNONYMS = {
+    'кот':'кошка','кошка':'кошка','кошки':'кошка','cat':'кошка',
+    'пёс':'собака','пес':'собака','собака':'собака','dog':'собака',
+    'попугай':'попугай','птица':'птица','кролик':'кролик','хомяк':'хомяк',
+    'черепаха':'черепаха','морская свинка':'морская свинка',
+    'шиншилла':'шиншилла','хорёк':'хорёк','хорек':'хорёк'
+  };
+
+  function importPetType(v) {
+    var t = String(v == null ? '' : v).trim().toLowerCase();
+    return PET_TYPE_SYNONYMS[t] || 'другое';
+  }
+
+  function importGender(v) {
+    var g = String(v == null ? '' : v).trim().toLowerCase();
+    if (g === 'ж' || g === 'f' || g === 'самка' || g === 'девочка') return 'f';
+    return 'm'; // по умолчанию — сервер требует строго m или f
+  }
+
+  // Дата из Excel приходит либо строкой, либо числом (серийная дата).
+  function importDate(v) {
+    if (v == null || v === '') return '';
+    if (typeof v === 'number' && typeof XLSX !== 'undefined' && XLSX.SSF) {
+      var d = XLSX.SSF.parse_date_code(v);
+      if (d) return d.y + '-' + String(d.m).padStart(2,'0') + '-' + String(d.d).padStart(2,'0');
+    }
+    var s = String(v).trim();
+    var m = s.match(/^(\d{2})[.\/](\d{2})[.\/](\d{4})$/); // 14.05.2021
+    if (m) return m[3] + '-' + m[2] + '-' + m[1];
+    return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0,10) : '';
+  }
+
+  var _importPlan = null; // разобранный файл, ждёт подтверждения
+
+  async function importClientsExcel(input) {
+    if (!input.files || !input.files[0]) return;
+    if (typeof XLSX === 'undefined') { UI.toast('Библиотека XLSX не загружена', 'err'); return; }
+    var file = input.files[0];
+    input.value = '';
+    var reader = new FileReader();
+    reader.onload = async function (e) {
+      try {
+        var wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+        var ws = wb.Sheets[wb.SheetNames[0]];
+        var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        await buildImportPlan(rows);
+      } catch (err) {
+        if (window.VetLog) window.VetLog.warn('import:read', err);
+        UI.toast('Не удалось прочитать файл: ' + (err && err.message || err), 'err');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  async function buildImportPlan(rows) {
+    var existing = [];
+    try { existing = await window.VetDB.getAll('owners'); } catch (e) {}
+    var byPhone = {};
+    (existing || []).forEach(function (o) {
+      if (o.is_deleted) return;
+      var k = importPhoneKey(o.phone);
+      if (k) byPhone[k] = o;
+    });
+
+    var plan = { owners: [], pets: [], problems: [], matched: 0 };
+    var newByPhone = {};
+
+    for (var i = 1; i < rows.length; i++) {
+      var r = rows[i] || [];
+      var fio = String(r[0] || '').trim();
+      var phoneRaw = r[1];
+      var key = importPhoneKey(phoneRaw);
+      var petName = String(r[4] || '').trim();
+
+      if (!fio && !petName) continue; // пустая строка — молча пропускаем
+      if (!fio) { plan.problems.push('Строка ' + (i + 1) + ': нет ФИО владельца'); continue; }
+      if (!key || key.length < 11) {
+        plan.problems.push('Строка ' + (i + 1) + ': телефон «' + String(phoneRaw || '') + '» непохож на номер');
+        continue;
+      }
+
+      var ownerRef;
+      if (byPhone[key]) {
+        ownerRef = { existingId: byPhone[key].id };
+        plan.matched++;
+      } else if (newByPhone[key] !== undefined) {
+        ownerRef = { newIndex: newByPhone[key] };
+      } else {
+        newByPhone[key] = plan.owners.length;
+        ownerRef = { newIndex: plan.owners.length };
+        plan.owners.push({
+          fio: fio, phone: String(phoneRaw || '').trim(),
+          iin: String(r[2] || '').trim(), address: String(r[3] || '').trim()
+        });
+      }
+
+      if (petName) {
+        plan.pets.push({
+          owner: ownerRef, name: petName,
+          type: importPetType(r[5]), gender: importGender(r[6]),
+          breed: String(r[7] || '').trim(), birth_date: importDate(r[8]),
+          chip_number: String(r[9] || '').trim().replace(/\s/g, '')
+        });
+      }
+    }
+
+    _importPlan = plan;
+    showImportPreview(plan);
+  }
+
+  function showImportPreview(plan) {
+    var body =
+      '<div style="margin-bottom:14px;">'
+      + '<div style="font-size:var(--fs-lg);font-weight:700;margin-bottom:6px;">Будет создано</div>'
+      + '<div>Владельцев: <b>' + plan.owners.length + '</b></div>'
+      + '<div>Животных: <b>' + plan.pets.length + '</b></div>'
+      + (plan.matched ? '<div class="text-muted" style="margin-top:6px;">Совпало с существующими по телефону: '
+          + plan.matched + ' — новые карточки для них не создаются, животные привяжутся к ним.</div>' : '')
+      + '</div>';
+
+    if (plan.problems.length) {
+      body += '<div style="border-top:1px solid var(--border);padding-top:12px;">'
+        + '<div style="font-weight:700;color:var(--danger);margin-bottom:6px;">'
+        + 'Пропущено строк: ' + plan.problems.length + '</div>'
+        + '<div style="max-height:160px;overflow:auto;font-size:var(--fs-sm);color:var(--text-2);">'
+        + plan.problems.slice(0, 30).map(function (p) { return '<div>' + esc(p) + '</div>'; }).join('')
+        + (plan.problems.length > 30 ? '<div>…и ещё ' + (plan.problems.length - 30) + '</div>' : '')
+        + '</div></div>';
+    }
+
+    if (!plan.owners.length && !plan.pets.length) {
+      body += '<div style="margin-top:12px;color:var(--danger);">Импортировать нечего.</div>';
+    }
+
+    UI.showModal({
+      title: 'Проверьте перед импортом',
+      size: 'lg',
+      bodyHTML: body,
+      saveLabel: (plan.owners.length || plan.pets.length) ? 'Импортировать' : 'Закрыть',
+      cancelLabel: 'Отмена',
+      onSave: function () {
+        if (!plan.owners.length && !plan.pets.length) { UI.hideModal(); return; }
+        runImport();
+      }
+    });
+  }
+
+  async function runImport() {
+    var plan = _importPlan;
+    if (!plan) return;
+    var btn = document.getElementById('modal-save-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Импорт…'; }
+
+    var createdOwners = [], okOwners = 0, okPets = 0, failed = [];
+
+    for (var i = 0; i < plan.owners.length; i++) {
+      try {
+        var o = await api('POST', '/owners', plan.owners[i]);
+        createdOwners[i] = o && o.id ? o.id : null;
+        okOwners++;
+      } catch (e) {
+        createdOwners[i] = null;
+        failed.push('Владелец «' + plan.owners[i].fio + '»: ' + (e && e.message || e));
+      }
+    }
+
+    for (var j = 0; j < plan.pets.length; j++) {
+      var p = plan.pets[j];
+      var ownerId = p.owner.existingId || createdOwners[p.owner.newIndex];
+      if (!ownerId) { failed.push('Животное «' + p.name + '»: владелец не создан'); continue; }
+      var payload = { owner_id: ownerId, name: p.name, type: p.type, gender: p.gender };
+      if (p.breed) payload.breed = p.breed;
+      if (p.birth_date) payload.birth_date = p.birth_date;
+      if (p.chip_number) payload.chip_number = p.chip_number;
+      try { await api('POST', '/pets', payload); okPets++; }
+      catch (e) { failed.push('Животное «' + p.name + '»: ' + (e && e.message || e)); }
+    }
+
+    UI.hideModal();
+    _importPlan = null;
+
+    // Отчёт показываем всегда: молчаливый импорт не даёт понять, что не доехало.
+    var msg = '<div>Создано владельцев: <b>' + okOwners + '</b></div>'
+            + '<div>Создано животных: <b>' + okPets + '</b></div>';
+    if (failed.length) {
+      msg += '<div style="margin-top:12px;color:var(--danger);font-weight:700;">Не удалось: '
+           + failed.length + '</div>'
+           + '<div style="max-height:180px;overflow:auto;font-size:var(--fs-sm);color:var(--text-2);">'
+           + failed.slice(0, 30).map(function (f) { return '<div>' + esc(f) + '</div>'; }).join('')
+           + (failed.length > 30 ? '<div>…и ещё ' + (failed.length - 30) + '</div>' : '')
+           + '</div>';
+    }
+    UI.showModal({ title: 'Импорт завершён', bodyHTML: msg, size: 'lg',
+                   saveLabel: 'Готово', cancelLabel: 'Закрыть',
+                   onSave: function () { UI.hideModal(); } });
+
+    window.dispatchEvent(new Event('vetdata:changed'));
+  }
+
   function petPhotoInput(petId) {
     var inp = document.createElement('input');
     inp.type = 'file'; inp.accept = 'image/*';
@@ -5813,6 +6049,8 @@ ${visit.notes ? `<div class="section">
     showOwnerCard:      showOwnerCard,
     issuePortalCode:    issuePortalCode,
     restoreFromTrash:   restoreFromTrash,
+    downloadClientsTemplate: downloadClientsTemplate,
+    importClientsExcel: importClientsExcel,
     printOwnerCard:     printOwnerCard,
     addPet:             addPet,
     editPet:            editPet,
