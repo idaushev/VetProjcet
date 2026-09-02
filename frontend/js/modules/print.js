@@ -319,7 +319,7 @@ ${visit.notes ? `<div class="section">
         ?'<div class="section-title">Последние визиты</div>'
          +'<table><thead><tr><th>Дата</th><th>Животное</th><th>Диагноз / Жалоба</th><th>Сумма</th></tr></thead><tbody>'+lastVisits+'</tbody></table>'
         :'')
-      +'<button class="no-print" onclick="window.print()">'+I('printer')+' Распечатать</button>'
+      +'<button class="no-print" id="btn-do-print">'+I('printer')+' Распечатать</button>'
       +'</body></html>';
 
     printHTML(html);
@@ -522,7 +522,7 @@ ${visit.notes ? `<div class="section">
         ?'<div class="section-title">Вакцинации ('+petVaccs.length+')</div>'
          +'<table><thead><tr><th>Дата</th><th>Вакцина</th><th>Производитель</th><th>Серия</th><th>Следующая</th></tr></thead><tbody>'+vaccsRows+'</tbody></table>'
         :'')
-      +'<button class="no-print" onclick="window.print()">'+I('printer')+' Распечатать</button>'
+      +'<button class="no-print" id="btn-do-print">'+I('printer')+' Распечатать</button>'
       +'</body></html>';
 
     printHTML(html);
@@ -598,7 +598,7 @@ ${visit.notes ? `<div class="section">
       +'<div style="flex:1"><div class="sign-label">Ветеринарный врач'+(staff.name?' ('+esc(staff.name)+')':'')+'</div><div class="sign-line"></div></div>'
       +'<div style="flex:1"><div class="sign-label">Печать клиники</div><div class="sign-line"></div></div>'
       +'</div>'
-      +'<button class="no-print" onclick="window.print()">'+I('printer')+' Распечатать</button>'
+      +'<button class="no-print" id="btn-do-print">'+I('printer')+' Распечатать</button>'
       +'</body></html>';
 
     printHTML(html);

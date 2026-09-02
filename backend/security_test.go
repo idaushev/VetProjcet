@@ -108,6 +108,16 @@ func TestSecurityHeaders(t *testing.T) {
 		}
 	}
 	csp := rec.Header().Get("Content-Security-Policy")
+	// Главное в политике: скрипты только свои. Инлайновых обработчиков в
+	// интерфейсе не осталось, поэтому 'unsafe-inline' для script-src здесь
+	// быть не должно — иначе защита от внедрения кода снова фиктивна.
+	if strings.Contains(csp, "script-src 'self' 'unsafe-inline'") ||
+		strings.Contains(csp, "script-src 'unsafe-inline'") {
+		t.Errorf("script-src разрешает inline: %s", csp)
+	}
+	if !strings.Contains(csp, "script-src 'self';") {
+		t.Errorf("нет строгого script-src: %s", csp)
+	}
 	// connect-src не даёт внедрённому скрипту отправить украденный токен наружу.
 	for _, need := range []string{"connect-src 'self'", "frame-ancestors 'none'", "object-src 'none'"} {
 		if !strings.Contains(csp, need) {

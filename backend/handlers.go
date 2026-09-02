@@ -217,13 +217,20 @@ func sameOrigin(origin string, r *http.Request) bool {
 
 // securityHeaders — заголовки, которые браузер обязан получить на каждый ответ.
 //
-// CSP здесь мягкая по script-src: интерфейс построен на инлайновых
-// обработчиках, и 'unsafe-inline' убрать без их переписывания нельзя. Но
-// connect-src 'self' уже полезен — он не даёт внедрённому скрипту отправить
-// украденный токен на чужой сервер. frame-ancestors закрывает кликджекинг.
-// img-src разрешает data: — фото животных хранятся как data-URL внутри записи.
+// script-src БЕЗ 'unsafe-inline': инлайновых обработчиков и инлайновых
+// <script> в интерфейсе не осталось — действия объявляются через data-act и
+// разбираются делегатом (frontend/js/actions.js). Это и есть та защита, ради
+// которой затевалась находка 1 аудита: даже если текст с кодом попадёт в
+// разметку, браузер откажется его исполнять.
+//
+// style-src 'unsafe-inline' остаётся: инлайновые style-атрибуты в разметке
+// ещё есть, а внедрение стилей не даёт выполнения кода.
+//
+// connect-src 'self' не даёт отправить украденное на чужой сервер,
+// frame-ancestors закрывает кликджекинг, img-src разрешает data: — фото
+// животных хранятся data-URL внутри записи.
 const contentSecurityPolicy = "default-src 'self'; " +
-	"script-src 'self' 'unsafe-inline'; " +
+	"script-src 'self'; " +
 	"style-src 'self' 'unsafe-inline'; " +
 	"img-src 'self' data: blob:; " +
 	"font-src 'self' data:; " +

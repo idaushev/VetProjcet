@@ -124,7 +124,7 @@
       var canEdit = !(window.VetAuth && !VetAuth.can('pets','edit'));
       el.innerHTML = list.map(function(p){
         var owner = _chipOwners[p.owner_id] || {};
-        return '<div class="erow" onclick="VetPages.showPetCard(\''+p.id+'\')">'
+        return '<div class="erow" data-act="pet.card" data-id="'+p.id+'">'
           + UI.avatar(p.name, p.type)
           + '<div class="erow-body">'
           + '<div class="erow-title">'+esc(p.name)+' <span class="chip-nochip">нет чипа</span></div>'
@@ -132,7 +132,7 @@
           + ' · '+esc(owner.fio||'—')+(owner.phone?' · '+I('phone')+' '+esc(owner.phone):'')+'</div>'
           + '</div>'
           + '<div class="erow-right"><div class="erow-actions">'
-          + (canEdit ? '<button class="btn btn-sm btn-primary" onclick="event.stopPropagation();VetPages.chipPetDialog()">Чипировать</button>' : '')
+          + (canEdit ? '<button class="btn btn-sm btn-primary" data-act="chip.dialog">Чипировать</button>' : '')
           + '</div></div></div>';
       }).join('');
       return;
@@ -142,7 +142,7 @@
     el.innerHTML = list.map(function(p){
       var owner = _chipOwners[p.owner_id] || {};
       var dead = p.status !== 'active';
-      return '<div class="erow" onclick="VetPages.showPetCard(\''+p.id+'\')">'
+      return '<div class="erow" data-act="pet.card" data-id="'+p.id+'">'
         + UI.avatar(p.name, p.type)
         + '<div class="erow-body">'
         + '<div class="erow-title"><span class="chip-mono">'+esc(p.chip_number)+'</span>'
@@ -158,7 +158,7 @@
         + '<div class="erow-right">'
         + (p.chip_date?'<span class="erow-date">'+fmtDate(p.chip_date)+'</span>':'')
         + '<div class="erow-actions">'
-        + '<button class="btn btn-icon btn-print" onclick="event.stopPropagation();VetPages.printChipCertificate(\''+p.id+'\')" title="Сертификат чипирования">'+UI.icon('print','')+'</button>'
+        + '<button class="btn btn-icon btn-print" data-act="chip.certificate" data-id="'+p.id+'" title="Сертификат чипирования">'+UI.icon('print','')+'</button>'
         + '</div></div></div>';
     }).join('');
   }
@@ -191,8 +191,8 @@
     var html = '<div class="form-grid">'
       // Переключатель режима: существующее / новое животное
       + '<div class="form-group form-span-2"><div class="condition-tabs">'
-      + '<span class="condition-tab selected" id="chip-mode-existing" onclick="VetPages._chipMode(\'existing\')">Из базы</span>'
-      + '<span class="condition-tab" id="chip-mode-new" onclick="VetPages._chipMode(\'new\')">Новое животное</span>'
+      + '<span class="condition-tab selected" id="chip-mode-existing" data-act="chip.mode" data-mode="existing">Из базы</span>'
+      + '<span class="condition-tab" id="chip-mode-new" data-act="chip.mode" data-mode="new">Новое животное</span>'
       + '</div></div>'
 
       // ── Режим «из базы» ──
@@ -209,7 +209,7 @@
 
       // ── Режим «новое животное» (скрыт по умолчанию) ──
       + '<div class="form-group chip-block-new" style="display:none"><label class="form-label">Владелец <span class="form-req">*</span></label>'
-      + '<select id="chip-owner" class="form-select" onchange="VetPages._chipOwnerToggle(this)">'
+      + '<select id="chip-owner" class="form-select" data-act="chip.ownerToggle" data-act-on="change">'
       + '<option value="__new__">+ Новый владелец</option>'
       + ownersList.map(function(o){ return '<option value="'+o.id+'">'+esc(o.fio)+(o.phone?' · '+esc(o.phone):'')+'</option>'; }).join('')
       + '</select></div>'
@@ -234,7 +234,7 @@
       + '<input id="chip-pet-breed" class="form-input" placeholder="необязательно"></div>'
 
       + '<div class="form-group form-span-2"><label class="form-label">Номер чипа <span class="form-req">*</span></label>'
-      + '<input id="chip-number" class="form-input" inputmode="numeric" maxlength="20" placeholder="643094100001234" oninput="VetUI.checkChip()">'
+      + '<input id="chip-number" class="form-input" inputmode="numeric" maxlength="20" placeholder="643094100001234" data-act="ui.checkChip" data-act-on="input">'
       + '<div id="f-chip-hint" class="form-hint"></div></div>'
       + '<div class="form-group form-span-2"><label class="form-label">Дата чипирования</label>'
       + '<input id="chip-date" class="form-input" type="date" value="'+astanaTodayStr()+'"></div>'
@@ -410,6 +410,15 @@
 
   // ── Экспорт ──────────────────────────────────────────────────────────
   // Точка входа страницы; VetPages.init вызывает её для раздела 'chips'.
+  if (window.VetActions) {
+    window.VetActions.register({
+      'chip.dialog':      function () { chipPetDialog(); },
+      'chip.certificate': function (el) { printChipCertificate(el.dataset.id); },
+      'chip.mode':        function (el) { _chipMode(el.dataset.mode); },
+      'chip.ownerToggle': function (el) { _chipOwnerToggle(el); }
+    });
+  }
+
   window.VetChips = { init: initChips };
 
   // Функции, на которые ссылаются onclick в разметке, — на общий VetPages,

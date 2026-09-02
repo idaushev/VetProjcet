@@ -147,7 +147,7 @@
       // (confirmed=0) выделяем рамкой — их надо подтвердить или перезвонить.
       var fromPortal = a.source === 'portal' || (a.notes||'').indexOf('портал') >= 0;
       var unconfirmed = fromPortal && a.confirmed === 0;
-      return '<div class="appt-card '+st.cls+(unconfirmed?' appt-unconfirmed':'')+'" onclick="VetPages.editAppt(\''+a.id+'\')">'
+      return '<div class="appt-card '+st.cls+(unconfirmed?' appt-unconfirmed':'')+'" data-act="appt.edit" data-id="'+a.id+'">'
         + (fromPortal ? '<span class="appt-portal'+(unconfirmed?' unconf':'')+'" title="'+(unconfirmed?'Новая заявка с портала — подтвердите время или перезвоните':'Запись создана владельцем через портал')+'">'+(unconfirmed?'заявка':'портал')+'</span>' : '')
         + '<div class="appt-time">'+esc(hm)+'<span class="appt-dur"> · '+(a.duration_min||30)+' мин</span></div>'
         + '<div class="appt-body">'
@@ -188,7 +188,7 @@
         var appts = bySlot[t] || [];
         html += '<div class="sched-slot' + (appts.length ? ' has-appts' : '') + '">'
           + '<div class="sched-time">' + t + '</div>'
-          + '<div class="sched-cell" onclick="if(event.target===this)VetPages.newApptAt(\'' + t + '\')" title="Нажмите, чтобы записать на ' + t + '">'
+          + '<div class="sched-cell" data-act="appt.newAt" data-time="' + t + '" title="Нажмите, чтобы записать на ' + t + '">'
           + appts.map(apptCard).join('')
           + '</div></div>';
       });
@@ -224,7 +224,7 @@
         var appts = cellAppts(slotAppts, c.id);
         var clickable = slotTime && c.id;
         html += '<div class="schd-cell' + (appts.length ? ' has' : '') + '"'
-          + (clickable ? ' onclick="if(event.target===this)VetPages.newApptForDoc(\'' + slotTime + '\',\'' + c.id + '\')" title="Записать на ' + slotTime + '"' : '')
+          + (clickable ? ' data-act="appt.newForDoc" data-time="' + slotTime + '" data-doc="' + c.id + '" title="Записать на ' + slotTime + '"' : '')
           + '>' + appts.map(apptCard).join('') + '</div>';
       });
     }
@@ -359,11 +359,11 @@
       + '</div>'
       // Статусные действия — только у существующей записи
       + (isEdit ? '<div class="appt-actions-row">'
-          + (st !== 'done' && appt.pet_id ? '<button class="btn btn-primary btn-sm" onclick="VetPages.apptStartVisit(\''+esc(appt.id)+'\')">'+I('play')+' Начать приём</button>' : '')
-          + (st === 'scheduled' ? '<button class="btn btn-ghost btn-sm" onclick="VetPages.apptSetStatus(\''+esc(appt.id)+'\',\'no_show\')">Не пришли</button>' : '')
-          + (st === 'scheduled' ? '<button class="btn btn-ghost btn-sm" onclick="VetPages.apptSetStatus(\''+esc(appt.id)+'\',\'cancelled\')">Отменить запись</button>' : '')
-          + (st === 'cancelled' || st === 'no_show' ? '<button class="btn btn-ghost btn-sm" onclick="VetPages.apptSetStatus(\''+esc(appt.id)+'\',\'scheduled\')">Вернуть в запись</button>' : '')
-          + '<button class="btn btn-ghost btn-sm danger-text" onclick="VetPages.apptDelete(\''+esc(appt.id)+'\')">Удалить</button>'
+          + (st !== 'done' && appt.pet_id ? '<button class="btn btn-primary btn-sm" data-act="appt.startVisit" data-id="'+esc(appt.id)+'">'+I('play')+' Начать приём</button>' : '')
+          + (st === 'scheduled' ? '<button class="btn btn-ghost btn-sm" data-act="appt.status" data-id="'+esc(appt.id)+'" data-status="no_show">Не пришли</button>' : '')
+          + (st === 'scheduled' ? '<button class="btn btn-ghost btn-sm" data-act="appt.status" data-id="'+esc(appt.id)+'" data-status="cancelled">Отменить запись</button>' : '')
+          + (st === 'cancelled' || st === 'no_show' ? '<button class="btn btn-ghost btn-sm" data-act="appt.status" data-id="'+esc(appt.id)+'" data-status="scheduled">Вернуть в запись</button>' : '')
+          + '<button class="btn btn-ghost btn-sm danger-text" data-act="appt.delete" data-id="'+esc(appt.id)+'">Удалить</button>'
           + '</div>' : '');
 
     UI.showModal({
@@ -524,6 +524,20 @@
   window.VetPages = window.VetPages || {};
   window.VetPages.newApptAt      = newApptAt;
   window.VetPages.newApptForDoc  = newApptForDoc;
+  if (window.VetActions) {
+    window.VetActions.register({
+      // Пустой слот: раньше стояла проверка event.target===this, чтобы клик по
+      // карточке внутри слота не заводил новую запись. Диспетчер берёт
+      // ближайшего предка с data-act, и карточка перекрывает слот сама — но
+      // у слота бывают и не-кликабельные потомки, поэтому проверку оставляем.
+      'appt.newAt':      function (el, e) { if (e.target === el) newApptAt(el.dataset.time); },
+      'appt.newForDoc':  function (el, e) { if (e.target === el) newApptForDoc(el.dataset.time, el.dataset.doc); },
+      'appt.startVisit': function (el) { apptStartVisit(el.dataset.id); },
+      'appt.status':     function (el) { apptSetStatus(el.dataset.id, el.dataset.status); },
+      'appt.delete':     function (el) { apptDelete(el.dataset.id); }
+    });
+  }
+
   window.VetPages.editAppt       = editAppt;
   window.VetPages.apptSetStatus  = apptSetStatus;
   window.VetPages.apptStartVisit = apptStartVisit;

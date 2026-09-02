@@ -23,31 +23,7 @@
   <link href="/vendor/fonts/inter.css" rel="stylesheet">
   <!-- Тема: применяем ДО загрузки CSS, чтобы не мигало светлым при тёмной теме.
        'vet-theme' в localStorage: light | dark | auto (по системе). -->
-  <script>
-    window.VetTheme = (function () {
-      function isDark(mode) {
-        return mode === 'dark' || (mode === 'auto' && window.matchMedia
-          && window.matchMedia('(prefers-color-scheme: dark)').matches);
-      }
-      var api = {
-        get: function () { try { return localStorage.getItem('vet-theme') || 'light'; } catch (e) { return 'light'; } },
-        apply: function (mode) {
-          var dark = isDark(mode || api.get());
-          document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
-          var mc = document.querySelector('meta[name="theme-color"]');
-          if (mc) mc.setAttribute('content', dark ? '#171e28' : '#ffffff');
-        },
-        set: function (mode) { try { localStorage.setItem('vet-theme', mode); } catch (e) {} api.apply(mode); }
-      };
-      api.apply();
-      if (window.matchMedia) {
-        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
-          if (api.get() === 'auto') api.apply('auto');
-        });
-      }
-      return api;
-    })();
-  </script>
+  <script src="/js/theme.js"></script>
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -89,7 +65,7 @@
         <path d="M14 7h7M14 12h7M14 17h7"/>
       </svg>
     </button>
-    <div class="topbar-logo" onclick="navigate('dashboard')" role="button" title="Перейти на главную" tabindex="0" onkeydown="if(event.key==='Enter')navigate('dashboard')">
+    <div class="topbar-logo" data-act="nav.go" data-page="dashboard" role="button" title="Перейти на главную" tabindex="0" >
       <!-- Логотип адаптирован под светлую медицинскую тему -->
       <svg class="topbar-logo-svg" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
         <circle cx="18" cy="18" r="17" fill="#eaf5ee"/>
@@ -126,8 +102,8 @@
            (на планшете/телефоне): меню теперь выезжает на всю высоту экрана
            и перекрывает topbar, поэтому логотип нужен внутри.
            На десктопе логотип уже есть в topbar — тут он скрыт. -->
-      <div class="sidebar-brand" onclick="navigate('dashboard')" role="button" tabindex="0"
-           title="На главную" onkeydown="if(event.key==='Enter')navigate('dashboard')">
+      <div class="sidebar-brand" data-act="nav.go" data-page="dashboard" role="button" tabindex="0"
+           title="На главную" >
         <svg class="topbar-logo-svg" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
           <circle cx="18" cy="18" r="17" fill="#eaf5ee"/>
           <circle cx="18" cy="18" r="17" stroke="#1a8c5e" stroke-width="1.2" opacity=".35"/>
@@ -144,7 +120,7 @@
 
       <!-- Группа: Клиника (сворачиваемая) -->
       <div class="ss-group" id="ssg-clinic">
-        <div class="sidebar-section-label ss-label" onclick="toggleSSGroup('ssg-clinic')">
+        <div class="sidebar-section-label ss-label" data-act="settings.group" data-group="ssg-clinic">
           <span class="nav-text">Клиника</span>
           <span class="ss-arrow">▾</span>
         </div>
@@ -207,7 +183,7 @@
 
       <!-- Группа: Отчёты -->
       <div class="ss-group" id="ssg-analytics">
-        <div class="sidebar-section-label ss-label" onclick="toggleSSGroup('ssg-analytics')">
+        <div class="sidebar-section-label ss-label" data-act="settings.group" data-group="ssg-analytics">
           <span class="nav-text">Отчёты</span>
           <span class="ss-arrow">▾</span>
         </div>
@@ -241,7 +217,7 @@
 
       <!-- Группа: Справочник -->
       <div class="ss-group" id="ssg-catalog">
-        <div class="sidebar-section-label ss-label" onclick="toggleSSGroup('ssg-catalog')">
+        <div class="sidebar-section-label ss-label" data-act="settings.group" data-group="ssg-catalog">
           <span class="nav-text">Справочник</span>
           <span class="ss-arrow">▾</span>
         </div>
@@ -263,7 +239,7 @@
 
       <!-- Группа: Склад (опциональный модуль; скрыта, пока не включён) -->
       <div class="ss-group module-warehouse" id="ssg-warehouse" style="display:none;">
-        <div class="sidebar-section-label ss-label" onclick="toggleSSGroup('ssg-warehouse')">
+        <div class="sidebar-section-label ss-label" data-act="settings.group" data-group="ssg-warehouse">
           <span class="nav-text">Склад</span>
           <span class="ss-arrow">▾</span>
         </div>
@@ -372,7 +348,7 @@
                  Кнопка живёт только при включённом модуле — гейт через
                  body.mod-warehouse-on (его ставит applyWarehouseModuleUI). -->
             <a class="btn btn-ghost needs-mod-warehouse" href="#warehouse"
-               onclick="event.preventDefault();navigate('warehouse');" title="Открыть склад">
+               data-act="nav.go" data-page="warehouse" data-act-prevent="1" title="Открыть склад">
               Склад ↗
             </a>
             <!-- Кабинет владельца — отдельное приложение, новая вкладка. -->
@@ -380,7 +356,7 @@
                title="Открыть кабинет владельца в новой вкладке">
               Кабинет владельца ↗
             </a>
-            <button class="btn btn-primary" onclick="VetPages.init('visits');navigate('visits');setTimeout(function(){document.getElementById('btn-add-visit').click();},200)">
+            <button class="btn btn-primary" data-act="visit.newFromDashboard">
               + Новый приём
             </button>
           </div>
@@ -388,19 +364,19 @@
         <div class="page-inner">
           <div class="stats-grid">
             <div class="stat-card stat-card-link"
-                 onclick="if(window.VetPages)VetPages.goVisitsToday()"
+                 data-act="go.visitsToday"
                  title="Открыть список приёмов за сегодня">
               <div class="stat-value" id="stat-visits-today">—</div>
               <div class="stat-label">Приёмов сегодня ↗</div>
             </div>
             <div class="stat-card stat-card-link"
-                 onclick="if(window.VetPages)VetPages.goOnTreatment()"
+                 data-act="go.onTreatment"
                  title="Показать животных с активным курсом лечения">
               <div class="stat-value" id="stat-on-treatment">—</div>
               <div class="stat-label">На лечении ↗</div>
             </div>
             <div class="stat-card stat-card-link"
-                 onclick="if(window.VetPages)VetPages.goVaccThisWeek()"
+                 data-act="go.vaccWeek"
                  title="Открыть вакцинации на этой неделе">
               <div class="stat-value" id="stat-vaccinations-due">—</div>
               <div class="stat-label">Вакцинаций на неделе ↗</div>
@@ -422,7 +398,7 @@
           <div class="card" id="dash-attention-card" style="display:none;border-color:var(--warn-border);">
             <div class="card-header">
               <span class="card-title" style="color:var(--warn);">Требуют внимания <span id="dash-attention-count" class="attention-count"></span></span>
-              <button class="btn btn-ghost btn-sm" onclick="VetPages.taskDialog()">+ Задача</button>
+              <button class="btn btn-ghost btn-sm" data-act="task.add">+ Задача</button>
             </div>
             <div class="card-body">
               <div id="dash-attention" class="recent-list"></div>
@@ -433,7 +409,7 @@
             <div class="card">
               <div class="card-header">
                 <span class="card-title">Записи на сегодня</span>
-                <a class="btn btn-sm btn-ghost" onclick="navigate('schedule')">Расписание →</a>
+                <a class="btn btn-sm btn-ghost" data-act="nav.go" data-page="schedule">Расписание →</a>
               </div>
               <div class="card-body">
                 <div id="dash-appts" class="recent-list"><div class="list-empty">Загрузка...</div></div>
@@ -443,7 +419,7 @@
             <div class="card">
               <div class="card-header">
                 <span class="card-title">Последние приёмы</span>
-                <a class="btn btn-sm btn-ghost" onclick="navigate('visits')">Все приёмы →</a>
+                <a class="btn btn-sm btn-ghost" data-act="nav.go" data-page="visits">Все приёмы →</a>
               </div>
               <div class="card-body">
                 <div id="recent-visits" class="recent-list"><div class="list-empty">Загрузка...</div></div>
@@ -453,7 +429,7 @@
             <div class="card">
               <div class="card-header">
                 <span class="card-title">На лечении</span>
-                <a class="btn btn-sm btn-ghost" onclick="if(window.VetPages)VetPages.goOnTreatment()">Все →</a>
+                <a class="btn btn-sm btn-ghost" data-act="go.onTreatment">Все →</a>
               </div>
               <div class="card-body">
                 <div id="dash-treatment" class="recent-list"><div class="list-empty">Загрузка...</div></div>
@@ -587,9 +563,9 @@
         <div class="page-header">
           <h1 class="page-title">Отчёт за день</h1>
           <div class="page-actions">
-            <button class="btn btn-ghost admin-only" id="btn-report-settings" title="Настройки отчёта" aria-label="Настройки отчёта" onclick="VetPages.openReportSettings()"><i data-icon="settings" data-icon-size="18"></i></button>
-            <button class="btn btn-ghost" id="btn-print-report" disabled onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
-            <button class="btn btn-ghost" onclick="VetPages.exportReportXlsx('report-content','otchet-za-den')"><i data-icon="download" data-icon-size="18"></i> Excel</button>
+            <button class="btn btn-ghost admin-only" id="btn-report-settings" title="Настройки отчёта" aria-label="Настройки отчёта" data-act="report.settings"><i data-icon="settings" data-icon-size="18"></i></button>
+            <button class="btn btn-ghost" id="btn-print-report" disabled data-act="print.window"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
+            <button class="btn btn-ghost" data-act="report.xlsx" data-content="report-content" data-file="otchet-za-den"><i data-icon="download" data-icon-size="18"></i> Excel</button>
           </div>
         </div>
         <div class="page-inner">
@@ -619,8 +595,8 @@
         <div class="page-header">
           <h1 class="page-title">Выручка за период</h1>
           <div class="page-actions">
-            <button class="btn btn-ghost" id="btn-print-revenue" disabled onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
-            <button class="btn btn-ghost" onclick="VetPages.exportReportXlsx('revenue-content','vyruchka')"><i data-icon="download" data-icon-size="18"></i> Excel</button>
+            <button class="btn btn-ghost" id="btn-print-revenue" disabled data-act="print.window"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
+            <button class="btn btn-ghost" data-act="report.xlsx" data-content="revenue-content" data-file="vyruchka"><i data-icon="download" data-icon-size="18"></i> Excel</button>
           </div>
         </div>
         <div class="page-inner">
@@ -648,8 +624,8 @@
         <div class="page-header">
           <h1 class="page-title">Предстоящие приёмы</h1>
           <div class="page-actions">
-            <button class="btn btn-ghost" id="btn-print-upcoming" disabled onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
-            <button class="btn btn-ghost" onclick="VetPages.exportReportXlsx('upcoming-content','predstoyashchie')"><i data-icon="download" data-icon-size="18"></i> Excel</button>
+            <button class="btn btn-ghost" id="btn-print-upcoming" disabled data-act="print.window"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
+            <button class="btn btn-ghost" data-act="report.xlsx" data-content="upcoming-content" data-file="predstoyashchie"><i data-icon="download" data-icon-size="18"></i> Excel</button>
           </div>
         </div>
         <div class="page-inner">
@@ -674,8 +650,8 @@
         <div class="page-header">
           <h1 class="page-title">Не пришли на приём</h1>
           <div class="page-actions">
-            <button class="btn btn-ghost" id="btn-print-noshows" disabled onclick="window.print()"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
-            <button class="btn btn-ghost" onclick="VetPages.exportReportXlsx('noshows-content','ne-prishli')"><i data-icon="download" data-icon-size="18"></i> Excel</button>
+            <button class="btn btn-ghost" id="btn-print-noshows" disabled data-act="print.window"><i data-icon="printer" data-icon-size="18"></i> Печать</button>
+            <button class="btn btn-ghost" data-act="report.xlsx" data-content="noshows-content" data-file="ne-prishli"><i data-icon="download" data-icon-size="18"></i> Excel</button>
           </div>
         </div>
         <div class="page-inner">
@@ -692,12 +668,12 @@
         <div class="page-header">
           <h1 class="page-title">Каталог</h1>
           <div class="page-actions">
-            <button class="btn btn-ghost" onclick="VetPages.downloadItemTemplate()" title="Скачать шаблон Excel">
+            <button class="btn btn-ghost" data-act="items.template" title="Скачать шаблон Excel">
               <i data-icon="download" data-icon-size="16"></i> Шаблон
             </button>
             <label class="btn btn-ghost" style="cursor:pointer;" title="Загрузить из Excel">
               <i data-icon="upload" data-icon-size="16"></i> Импорт Excel
-              <input type="file" id="excel-import-input" accept=".xlsx,.xls" style="display:none" onchange="VetPages.importItemsExcel(this)">
+              <input type="file" id="excel-import-input" accept=".xlsx,.xls" style="display:none" data-act="items.import" data-act-on="change">
             </label>
             <button class="btn btn-primary" id="btn-add-item">+ Добавить</button>
           </div>
@@ -885,10 +861,10 @@
                         <label class="btn btn-ghost btn-sm" style="cursor:pointer;">
                           <i data-icon="folder" data-icon-size="18"></i> Выбрать логотип
                           <input type="file" id="s-logo-input" accept="image/*" style="display:none"
-                                 onchange="VetPages.handleLogoUpload(this)">
+                                 data-act="settings.logo" data-act-on="change">
                         </label>
                         <button class="btn btn-ghost btn-sm" id="s-logo-clear"
-                                onclick="VetPages.clearLogo()" style="display:none"><i data-icon="x" data-icon-size="18"></i> Удалить</button>
+                                data-act="settings.logoClear" style="display:none"><i data-icon="x" data-icon-size="18"></i> Удалить</button>
                         <span class="text-sm text-muted">PNG, JPG, SVG — любой размер, сожмётся сам</span>
                       </div>
                     </div>
@@ -915,7 +891,7 @@
                 </div>
                 <div style="margin-top:20px;">
                   <button class="btn btn-primary" id="btn-save-settings">Сохранить настройки</button>
-                <button class="btn btn-ghost" style="margin-left:10px;" onclick="VetPages.startSetupWizard()">Мастер настройки</button>
+                <button class="btn btn-ghost" style="margin-left:10px;" data-act="settings.wizard">Мастер настройки</button>
                   <span id="settings-saved-msg" style="display:none;margin-left:12px;color:var(--accent);font-weight:600;font-size:.9rem;">✓ Сохранено</span>
                 </div>
               </div>
@@ -1012,7 +988,7 @@
             <div class="card set-card">
               <div class="card-header">
                 <span class="card-title">Журнал напоминаний</span>
-                <button class="btn btn-sm btn-ghost" onclick="VetPages.showNotificationsLog()">Открыть →</button>
+                <button class="btn btn-sm btn-ghost" data-act="settings.notifications">Открыть →</button>
               </div>
               <div class="card-body">
                 <p style="font-size:.88rem;color:var(--text-2);margin:0;">
@@ -1063,7 +1039,7 @@
                   Если данные на устройстве расходятся с сервером — сбросьте локальный кэш.<br>
                   Приложение загрузит актуальные данные с сервера при следующем открытии.
                 </p>
-                <button class="btn btn-danger" onclick="resetLocalData()" style="min-width:200px;">
+                <button class="btn btn-danger" data-act="settings.resetLocal" style="min-width:200px;">
                   <i data-icon="trash" data-icon-size="18"></i> Сбросить локальные данные
                 </button>
               </div>
@@ -1071,7 +1047,7 @@
             <div class="card set-card" id="diagnoses-card">
               <div class="card-header">
                 <span class="card-title">Справочник диагнозов</span>
-                <button class="btn btn-ghost btn-sm" onclick="VetPages.diagnosisDialog()">Добавить</button>
+                <button class="btn btn-ghost btn-sm" data-act="diagnosis.add">Добавить</button>
               </div>
               <div class="card-body">
                 <p style="font-size:var(--fs-sm);color:var(--text-2);margin-bottom:12px;">
@@ -1094,13 +1070,13 @@
                   что получится.
                 </p>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                  <button class="btn btn-ghost btn-sm" onclick="VetPages.downloadClientsTemplate()">
+                  <button class="btn btn-ghost btn-sm" data-act="clients.template">
                     Скачать шаблон
                   </button>
                   <label class="btn btn-primary btn-sm" style="cursor:pointer;">
                     Выбрать файл…
                     <input type="file" accept=".xlsx,.xls" style="display:none;"
-                           onchange="VetPages.importClientsExcel(this)">
+                           data-act="clients.import" data-act-on="change">
                   </label>
                 </div>
               </div>
@@ -1201,6 +1177,7 @@
 <script src="/js/db.js"></script>
 <script src="/js/sync.js"></script>
 <script src="/js/app.js"></script>
+<script src="/js/actions.js"></script>
 <script src="/js/ui.js"></script>
 <script src="/js/pages.js"></script>
 <script src="/js/modules/chips.js"></script>
@@ -1209,244 +1186,6 @@
 <script src="/js/modules/warehouse.js"></script>
 <script src="/js/modules/telegram.js"></script>
 
-<script>
-(function () {
-  'use strict';
-
-  // ── Sidebar toggle ─────────────────────────────────────────────────
-  var sidebar  = document.getElementById('sidebar');
-  var overlay  = document.getElementById('sidebar-overlay');
-  var toggleBtn = document.getElementById('sidebar-toggle');
-  var isMobile = function() { return window.innerWidth < 900; };
-
-  // Load saved state
-  var savedRail = localStorage.getItem('sidebar-rail');
-  if (window.innerWidth >= 900 && window.innerWidth < 1100) {
-    // Auto-rail for medium tablets
-  } else if (savedRail === '1' && window.innerWidth >= 900) {
-    sidebar.classList.add('rail');
-  }
-
-  toggleBtn.addEventListener('click', function () {
-    if (isMobile()) {
-      var isOpen = sidebar.classList.toggle('open');
-      overlay.classList.toggle('show', isOpen);
-      toggleBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-    } else {
-      var isRail = sidebar.classList.toggle('rail');
-      localStorage.setItem('sidebar-rail', isRail ? '1' : '0');
-    }
-  });
-
-  overlay.addEventListener('click', function () {
-    sidebar.classList.remove('open');
-    overlay.classList.remove('show');
-  });
-
-  // ── SPA Navigation ─────────────────────────────────────────────────
-  var currentPage = 'dashboard';
-
-  function navigate(page) {
-    // Меню закрываем до проверки «та же страница»: клик по логотипу в шапке
-    // сайдбара, когда уже открыт «Обзор», иначе оставлял бы меню висеть.
-    if (isMobile()) {
-      sidebar.classList.remove('open');
-      overlay.classList.remove('show');
-    }
-    if (currentPage === page) return;
-    currentPage = page;
-    document.querySelectorAll('.page').forEach(function (p) { p.classList.remove('active'); });
-    document.querySelectorAll('.nav-item').forEach(function (n) {
-      // Пункты склада ведут на одну страницу, но в разные вкладки: подсвечиваем
-      // только ту, что открыта сейчас, иначе загорались бы все четыре.
-      var isCur = n.dataset.page === page;
-      if (isCur && n.dataset.whtab) {
-        isCur = n.dataset.whtab === (window.VetPages && VetPages.whCurrentTab ? VetPages.whCurrentTab() : '');
-      }
-      n.classList.toggle('active', isCur);
-      n.setAttribute('aria-current', isCur ? 'page' : 'false');
-    });
-    var target = document.getElementById('page-' + page);
-    if (target) target.classList.add('active');
-    // Нижняя панель: если открыт раздел не из трёх быстрых — подсветить «Ещё»,
-    // чтобы на планшете было видно «вы где-то в меню», а не «нигде».
-    var bnMoreBtn = document.getElementById('bn-more');
-    if (bnMoreBtn) bnMoreBtn.classList.toggle('active', ['dashboard','schedule','visits'].indexOf(page) === -1);
-    window.history.replaceState(null, '', '#' + page);
-
-    // Initialize page
-    if (window.VetPages) VetPages.init(page);
-
-    // Close mobile sidebar
-    if (isMobile()) {
-      sidebar.classList.remove('open');
-      overlay.classList.remove('show');
-    }
-  }
-
-  // Make navigate global
-  window.navigate = navigate;
-  window.VetNav   = { go: navigate };
-
-  document.querySelectorAll('.nav-item').forEach(function (link) {
-    link.addEventListener('click', function (e) {
-      // Пункты без data-page — внешние ссылки (кабинет владельца открывается
-      // в новой вкладке). Их отдаём браузеру: не перехватываем и не зовём
-      // navigate(undefined), иначе ссылка просто не сработает.
-      if (!this.dataset.page) return;
-      e.preventDefault();
-      navigate(this.dataset.page);
-      // Пункты склада дополнительно открывают свою вкладку. Зовём ПОСЛЕ
-      // navigate и всегда: если страница уже открыта, navigate выходит рано
-      // (currentPage === page), и вкладка сама бы не переключилась.
-      if (this.dataset.whtab && window.VetPages && VetPages.whOpenTab) {
-        VetPages.whOpenTab(this.dataset.whtab);
-      }
-    });
-  });
-
-  // ── Нижняя панель: «Поиск» и «Ещё» ────────────────────────────────
-  // Разделы (Обзор/Расписание/Приёмы) обрабатывает общий обработчик
-  // .nav-item выше — здесь только две кнопки без data-page.
-  var bnSearch = document.getElementById('bn-search');
-  if (bnSearch) bnSearch.addEventListener('click', function () {
-    var input = document.getElementById('global-search');
-    if (!input) return;
-    input.focus();
-    input.scrollIntoView({ block: 'nearest' });
-  });
-
-  var bnMore = document.getElementById('bn-more');
-  if (bnMore) bnMore.addEventListener('click', function () {
-    sidebar.classList.add('open');
-    overlay.classList.add('show');
-  });
-
-  // Modal close button — через guard: спросит про несохранённые данные
-  document.getElementById('modal-close-btn').addEventListener('click', function () {
-    if (!window.VetUI) return;
-    if (VetUI.requestHideModal) VetUI.requestHideModal(); else VetUI.hideModal();
-  });
-
-  // ── Hash navigation ────────────────────────────────────────────────
-  // Если запущено через иконку (start_url = "/?pwa=1") — hash пустой → dashboard
-  // Если пользователь открыл прямую ссылку с хэшем — навигируем туда
-  var validPages = ['dashboard','schedule','owners','pets','visits','vaccinations','items','staff',
-                    'chips','report-daily','report-revenue','report-upcoming','report-noshows','settings','warehouse'];
-
-  // ── Сворачиваемые группы сайдбара ──────────────────────────────────
-  function toggleSSGroup(id) {
-    var g = document.getElementById(id);
-    if (!g) return;
-    g.classList.toggle('collapsed');
-    // Сохраняем состояние
-    var states = {};
-    try { states = JSON.parse(localStorage.getItem('ss-groups') || '{}'); } catch(e){}
-    states[id] = g.classList.contains('collapsed');
-    localStorage.setItem('ss-groups', JSON.stringify(states));
-  }
-  window.toggleSSGroup = toggleSSGroup;
-
-  // Восстанавливаем состояние групп
-  (function() {
-    var states = {};
-    try { states = JSON.parse(localStorage.getItem('ss-groups') || '{}'); } catch(e){}
-    Object.keys(states).forEach(function(id) {
-      if (states[id]) {
-        var g = document.getElementById(id);
-        if (g) g.classList.add('collapsed');
-      }
-    });
-  })();
-
-  // ── Переключение вкладок отчётов ──────────────────────────────────
-  function switchReportTab(tab) {
-    ['daily','upcoming','noshows'].forEach(function(t) {
-      var el = document.getElementById('rtab-' + t);
-      var btn = document.querySelector('[data-rtab="'+t+'"]');
-      if (el) el.style.display = t === tab ? '' : 'none';
-      if (btn) btn.classList.toggle('active', t === tab);
-    });
-    // Скрываем кнопку печати при смене вкладки
-    var pb = document.getElementById('btn-print-report');
-    if (pb) pb.style.display = 'none';
-    // Инициализируем нужный отчёт
-    if (tab === 'upcoming' && window.VetPages) VetPages.generateUpcomingReport();
-    if (tab === 'noshows'  && window.VetPages) VetPages.generateNoShowsReport();
-  }
-  window.switchReportTab = switchReportTab;
-  var initialHash = (window.location.hash || '').replace('#', '').split('?')[0];
-  if (initialHash && validPages.indexOf(initialHash) !== -1) {
-    // Delayed: ждём загрузки VetPages
-    setTimeout(function() { navigate(initialHash); }, 0);
-  }
-
-  // ── Авто-обновление текущей страницы при изменении данных ──────────
-  // Срабатывает после: pull с сервера, bootstrap, любой локальной мутации
-  var _refreshTimer = null;
-  window.addEventListener('vetdata:changed', function () {
-    fillOwnerFilter();
-    // Дебаунс 150ms чтобы не перерисовывать при rapid mutations
-    clearTimeout(_refreshTimer);
-    _refreshTimer = setTimeout(function() {
-      if (window.VetPages && currentPage) {
-        VetPages.init(currentPage);
-      }
-    }, 150);
-  });
-
-  function fillOwnerFilter() {
-    if (!window.VetDB) return;
-    VetDB.getAll('owners').then(function(owners) {
-      var sel = document.getElementById('filter-owner-id');
-      if (!sel) return;
-      var cur = sel.value;
-      var opts = owners.filter(function(o){ return !o.is_deleted; })
-                       .sort(function(a,b){ return a.fio.localeCompare(b.fio,'ru'); });
-      sel.innerHTML = '<option value="">Все владельцы</option>' + opts.map(function(o){
-        return '<option value="'+o.id+'"'+(o.id===cur?' selected':'')+'>'+o.fio+'</option>';
-      }).join('');
-    });
-  }
-
-  // ── Сброс локальных данных ─────────────────────────────────────────
-  function resetLocalData() {
-    var ok = window.confirm(
-      'Сбросить все локальные данные этого устройства?\n\n' +
-      'Данные на сервере не затронуты. После сброса приложение ' +
-      'загрузит актуальные данные с сервера.'
-    );
-    if (!ok) return;
-
-    // Удаляем IndexedDB
-    var dbName = 'VetClinicDB';
-    var req = indexedDB.deleteDatabase(dbName);
-    req.onsuccess = function() {
-      // Очищаем localStorage (last_sync и т.д.)
-      localStorage.clear();
-      // Перезагружаем страницу — bootstrap сделает полный pull
-      window.location.reload();
-    };
-    req.onerror = function() {
-      alert('Не удалось сбросить базу. Попробуйте вручную: DevTools → Application → Storage → Clear site data');
-    };
-    req.onblocked = function() {
-      alert('База занята другой вкладкой. Закройте остальные вкладки приложения и повторите.');
-    };
-  }
-
-  window.resetLocalData = resetLocalData;
-
-  // ── Init ────────────────────────────────────────────────────────────
-  document.addEventListener('DOMContentLoaded', function () {
-    // Всегда инициализируем dashboard первым (данные могут ещё грузиться)
-    if (window.VetPages) {
-      VetPages.init('dashboard');
-    }
-    fillOwnerFilter();
-  });
-
-}());
-</script>
+<script src="/js/bootstrap.js"></script>
 </body>
 </html>

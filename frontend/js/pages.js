@@ -71,11 +71,14 @@
   // ── Empty state ───────────────────────────────────────────────────────
   // Пустое состояние — не тупик: если передан ctaLabel/ctaOnclick,
   // показываем кнопку следующего шага («Записать», «Новый приём»...).
-  // emptyState(text, ctaLabel, ctaOnclick, iconName)
+  // emptyState(text, ctaLabel, cta, iconName)
+  // cta — имя действия ('owner.add') либо {act, data}. Раньше сюда передавали
+  // готовый код строкой, и он попадал в onclick — то есть каждый вызов был
+  // потенциальной точкой внедрения (см. docs/SECURITY-AUDIT.md, находка 1).
   // iconName — имя иконки из VetIcons (напр. 'search', 'paw'); без него —
   // нейтральный значок «инфо». Разные значки помогают отличить «ещё ничего
   // нет» от «не найдено по фильтру».
-  function emptyState(text, ctaLabel, ctaOnclick, iconName) {
+  function emptyState(text, ctaLabel, cta, iconName) {
     var iconSvg = (iconName && window.VetIcons)
       ? window.VetIcons.get(iconName, { cls: 'list-empty-icon' })
       : '<svg class="list-empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">'
@@ -83,15 +86,22 @@
     return `<div class="list-empty">
       ${iconSvg}
       <span>${esc(text)}</span>
-      ${ctaLabel ? '<button class="btn btn-ghost btn-sm" style="margin-top:10px;" onclick="'+esc(ctaOnclick||'')+'">'+esc(ctaLabel)+'</button>' : ''}
+      ${ctaLabel ? '<button class="btn btn-ghost btn-sm list-empty-cta" '+ctaAttrs(cta)+'>'+esc(ctaLabel)+'</button>' : ''}
     </div>`;
+  }
+
+  // ctaAttrs принимает 'имя.действия' или {act:'имя', data:{...}}.
+  function ctaAttrs(cta) {
+    if (!cta) return '';
+    if (typeof cta === 'string') return UI.actAttrs(cta, null);
+    return UI.actAttrs(cta.act, cta.data);
   }
 
   // «Ничего не найдено» с кнопкой сброса — отдельный вид пустого состояния
   // для поиска/фильтра: значок лупы + действие «Сбросить поиск».
   function searchEmpty(inputId) {
     return emptyState('Ничего не найдено', 'Сбросить поиск',
-      "VetPages.resetSearch('"+inputId+"')", 'search');
+      { act: 'search.reset', data: { input: inputId } }, 'search');
   }
 
   // Очищает поле поиска и перерисовывает список (setupSearch слушает oninput).
@@ -222,14 +232,14 @@
               var petName = pet ? pet.name : (a.pet_name || 'Без клички');
               var who = owner ? owner.fio : (a.client_name || '');
               var doc = a.staff_id && staffMapD[a.staff_id] ? staffMapD[a.staff_id].name.split(' ')[0] : '';
-              return '<div class="erow" onclick="navigate(\'schedule\')">'
+              return '<div class="erow" data-act="nav.go" data-page="schedule">'
                 + '<span class="dash-appt-time">' + esc((a.starts_at||'').slice(11,16)) + '</span>'
                 + '<div class="erow-body"><div class="erow-title">' + esc(petName) + '</div>'
                 + '<div class="erow-sub">' + esc(who) + (a.reason ? ' · ' + esc(a.reason) : '') + '</div></div>'
                 + (doc ? '<div class="erow-right"><span class="badge badge-course">' + esc(doc) + '</span></div>' : '')
                 + '</div>';
             }).join('')
-          : emptyState('Записей нет — день свободен', 'Записать клиента', "navigate('schedule')");
+          : emptyState('Записей нет — день свободен', 'Записать клиента', { act: 'nav.go', data: { page: 'schedule' } });
       }
 
       // ── Рабочий список «требуют внимания» ──────────────────────────
@@ -248,7 +258,7 @@
           title: 'Заявка с портала: ' + esc((a.pet_id&&pet?pet.name:a.pet_name)||'—'),
           sub: fmtDate(a.starts_at) + ' ' + (a.starts_at||'').slice(11,16) + ' · ' + esc(owner?owner.fio:(a.client_name||'')),
           phone: (owner?owner.phone:a.client_phone) || '',
-          onclick: "VetPages.editAppt('"+a.id+"')",
+          act: 'appt.edit', data: { id: a.id },
           sortKey: '0'+(a.starts_at||'')
         });
       });
@@ -270,7 +280,7 @@
           title: 'Просрочена прививка: ' + esc(pet.name),
           sub: esc(v.vaccine_name||'') + ' · срок был ' + fmtDate(v.next_due_at) + ' · ' + esc(owner?owner.fio:''),
           phone: owner ? owner.phone : '',
-          onclick: "VetPages.showPetCard('"+pid+"')",
+          act: 'pet.card', data: { id: pid },
           sortKey: '1'+(v.next_due_at||'')
         });
       });
@@ -286,7 +296,7 @@
           sub: (due ? (overdue ? 'просрочено, срок ' : 'срок ') + fmtDate(t.due_date) : 'задача')
                + (t.note ? ' · ' + esc(t.note) : ''),
           phone: '',
-          onclick: "VetPages.completeTask('" + t.id + "')",
+          act: 'task.complete', data: { id: t.id },
           sortKey: (overdue ? '0' : '3') + (due || '')
         });
       });
@@ -311,7 +321,7 @@
           title: 'Не пришёл на повторный: ' + esc(pet.name),
           sub: 'ждали ' + fmtDate(v.next_visit_date) + ' · ' + esc(owner?owner.fio:''),
           phone: owner ? owner.phone : '',
-          onclick: "VetPages.showPetCard('"+pid+"')",
+          act: 'pet.card', data: { id: pid },
           sortKey: '2'+(v.next_visit_date||'')
         });
       });
@@ -334,9 +344,9 @@
           if (attCount) attCount.textContent = attention.length;
           attEl.innerHTML = attention.slice(0, 12).map(function(x){
             var callBtn = x.phone
-              ? '<a class="btn btn-icon btn-open" href="tel:'+esc(String(x.phone).replace(/[^\d+]/g,''))+'" onclick="event.stopPropagation();" title="Позвонить">'+I('phone')+'</a>'
+              ? '<a class="btn btn-icon btn-open" href="tel:'+esc(String(x.phone).replace(/[^\d+]/g,''))+'" data-act="noop" title="Позвонить">'+I('phone')+'</a>'
               : '';
-            return '<div class="erow" onclick="'+x.onclick+'">'
+            return '<div class="erow" '+UI.actAttrs(x.act, x.data)+'>'
               + '<span class="att-icon att-'+x.tone+'">'+I(x.icon)+'</span>'
               + '<div class="erow-body"><div class="erow-title">'+x.title+'</div>'
               + '<div class="erow-sub">'+x.sub+'</div></div>'
@@ -354,12 +364,12 @@
 
       var recentEl = document.getElementById('recent-visits');
       if (!recentEl) return;
-      if (!recentVisits.length) { recentEl.innerHTML = emptyState('Приёмов ещё нет', '+ Новый приём', 'VetPages.newVisit()'); return; }
+      if (!recentVisits.length) { recentEl.innerHTML = emptyState('Приёмов ещё нет', '+ Новый приём', 'visit.new'); return; }
       recentEl.innerHTML = recentVisits.map(function(v) {
         var pet = petsMap[v.pet_id] || {};
         var owner = ownersMap[pet.owner_id] || {};
         var visitTypeBadge = v.visit_type === 'вторичный' ? '<span class="badge badge-service" style="margin-left:6px;">Вторичный</span>' : '';
-        return '<div class="erow" onclick="VetPages.editVisit(\''+v.id+'\')">'
+        return '<div class="erow" data-act="visit.edit" data-id="'+v.id+'">'
           +UI.avatar(pet.name||'?',pet.type)
           +'<div class="erow-body"><div class="erow-title">'+esc(pet.name||'Неизвестно')+visitTypeBadge+'</div>'
           +'<div class="erow-sub">'+esc(owner.fio||'')+' · '+esc(v.diagnosis||v.anamnesis||'Без диагноза')+'</div></div>'
@@ -383,7 +393,7 @@
 
         treatEl.innerHTML = courses.length
           ? courses.map(function(c){
-              return '<div class="erow" onclick="VetPages.showPetCard(\''+c.pet.id+'\')">'
+              return '<div class="erow" data-act="pet.card" data-id="'+c.pet.id+'">'
                 + UI.avatar(c.pet.name||'?', c.pet.type)
                 + '<div class="erow-body"><div class="erow-title">'+esc(c.pet.name||'—')+'</div>'
                 + '<div class="erow-sub">'+esc(c.pet.type||'')+(c.pet.breed?' · '+esc(c.pet.breed):'')+'</div></div>'
@@ -438,7 +448,7 @@
     var el = document.getElementById('owners-list');
     if (!el) return;
     if (!owners.length) {
-      el.innerHTML = q ? searchEmpty('search-owners') : emptyState('Владельцев ещё нет', '+ Добавить', 'VetPages.addOwner()', 'user');
+      el.innerHTML = q ? searchEmpty('search-owners') : emptyState('Владельцев ещё нет', '+ Добавить', 'owner.add', 'user');
       return;
     }
     var ownersTotal = owners.length;
@@ -448,7 +458,7 @@
     Object.values(_petsMap).forEach(function(p){ if(!p.is_deleted && p.status==='active') petCountMap[p.owner_id] = (petCountMap[p.owner_id]||0)+1; });
     el.innerHTML = owners.map(function(o) {
       var cnt = petCountMap[o.id] || 0;
-      return '<div class="erow" onclick="VetPages.showOwnerCard(\''+o.id+'\')">'
+      return '<div class="erow" data-act="owner.card" data-id="'+o.id+'">'
         + UI.avatar(o.fio, 'owner')
         + '<div class="erow-body">'
         + '<div class="erow-title">'+hl(o.fio,q)+'</div>'
@@ -458,16 +468,16 @@
         + '<div class="erow-right">'
         + (cnt ? '<span class="badge badge-active">'+cnt+' пит.</span>' : '<span style="font-size:.72rem;color:var(--text-3);">нет питомцев</span>')
         + '<div class="erow-actions">'
-        + '<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editOwner(\''+o.id+'\')" title="Редактировать" aria-label="Редактировать">'+UI.icon('edit','')+'</button>'
+        + '<button class="btn btn-icon" data-act="owner.edit" data-id="'+o.id+'" title="Редактировать" aria-label="Редактировать">'+UI.icon('edit','')+'</button>'
         + UI.rowMenu([
-            {label:'Печать карточки', icon:'print', onclick:"VetPages.printOwnerCard('"+o.id+"')"},
+            {label:'Печать карточки', icon:'print', act:'owner.print', data:{id:o.id}},
             {sep:true},
-            {label:'Удалить', icon:'trash', danger:true, onclick:"VetPages.deleteOwner('"+o.id+"','"+esc(o.fio)+"')"}
+            {label:'Удалить', icon:'trash', danger:true, act:'owner.delete', data:{id:o.id}}
           ])
         + '</div></div></div>';
     }).join('')
     + (ownersMore
-        ? '<div class="list-more"><button class="btn btn-ghost" onclick="VetPages._ownersShowMore()">Показать ещё (' + (ownersTotal - _ownersLimit) + ')</button></div>'
+        ? '<div class="list-more"><button class="btn btn-ghost" data-act="owners.more">Показать ещё (' + (ownersTotal - _ownersLimit) + ')</button></div>'
         : '');
   }
 
@@ -610,7 +620,7 @@
     var el = document.getElementById('pets-list');
     if (!el) return;
     if (!pets.length) {
-      el.innerHTML = q ? searchEmpty('search-pets') : emptyState('Животных нет', '+ Добавить', 'VetPages.addPet()', 'paw');
+      el.innerHTML = q ? searchEmpty('search-pets') : emptyState('Животных нет', '+ Добавить', 'pet.add', 'paw');
       return;
     }
     var petsTotal = pets.length;
@@ -632,27 +642,27 @@
       var petAvatar = p.photo
         ? '<img class="pet-photo" src="'+p.photo+'" alt="'+UI.esc(p.name)+'">'
         : UI.avatar(p.name,p.type);
-      return '<div class="erow" onclick="VetPages.showPetCard(\''+p.id+'\')">'+petAvatar
+      return '<div class="erow" data-act="pet.card" data-id="'+p.id+'">'+petAvatar
         +'<div class="erow-body">'
         +'<div class="erow-title">'+hl(p.name,q)+' '+statusBadge+courseBadge+'</div>'
         +'<div class="erow-sub">'+esc(p.type||'')+(p.breed?' · '+esc(p.breed):'')+(p.chip_number?' · '+I('tag')+' '+esc(p.chip_number):'')+' · '+esc(owner.fio||'')+'</div>'
         +(p.death_date?'<div class="erow-meta">Умер: '+fmtDate(p.death_date)+(p.death_reason?' · '+esc(p.death_reason):'')+' </div>':'')
         +'</div>'
         +'<div class="erow-right"><div class="erow-actions">'
-        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.newVisitForPet(\''+p.id+'\')" title="Новый приём" aria-label="Новый приём">'+UI.icon('plus','')+'</button>'
-        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editPet(\''+p.id+'\')" title="Редактировать" aria-label="Редактировать">'+UI.icon('edit','')+'</button>'
+        +'<button class="btn btn-icon" data-act="pet.newVisit" data-id="'+p.id+'" title="Новый приём" aria-label="Новый приём">'+UI.icon('plus','')+'</button>'
+        +'<button class="btn btn-icon" data-act="pet.edit" data-id="'+p.id+'" title="Редактировать" aria-label="Редактировать">'+UI.icon('edit','')+'</button>'
         +UI.rowMenu([
-            {label:'История приёмов', icon:'clipboard', onclick:"VetPages.showPetHistory('"+p.id+"')"},
-            {label:'Печать паспорта', icon:'print', onclick:"VetPages.printPetCard('"+p.id+"')"},
-            {label:'Согласие на процедуру', icon:'print', onclick:"VetPages.printConsentForm('"+p.id+"')"}
+            {label:'История приёмов', icon:'clipboard', act:'pet.history', data:{id:p.id}},
+            {label:'Печать паспорта', icon:'print', act:'pet.print', data:{id:p.id}},
+            {label:'Согласие на процедуру', icon:'print', act:'pet.consent', data:{id:p.id}}
           ].concat(deceasedItem).concat([
             {sep:true},
-            {label:'Удалить', icon:'trash', danger:true, onclick:"VetPages.deletePet('"+p.id+"','"+esc(p.name)+"')"}
+            {label:'Удалить', icon:'trash', danger:true, act:'pet.delete', data:{id:p.id}}
           ]))
         +'</div></div></div>';
     }).join('')
     + (petsMore
-        ? '<div class="list-more"><button class="btn btn-ghost" onclick="VetPages._petsShowMore()">Показать ещё (' + (petsTotal - _petsLimit) + ')</button></div>'
+        ? '<div class="list-more"><button class="btn btn-ghost" data-act="pets.more">Показать ещё (' + (petsTotal - _petsLimit) + ')</button></div>'
         : '');
   }
 
@@ -812,7 +822,7 @@
     if (!el) return;
     if (!visits.length) {
       el.innerHTML = q ? searchEmpty('search-visits')
-                       : emptyState('Приёмов нет', '+ Новый приём', 'VetPages.newVisit()', 'clipboard');
+                       : emptyState('Приёмов нет', '+ Новый приём', 'visit.new', 'clipboard');
       return;
     }
 
@@ -826,7 +836,7 @@
       var vtTag = v.visit_type==='вторичный'
         ? '<span class="visit-type-tag secondary">Повторный</span>'
         : '<span class="visit-type-tag">Первичный</span>';
-      return '<div class="erow" onclick="VetPages.editVisit(\''+v.id+'\')">'
+      return '<div class="erow" data-act="visit.edit" data-id="'+v.id+'">'
         +UI.avatar(pet.name||'?',pet.type)
         +'<div class="erow-body">'
         +'<div class="erow-title">'+esc(pet.name||'Неизвестно')+vtTag+'</div>'
@@ -841,18 +851,18 @@
         +'<span class="erow-date">'+fmtDate(v.date)+'</span>'
         +(v.total_amount?(window.VetAuth&&!VetAuth.canSeeSum(v.staff_id)?'<span class="erow-amount" title="Сумма скрыта настройками прав">···</span>':'<span class="erow-amount">'+Number(v.total_amount).toFixed(0)+' ₸</span>'):'')
         +'<div class="erow-actions">'
-        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editVisit(\''+v.id+'\')" title="Открыть приём" aria-label="Открыть приём">'+UI.icon('edit','')+'</button>'
+        +'<button class="btn btn-icon" data-act="visit.edit" data-id="'+v.id+'" title="Открыть приём" aria-label="Открыть приём">'+UI.icon('edit','')+'</button>'
         +UI.rowMenu([
-            {label:'Печать для владельца', icon:'print', onclick:"VetPages.printVisitCard('"+v.id+"')"},
-            {label:'Копировать приём', icon:'clipboard', onclick:"VetPages.copyVisit('"+v.id+"')"},
+            {label:'Печать для владельца', icon:'print', act:'visit.print', data:{id:v.id}},
+            {label:'Копировать приём', icon:'clipboard', act:'visit.copy', data:{id:v.id}},
             {sep:true},
-            {label:'Удалить', icon:'trash', danger:true, onclick:"VetPages.deleteVisit('"+v.id+"')"}
+            {label:'Удалить', icon:'trash', danger:true, act:'visit.delete', data:{id:v.id}}
           ])
         +'</div></div></div>';
     }).join('')
     + (showMore
         ? '<div class="list-more">'
-          + '<button class="btn btn-ghost" onclick="VetPages._visitsShowMore()">Показать ещё ('
+          + '<button class="btn btn-ghost" data-act="visits.more">Показать ещё ('
           + (totalCount - _visitRenderLimit) + ')</button></div>'
         : '');
   }
@@ -1370,7 +1380,7 @@
     if (!list.length) {
       el.innerHTML = (q || _vaccDateFilter !== 'all')
         ? searchEmpty('search-vaccinations')
-        : emptyState('Вакцинаций нет', '+ Добавить', 'VetPages.addVaccination()', 'syringe');
+        : emptyState('Вакцинаций нет', '+ Добавить', 'vacc.add', 'syringe');
       return;
     }
     el.innerHTML = list.map(function(v) {
@@ -1378,7 +1388,7 @@
       // Строго "<": вакцинация со сроком сегодня — ещё не просрочена.
       // Иначе бейдж расходился с фильтром «Просроченные», который считает < today.
       var overdue = v.next_due_at && v.next_due_at.slice(0,10) < today;
-      return '<div class="erow" onclick="VetPages.editVaccination(\''+v.id+'\')">'
+      return '<div class="erow" data-act="vacc.edit" data-id="'+v.id+'">'
         +UI.avatar(pet.name||'?',pet.type)
         +'<div class="erow-body">'
         +'<div class="erow-title">'+esc(pet.name||'?')+' · '+esc(v.vaccine_name)+'</div>'
@@ -1388,12 +1398,12 @@
         +'<div class="erow-right">'
         +'<span class="erow-date">'+fmtDate(v.administered_at)+'</span>'
         +'<div class="erow-actions">'
-        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editVaccination(\''+v.id+'\')" title="Открыть" aria-label="Открыть">'+UI.icon('edit','')+'</button>'
+        +'<button class="btn btn-icon" data-act="vacc.edit" data-id="'+v.id+'" title="Открыть" aria-label="Открыть">'+UI.icon('edit','')+'</button>'
         +UI.rowMenu([
-            {label:'Печать справки', icon:'print', onclick:"VetPages.printVaccinationCard('"+v.id+"')"},
-            {label:'Копировать', icon:'clipboard', onclick:"VetPages.copyVaccination('"+v.id+"')"},
+            {label:'Печать справки', icon:'print', act:'vacc.print', data:{id:v.id}},
+            {label:'Копировать', icon:'clipboard', act:'vacc.copy', data:{id:v.id}},
             {sep:true},
-            {label:'Удалить', icon:'trash', danger:true, onclick:"VetPages.deleteVaccination('"+v.id+"')"}
+            {label:'Удалить', icon:'trash', danger:true, act:'vacc.delete', data:{id:v.id}}
           ])
         +'</div></div></div>';
     }).join('');
@@ -1616,6 +1626,16 @@
     doc.write(html);
     doc.close();
 
+    // Кнопка «Распечатать» внутри печатного документа. Обработчик вешаем
+    // отсюда: инлайновый onclick в сгенерированном HTML запрещён политикой
+    // CSP, а сам документ живёт в iframe и своих скриптов не имеет.
+    var doPrint = doc.getElementById('btn-do-print');
+    if (doPrint) {
+      doPrint.onclick = function () {
+        try { frame.contentWindow.print(); } catch (e) {}
+      };
+    }
+
     var fired = false;
     function fire() {
       if (fired) return;
@@ -1685,7 +1705,7 @@
 
     var html = '<div class="attach-head">' + I('file') + ' Вложения'
       + '<span class="attach-count">' + (saved.length + queued.length) + '</span>'
-      + '<button type="button" class="btn btn-ghost btn-sm attach-add" onclick="VetPages.pickAttachment(\'' + visitId + '\')">'
+      + '<button type="button" class="btn btn-ghost btn-sm attach-add" data-act="attach.pick" data-visit="' + visitId + '">'
       + I('upload') + ' Добавить</button></div>';
 
     if (!saved.length && !queued.length) {
@@ -1703,7 +1723,7 @@
           + (err ? ' · не отправлен: ' + esc((q.last_error || '').slice(0, 90))
                  : ' · ждёт отправки на сервер')
           + '</div></div>'
-          + '<button class="btn btn-icon" title="Убрать из очереди" onclick="VetPages.dropQueuedAttachment(\'' + q.id + '\',\'' + visitId + '\')">' + I('trash') + '</button>'
+          + '<button class="btn btn-icon" title="Убрать из очереди" data-act="attach.dropQueued" data-id="' + q.id + '" data-visit="' + visitId + '">' + I('trash') + '</button>'
           + '</div>';
       });
       saved.forEach(function (a) {
@@ -1711,7 +1731,7 @@
           + I(a.mime_type === 'application/pdf' ? 'file' : 'camera')
           + '<div class="attach-body"><a class="attach-name" href="/attachments/' + a.id + '/file?t=' + encodeURIComponent((window.VetAuth&&window.VetAuth.token())||'') + '" target="_blank" rel="noopener">' + esc(a.file_name) + '</a>'
           + '<div class="attach-meta">' + esc(attachKindLabel(a.kind)) + ' · ' + fmtBytes(a.size_bytes) + ' · ' + fmtDate(a.created_at) + '</div></div>'
-          + '<button class="btn btn-icon" title="Удалить" onclick="VetPages.removeAttachment(\'' + a.id + '\',\'' + visitId + '\')">' + I('trash') + '</button>'
+          + '<button class="btn btn-icon" title="Удалить" data-act="attach.remove" data-id="' + a.id + '" data-visit="' + visitId + '">' + I('trash') + '</button>'
           + '</div>';
       });
       html += '</div>';
@@ -1905,11 +1925,11 @@
 
     var el = document.getElementById('items-list');
     if (!el) return;
-    if (!list.length) { el.innerHTML = q ? searchEmpty('search-items') : emptyState('Каталог пуст', '+ Добавить', 'VetPages.addItem()', 'box'); return; }
+    if (!list.length) { el.innerHTML = q ? searchEmpty('search-items') : emptyState('Каталог пуст', '+ Добавить', 'item.add', 'box'); return; }
     el.innerHTML = list.map(function(it) {
       var typeLabel = it.type==='drug'?'Препарат':'Услуга';
       var badgeCls  = it.type==='drug'?'drug':'service';
-      return '<div class="erow" onclick="VetPages.editItem(\''+it.id+'\')">'
+      return '<div class="erow" data-act="item.edit" data-id="'+it.id+'">'
         +'<div class="erow-avatar '+(it.type==='drug'?'cat':'dog')+'">'+(it.type==='drug'?I('syringe'):I('stethoscope'))+'</div>'
         +'<div class="erow-body">'
         +'<div class="erow-title">'+hl(it.name,q)+'</div>'
@@ -1918,9 +1938,9 @@
         +'<div class="erow-right">'
         +'<span class="erow-amount">'+Number(it.price).toFixed(0)+' ₸</span>'
         +'<div class="erow-actions">'
-        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editItem(\''+it.id+'\')" title="Редактировать" aria-label="Редактировать">'+UI.icon('edit','')+'</button>'
+        +'<button class="btn btn-icon" data-act="item.edit" data-id="'+it.id+'" title="Редактировать" aria-label="Редактировать">'+UI.icon('edit','')+'</button>'
         +'<span class="erow-actions-sep"></span>'
-        +'<button class="btn btn-icon danger" onclick="event.stopPropagation();VetPages.deleteItem(\''+it.id+'\')" title="Удалить" aria-label="Удалить">'+UI.icon('trash','')+'</button>'
+        +'<button class="btn btn-icon danger" data-act="item.delete" data-id="'+it.id+'" title="Удалить" aria-label="Удалить">'+UI.icon('trash','')+'</button>'
         +'</div></div></div>';
     }).join('');
   }
@@ -1985,12 +2005,12 @@
     }).sort(function(a,b){ return a.name.localeCompare(b.name,'ru'); });
     var el = document.getElementById('staff-list');
     if (!el) return;
-    if (!list.length) { el.innerHTML = q ? searchEmpty('search-staff') : emptyState('Персонал не добавлен', '+ Добавить', 'VetPages.addStaff()', 'users'); return; }
+    if (!list.length) { el.innerHTML = q ? searchEmpty('search-staff') : emptyState('Персонал не добавлен', '+ Добавить', 'staff.add', 'users'); return; }
     el.innerHTML = list.map(function(s) {
       var media = s.photo
         ? '<img class="pet-photo" src="'+s.photo+'" alt="">'
         : UI.avatar(s.name,'staff');
-      return '<div class="erow" onclick="VetPages.showStaffCard(\''+s.id+'\')">'
+      return '<div class="erow" data-act="staff.card" data-id="'+s.id+'">'
         +media
         +'<div class="erow-body">'
         +'<div class="erow-title">'+hl(s.name,q)+'</div>'
@@ -1999,9 +2019,9 @@
         +'<div class="erow-right">'
         +(s.is_active?'<span class="badge badge-active">Активен</span>':'<span class="badge badge-inactive">Неактивен</span>')
         +'<div class="erow-actions">'
-        +'<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editStaff(\''+s.id+'\')" title="Редактировать" aria-label="Редактировать">'+UI.icon('edit','')+'</button>'
+        +'<button class="btn btn-icon" data-act="staff.edit" data-id="'+s.id+'" title="Редактировать" aria-label="Редактировать">'+UI.icon('edit','')+'</button>'
         +'<span class="erow-actions-sep"></span>'
-        +'<button class="btn btn-icon danger" onclick="event.stopPropagation();VetPages.deleteStaff(\''+s.id+'\')" title="Удалить" aria-label="Удалить">'+UI.icon('trash','')+'</button>'
+        +'<button class="btn btn-icon danger" data-act="staff.delete" data-id="'+s.id+'" title="Удалить" aria-label="Удалить">'+UI.icon('trash','')+'</button>'
         +'</div></div></div>';
     }).join('');
   }
@@ -3651,12 +3671,12 @@
           var pet   = petsMap[v.pet_id]   || {};
           var owner = ownersMap[pet.owner_id] || {};
           html += '<tr style="cursor:pointer;" title="Открыть приём" '
-            + 'onclick="navigate(\'visits\');setTimeout(function(){VetPages.editVisit(\''+v.id+'\');},200);">'
+            + 'data-act="visit.edit.fromReport" data-id="'+v.id+'">'
             + '<td><b>' + esc(pet.name||'—') + '</b> <span style="color:var(--text-3);font-size:.78rem;">' + esc(pet.type||'') + '</span></td>'
             + '<td>' + esc(owner.fio||'—') + '</td>'
-            + '<td><a href="tel:' + esc(owner.phone||'') + '" onclick="event.stopPropagation()" style="color:var(--accent);">' + esc(owner.phone||'—') + '</a></td>'
+            + '<td><a href="tel:' + esc(owner.phone||'') + '" data-act="noop" style="color:var(--accent);">' + esc(owner.phone||'—') + '</a></td>'
             + '<td style="font-size:.82rem;color:var(--text-2);">' + esc(v.diagnosis||v.anamnesis||'—') + '</td>'
-            + '<td><button class="btn btn-sm btn-primary" onclick="event.stopPropagation();navigate(\'visits\');setTimeout(function(){VetPages.newVisitForPet(\''+v.pet_id+'\');},200);">+ Приём</button></td>'
+            + '<td><button class="btn btn-sm btn-primary" data-act="pet.newVisit.fromReport" data-id="'+v.pet_id+'">+ Приём</button></td>'
             + '</tr>';
         });
         html += '</tbody></table></div>';
@@ -3975,7 +3995,7 @@
       +'<div class="oc-header-info">'
       +'<div class="oc-name">'+esc(owner.fio||'—')+'</div>'
       +'<div class="oc-contact-row">'
-      +(owner.phone?'<span class="oc-phone" onclick="VetPages.callOwner(\''+esc(owner.id)+'\')">'+I('phone')+' '+esc(owner.phone)+'</span>':'')
+      +(owner.phone?'<span class="oc-phone" data-act="owner.call" data-id="'+esc(owner.id)+'">'+I('phone')+' '+esc(owner.phone)+'</span>':'')
       +(owner.iin?'<span class="oc-iin">'+(owner.owner_type==='legal'?'БИН':'ИИН')+': '+esc(owner.iin)+'</span>':'')
       +'</div>'
       +(owner.address?'<div class="oc-address">'+I('pin')+' '+esc(owner.address)+'</div>':'')
@@ -3989,7 +4009,7 @@
       // (это доступ к медкартам, право включается в настройках пользователя).
       +(_canIssuePortalCodes()
          ? '<div class="oc-actions"><button class="btn btn-sm btn-ghost" '
-           + 'onclick="VetPages.issuePortalCode(\''+ownerId+'\')">'
+           + 'data-act="owner.portalCode" data-id="'+ownerId+'">'
            + UI.icon('key','') + ' Пароль от портала</button></div>'
          : '')
       +'</div></div>';
@@ -4024,7 +4044,7 @@
               } catch(e){}
             }
             return '<div class="oc-pet-card'+(p.status==='deceased'?' deceased':'')+'" '
-              +'onclick="VetUI.hideModal();setTimeout(function(){VetPages.showPetCard(\''+p.id+'\');},150)">'
+              +'data-act="pet.card.fromModal" data-id="'+p.id+'">'
               +photoEl
               +'<div class="oc-pet-card-name">'+esc(p.name)+'</div>'
               +'<div class="oc-pet-card-type">'+esc(p.type||'')+(p.breed?' · '+esc(p.breed):'')+'</div>'
@@ -4052,7 +4072,7 @@
         +recent.map(function(v){
             var pet = petIds[v.pet_id] || {};
             var spIcon = SPECIES_ICONS[(pet.type||'').toLowerCase()] || '🐾';
-            return '<div class="oc-visit-row" onclick="VetUI.hideModal();setTimeout(function(){VetPages.editVisit(\''+v.id+'\');},150)">'
+            return '<div class="oc-visit-row" data-act="visit.edit.fromModal" data-id="'+v.id+'">'
               +'<div class="oc-visit-pet">'+spIcon+'</div>'
               +'<span class="oc-visit-date">'+fmtDate(v.date)+'</span>'
               +'<span class="oc-visit-pet-name">'+esc(pet.name||'—')+'</span>'
@@ -4083,14 +4103,11 @@
 
     // ── Действия ─────────────────────────────────────────────────
     var actionsHTML = '<div class="oc-actions">'
-      +'<button class="oc-action-btn primary" onclick="VetUI.hideModal();setTimeout(function(){'
-        +(activePets.length===1
-          ? 'VetPages.newVisitForPet(\''+activePets[0].id+'\');'
-          : 'VetPages.newVisitForOwner(\''+ownerId+'\');')
-        +'},150)">'+I('clipboard')+' Новый приём</button>'
-      +'<button class="oc-action-btn" onclick="VetUI.hideModal();setTimeout(function(){VetPages.editOwner(\''+ownerId+'\');},150)">'+I('edit')+' Редактировать</button>'
-      +'<button class="oc-action-btn" onclick="VetUI.hideModal();setTimeout(function(){VetPages.addPetForOwner(\''+ownerId+'\');},150)">'+I('paw')+' Добавить питомца</button>'
-      +'<button class="oc-action-btn" onclick="VetPages.callOwner(\''+esc(owner.id)+'\')">'+I('phone')+' Позвонить</button>'
+      +'<button class="oc-action-btn primary" data-act="owner.newVisit" data-owner="'+ownerId+'" data-pet="'
+        +(activePets.length===1 ? activePets[0].id : '')+'">'+I('clipboard')+' Новый приём</button>'
+      +'<button class="oc-action-btn" data-act="owner.edit.fromModal" data-id="'+ownerId+'">'+I('edit')+' Редактировать</button>'
+      +'<button class="oc-action-btn" data-act="owner.addPet" data-id="'+ownerId+'">'+I('paw')+' Добавить питомца</button>'
+      +'<button class="oc-action-btn" data-act="owner.call" data-id="'+esc(owner.id)+'">'+I('phone')+' Позвонить</button>'
       +'</div>';
 
     // ── Сборка ────────────────────────────────────────────────────
@@ -4242,7 +4259,7 @@
       +'<div class="pc-owner-row">'
       +'<div class="pc-owner-avatar">'+esc(ownerInitials)+'</div>'
       +'<div><div class="pc-owner-name">'+esc(owner.fio||'—')+'</div>'
-      +(owner.phone?'<div class="pc-owner-phone" onclick="VetPages.callOwner(\''+esc(pet.owner_id)+'\')">'+I('phone')+' '+esc(owner.phone)+'</div>':'')
+      +(owner.phone?'<div class="pc-owner-phone" data-act="owner.call" data-id="'+esc(pet.owner_id)+'">'+I('phone')+' '+esc(owner.phone)+'</div>':'')
       +(owner.address?'<div style="font-size:.78rem;color:var(--text-3);margin-top:2px;">'+I('pin')+' '+esc(owner.address)+'</div>':'')
       +'</div></div></div>';
 
@@ -4311,7 +4328,7 @@
         +'<div class="pc-section-title">Последние визиты ('+petVisits.length+')</div>'
         + recent.map(function(v){
             var vtIcon = v.visit_type==='вторичный' ? ''+I('refresh')+'' : ''+I('clipboard')+'';
-            return '<div class="pc-visit-row" onclick="VetUI.hideModal();setTimeout(function(){VetPages.editVisit(\''+v.id+'\');},150);">'
+            return '<div class="pc-visit-row" data-act="visit.edit.fromModal" data-id="'+v.id+'">'
               +'<span class="pc-visit-date">'+fmtDate(v.date)+'</span>'
               +'<span class="pc-visit-diag">'+esc(v.diagnosis||v.anamnesis||'—')+'</span>'
               +'<span class="pc-visit-type">'+vtIcon+'</span>'
@@ -4329,12 +4346,12 @@
 
     // ── Действия ─────────────────────────────────────────────────
     var actionsHTML = '<div class="pc-actions">'
-      +'<button class="pc-action-btn primary" onclick="VetUI.hideModal();setTimeout(function(){VetPages.newVisitForPet(\''+petId+'\');},150)">'+I('clipboard')+' Новый приём</button>'
-      +'<button class="pc-action-btn" onclick="VetUI.hideModal();setTimeout(function(){VetPages.addVaccination(\''+petId+'\');},150)">'+I('syringe')+' Вакцинация</button>'
-      +(pet.status==='active'?'<button class="pc-action-btn" onclick="VetUI.hideModal();setTimeout(function(){VetPages.markDeceased(\''+petId+'\');},150)">☠ Умер</button>':'')
-      +'<button class="pc-action-btn" onclick="VetUI.hideModal();setTimeout(function(){VetPages.showPetHistory(\''+petId+'\');},150)">📊 История</button>'
-      +'<button class="pc-action-btn" onclick="VetUI.hideModal();setTimeout(function(){VetPages.editPet(\''+petId+'\');},150)">'+I('edit')+' Редактировать</button>'
-      +'<button class="pc-action-btn" onclick="VetPages.petPhotoInput(\''+petId+'\')">'+I('camera')+' Фото</button>'
+      +'<button class="pc-action-btn primary" data-act="pet.newVisit.fromModal" data-id="'+petId+'">'+I('clipboard')+' Новый приём</button>'
+      +'<button class="pc-action-btn" data-act="pet.addVacc" data-id="'+petId+'">'+I('syringe')+' Вакцинация</button>'
+      +(pet.status==='active'?'<button class="pc-action-btn" data-act="pet.deceased" data-id="'+petId+'">☠ Умер</button>':'')
+      +'<button class="pc-action-btn" data-act="pet.history" data-id="'+petId+'">📊 История</button>'
+      +'<button class="pc-action-btn" data-act="pet.edit.fromModal" data-id="'+petId+'">'+I('edit')+' Редактировать</button>'
+      +'<button class="pc-action-btn" data-act="pet.photo" data-id="'+petId+'">'+I('camera')+' Фото</button>'
       +'</div>';
 
     // ── Собираем всё ─────────────────────────────────────────────
@@ -4461,10 +4478,10 @@
 
     var body = '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px;">'
       // Кнопки
-      + '<button class="btn btn-ghost btn-sm" onclick="showHistoryTab(\'visits\')">'+I('clipboard')+' История визитов</button>'
-      + '<button class="btn btn-ghost btn-sm" onclick="showHistoryTab(\'disease\')">'+I('microscope')+' История болезней</button>'
-      + '<button class="btn btn-ghost btn-sm" onclick="showHistoryTab(\'weight\')">'+I('scale')+' История веса</button>'
-      + '<button class="btn btn-ghost btn-sm" onclick="showHistoryTab(\'vacc\')">'+I('syringe')+' Вакцинации</button>'
+      + '<button class="btn btn-ghost btn-sm" data-act="history.tab" data-tab="visits">'+I('clipboard')+' История визитов</button>'
+      + '<button class="btn btn-ghost btn-sm" data-act="history.tab" data-tab="disease">'+I('microscope')+' История болезней</button>'
+      + '<button class="btn btn-ghost btn-sm" data-act="history.tab" data-tab="weight">'+I('scale')+' История веса</button>'
+      + '<button class="btn btn-ghost btn-sm" data-act="history.tab" data-tab="vacc">'+I('syringe')+' Вакцинации</button>'
       + '</div>';
 
     // Визиты
@@ -4538,8 +4555,8 @@
       afterOpen: function() {}
     });
     document.getElementById('modal-footer').innerHTML =
-      '<button class="btn btn-ghost" onclick="window.print()">Печать</button>'
-      + '<button class="btn btn-ghost" onclick="VetUI.hideModal()">Закрыть</button>';
+      '<button class="btn btn-ghost" data-act="print.window">Печать</button>'
+      + '<button class="btn btn-ghost" data-act="ui.modal.close">Закрыть</button>';
 
     window.showHistoryTab = function(tab) {
       ['visits','disease','weight','vacc'].forEach(function(t){
@@ -4941,10 +4958,10 @@
         + 'Каталог — это то, из чего складывается сумма приёма. Загрузите свой '
         + 'прайс из Excel: скачайте шаблон, заполните и выберите файл.</p>'
         + '<div style="display:flex;gap:10px;flex-wrap:wrap;">'
-        + '<button class="btn btn-ghost btn-sm" onclick="VetPages.downloadItemTemplate()">Скачать шаблон</button>'
+        + '<button class="btn btn-ghost btn-sm" data-act="items.template">Скачать шаблон</button>'
         + '<label class="btn btn-primary btn-sm" style="cursor:pointer;">Выбрать файл…'
         + '<input type="file" accept=".xlsx,.xls" style="display:none;" '
-        + 'onchange="VetPages.importItemsExcel(this)"></label>'
+        + 'data-act="items.import" data-act-on="change"></label>'
         + '</div>',
       saveLabel: 'Готово',
       cancelLabel: 'Позже',
@@ -5294,7 +5311,7 @@
     if (!el) return;
     if (!_users.length) { el.innerHTML = emptyState('Пользователей нет'); return; }
     el.innerHTML = _users.map(function(u) {
-      return '<div class="erow" onclick="VetPages.editUser(\''+u.id+'\')">'
+      return '<div class="erow" data-act="user.edit" data-id="'+u.id+'">'
         + UI.avatar(u.display_name, 'staff')
         + '<div class="erow-body">'
         + '<div class="erow-title">'+esc(u.display_name)
@@ -5302,7 +5319,7 @@
         + '<div class="erow-sub">'+esc(u.login)+' · '+esc(userRoleLabel(u.role))+'</div>'
         + '</div>'
         + '<div class="erow-right"><div class="erow-actions">'
-        + '<button class="btn btn-icon" onclick="event.stopPropagation();VetPages.editUser(\''+u.id+'\')" title="Редактировать">'+UI.icon('edit','')+'</button>'
+        + '<button class="btn btn-icon" data-act="user.edit" data-id="'+u.id+'" title="Редактировать">'+UI.icon('edit','')+'</button>'
         + '</div></div></div>';
     }).join('');
   }
@@ -5317,7 +5334,7 @@
       + '<div class="form-group"><label class="form-label">Имя <span class="form-req">*</span></label>'
       + '<input id="fu-name" class="form-input" value="'+esc(u.display_name||'')+'" placeholder="Иванов Иван"></div>'
       + '<div class="form-group"><label class="form-label">Роль <span class="form-req">*</span></label>'
-      + '<select id="fu-role" class="form-select" onchange="var b=document.getElementById(\'fu-perms-block\');if(b)b.style.display=this.value===\'admin\'?\'none\':\'\'">'
+      + '<select id="fu-role" class="form-select" data-act="user.roleChange" data-act-on="change">'
       + USER_ROLES.map(function(r){ return '<option value="'+r.v+'"'+(r.v===(u.role||'doctor')?' selected':'')+'>'+r.l+'</option>'; }).join('')
       + '</select></div>'
       + '<div class="form-group"><label class="form-label">'+(u.id?'Новый пароль (пусто — не менять)':'Пароль <span class="form-req">*</span>')+'</label>'
@@ -5377,7 +5394,7 @@
       + '<div class="perm-grid">'+rows+'</div>'
       + '<div style="margin-top:12px;">'
       + '<label class="form-label">Какие суммы видит</label>'
-      + '<select id="fu-sums" class="form-select" onchange="document.getElementById(\'fu-sums-staff\').style.display=this.value===\'selected\'?\'\':\'none\'">'
+      + '<select id="fu-sums" class="form-select" data-act="user.sumsChange" data-act-on="change">'
       + '<option value="all"'+(sums==='all'?' selected':'')+'>Все суммы</option>'
       + '<option value="own"'+(sums==='own'?' selected':'')+'>Только свои (нужна связь с сотрудником)</option>'
       + '<option value="selected"'+(sums==='selected'?' selected':'')+'>Суммы выбранных врачей</option>'
@@ -5634,6 +5651,140 @@
     loadAll: loadAll, initDashboard: initDashboard, newVisit: newVisit,
     fmtMoney: fmtMoney, fmtQty: fmtQty,
   };
+
+  // ── Действия pages.js для делегата (см. actions.js) ──────────────────
+  //
+  // Разметка несёт ИМЯ действия и данные, а не код. Отдельный
+  // event.stopPropagation() больше не нужен: диспетчер берёт ближайшего
+  // предка с data-act, поэтому кнопка внутри кликабельной строки
+  // перекрывает действие строки сама собой.
+
+  // Закрыть модалку и выполнить действие, дав ей доиграть анимацию.
+  function afterModal(fn) { UI.hideModal(); setTimeout(fn, 150); }
+  // Перейти на страницу и выполнить действие, дав ей отрисоваться.
+  function afterNav(page, fn) { navigate(page); setTimeout(fn, 200); }
+
+  if (window.VetActions) {
+    window.VetActions.register({
+      // Заглушка: элемент, который перекрывает действие строки, но сам
+      // ничего не делает (ссылка tel: внутри кликабельной строки).
+      'noop': function () {},
+
+      'nav.go':       function (el) { navigate(el.dataset.page); },
+      'search.reset': function (el) { resetSearch(el.dataset.input); },
+      'print.window': function () { window.print(); },
+
+      // Списки: «показать ещё»
+      'owners.more': function () { _ownersShowMore(); },
+      'pets.more':   function () { _petsShowMore(); },
+      'visits.more': function () { _visitsShowMore(); },
+
+      // Создание
+      'owner.add': function () { addOwner(); },
+      'pet.add':   function () { addPet(); },
+      'visit.new': function () { newVisit(); },
+      'vacc.add':  function () { addVaccination(); },
+      'item.add':  function () { addItem(); },
+      'staff.add': function () { addStaff(); },
+
+      // Владелец
+      'owner.card':   function (el) { showOwnerCard(el.dataset.id); },
+      'owner.edit':   function (el) { editOwner(el.dataset.id); },
+      'owner.print':  function (el) { printOwnerCard(el.dataset.id); },
+      'owner.delete': function (el) { deleteOwner(el.dataset.id); },
+      'owner.call':   function (el) { callOwner(el.dataset.id); },
+      'owner.portalCode': function (el) { issuePortalCode(el.dataset.id); },
+      'owner.edit.fromModal': function (el) {
+        var id = el.dataset.id; afterModal(function () { editOwner(id); });
+      },
+      'owner.addPet': function (el) {
+        var id = el.dataset.id; afterModal(function () { addPetForOwner(id); });
+      },
+      // У владельца одно активное животное — сразу приём ему, иначе выбор.
+      'owner.newVisit': function (el) {
+        var pet = el.dataset.pet, owner = el.dataset.owner;
+        afterModal(function () { pet ? newVisitForPet(pet) : newVisitForOwner(owner); });
+      },
+
+      // Животное
+      'pet.card':     function (el) { showPetCard(el.dataset.id); },
+      'pet.edit':     function (el) { editPet(el.dataset.id); },
+      'pet.delete':   function (el) { deletePet(el.dataset.id); },
+      'pet.print':    function (el) { printPetCard(el.dataset.id); },
+      'pet.consent':  function (el) { printConsentForm(el.dataset.id); },
+      'pet.newVisit': function (el) { newVisitForPet(el.dataset.id); },
+      'pet.card.fromModal': function (el) {
+        var id = el.dataset.id; afterModal(function () { showPetCard(id); });
+      },
+      'pet.edit.fromModal': function (el) {
+        var id = el.dataset.id; afterModal(function () { editPet(id); });
+      },
+      'pet.newVisit.fromModal': function (el) {
+        var id = el.dataset.id; afterModal(function () { newVisitForPet(id); });
+      },
+      'pet.newVisit.fromReport': function (el) {
+        var id = el.dataset.id; afterNav('visits', function () { newVisitForPet(id); });
+      },
+      'pet.addVacc': function (el) {
+        var id = el.dataset.id; afterModal(function () { addVaccination(id); });
+      },
+      'pet.deceased': function (el) {
+        var id = el.dataset.id; afterModal(function () { markDeceased(id); });
+      },
+
+      // Приём
+      'visit.edit':   function (el) { editVisit(el.dataset.id); },
+      'visit.copy':   function (el) { copyVisit(el.dataset.id); },
+      'visit.delete': function (el) { deleteVisit(el.dataset.id); },
+      'visit.print':  function (el) { printVisitCard(el.dataset.id); },
+      'visit.edit.fromModal': function (el) {
+        var id = el.dataset.id; afterModal(function () { editVisit(id); });
+      },
+      'visit.edit.fromReport': function (el) {
+        var id = el.dataset.id; afterNav('visits', function () { editVisit(id); });
+      },
+
+      // Вакцинация
+      'vacc.edit':   function (el) { editVaccination(el.dataset.id); },
+      'vacc.copy':   function (el) { copyVaccination(el.dataset.id); },
+      'vacc.delete': function (el) { deleteVaccination(el.dataset.id); },
+      'vacc.print':  function (el) { printVaccinationCard(el.dataset.id); },
+
+      // Вложения
+      'attach.pick':       function (el) { pickAttachment(el.dataset.visit); },
+      'attach.remove':     function (el) { removeAttachment(el.dataset.id, el.dataset.visit); },
+      'attach.dropQueued': function (el) { dropQueuedAttachment(el.dataset.id, el.dataset.visit); },
+
+      // Каталог и персонал
+      'item.edit':      function (el) { editItem(el.dataset.id); },
+      'item.delete':    function (el) { deleteItem(el.dataset.id); },
+      'items.template': function () { downloadItemTemplate(); },
+      'items.import':   function (el) { importItemsExcel(el); },
+      'staff.card':     function (el) { showStaffCard(el.dataset.id); },
+      'staff.edit':     function (el) { editStaff(el.dataset.id); },
+      'staff.delete':   function (el) { deleteStaff(el.dataset.id); },
+
+      // Дашборд «Требуют внимания» и задачи
+      'appt.edit':     function (el) { window.VetPages && VetPages.editAppt(el.dataset.id); },
+      'task.complete': function (el) { completeTask(el.dataset.id); },
+
+      // История животного: вкладки
+      'history.tab': function (el) {
+        if (window.showHistoryTab) window.showHistoryTab(el.dataset.tab);
+      },
+
+      // Форма пользователя: блоки прав зависят от выбранной роли
+      'user.edit': function (el) { editUser(el.dataset.id); },
+      'user.roleChange': function (el) {
+        var b = document.getElementById('fu-perms-block');
+        if (b) b.style.display = el.value === 'admin' ? 'none' : '';
+      },
+      'user.sumsChange': function (el) {
+        var b = document.getElementById('fu-sums-staff');
+        if (b) b.style.display = el.value === 'selected' ? '' : 'none';
+      }
+    });
+  }
 
   window.VetPages = {
     init:               init,

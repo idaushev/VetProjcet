@@ -12,7 +12,7 @@
 
 // ── Версия ────────────────────────────────────────────────────────
 // Поднимайте при каждом деплое → старые кэши удалятся автоматически
-var APP_VERSION  = "2.84.0"; // bumped: исправления аудита безопасности
+var APP_VERSION  = "2.85.0"; // bumped: инлайновые обработчики -> делегирование, строгая CSP
 var CACHE_APP    = "vet-app-"   + APP_VERSION;  // версионированные ресурсы
 var CACHE_FONTS  = "vet-fonts-1";               // шрифты (стабильный кэш)
 
@@ -37,6 +37,9 @@ var PRECACHE = [
   "/js/db.js",
   "/js/sync.js",
   "/js/app.js",
+  "/js/theme.js",
+  "/js/bootstrap.js",
+  "/js/actions.js",
   "/js/ui.js",
   "/js/pages.js",
   "/js/modules/chips.js",

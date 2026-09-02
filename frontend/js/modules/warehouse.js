@@ -271,7 +271,7 @@
   function whStockRowsHTML(rows) {
     return rows.map(function(r){
       var it=r.it; var low = r.qty<=0;
-      return '<div class="erow" onclick="VetPages.whItemMoves(\''+it.id+'\')">'
+      return '<div class="erow" data-act="wh.itemMoves" data-id="'+it.id+'">'
         + '<div class="erow-body">'
         + '<div class="erow-title">'+esc(it.name)+' '+(it.type==='drug'?'<span class="chip-nochip" style="color:var(--blue);background:var(--blue-dim);border-color:var(--blue-border);">препарат</span>':'')+'</div>'
         + '<div class="erow-sub">Закупка '+Number(it.purchase_price||0).toFixed(0)+' ₸ · Розница '+Number(it.price||0).toFixed(0)+' ₸</div>'
@@ -279,7 +279,7 @@
         + '<div class="erow-right">'
         + '<span class="erow-amount" style="color:'+(low?'var(--danger)':'var(--accent)')+';">'+r.qty+' шт</span>'
         + '<div class="erow-actions">'
-        + '<button class="btn btn-icon" title="Изменить цены" aria-label="Изменить цены" onclick="event.stopPropagation();VetPages.whPriceForm(\''+it.id+'\')">'+UI.icon('tag','')+'</button>'
+        + '<button class="btn btn-icon" title="Изменить цены" aria-label="Изменить цены" data-act="wh.priceForm" data-id="'+it.id+'">'+UI.icon('tag','')+'</button>'
         + '</div></div></div>';
     }).join('');
   }
@@ -312,7 +312,7 @@
         + '<div class="erow-right">'
         + (m.kind!=='price'?'<span class="erow-amount">'+sign+m.qty+' шт</span>':'')
         + '<div class="erow-actions">'
-        + '<button class="btn btn-icon danger" title="Удалить движение" aria-label="Удалить" onclick="VetPages.whDeleteMove(\''+m.id+'\')">'+UI.icon('trash','')+'</button>'
+        + '<button class="btn btn-icon danger" title="Удалить движение" aria-label="Удалить" data-act="wh.deleteMove" data-id="'+m.id+'">'+UI.icon('trash','')+'</button>'
         + '</div></div></div>';
     }).join('');
   }
@@ -326,8 +326,8 @@
         + '<div class="erow-body"><div class="erow-title">'+esc(w.name)+(w.is_default?' <span class="badge badge-active">по умолчанию</span>':'')+'</div>'
         + '<div class="erow-sub">Позиций с остатком: '+positions+'</div></div>'
         + '<div class="erow-right"><div class="erow-actions">'
-        + '<button class="btn btn-icon" title="Переименовать" aria-label="Переименовать" onclick="VetPages.whStoreEdit(\''+w.id+'\')">'+UI.icon('edit','')+'</button>'
-        + (_whStores.length>1 && !w.is_default ? '<button class="btn btn-icon danger" title="Удалить" aria-label="Удалить" onclick="VetPages.whStoreDelete(\''+w.id+'\')">'+UI.icon('trash','')+'</button>' : '')
+        + '<button class="btn btn-icon" title="Переименовать" aria-label="Переименовать" data-act="wh.storeEdit" data-id="'+w.id+'">'+UI.icon('edit','')+'</button>'
+        + (_whStores.length>1 && !w.is_default ? '<button class="btn btn-icon danger" title="Удалить" aria-label="Удалить" data-act="wh.storeDelete" data-id="'+w.id+'">'+UI.icon('trash','')+'</button>' : '')
         + '</div></div></div>';
     }).join('');
   }
@@ -572,6 +572,16 @@
 
   // ── Публичный API модуля ──
   // Точка входа страницы (VetPages.init делегирует сюда).
+  if (window.VetActions) {
+    window.VetActions.register({
+      'wh.itemMoves':   function (el) { whItemMoves(el.dataset.id); },
+      'wh.priceForm':   function (el) { whPriceForm(el.dataset.id); },
+      'wh.deleteMove':  function (el) { whDeleteMove(el.dataset.id); },
+      'wh.storeEdit':   function (el) { whStoreEdit(el.dataset.id); },
+      'wh.storeDelete': function (el) { whStoreDelete(el.dataset.id); }
+    });
+  }
+
   window.VetWarehouse = { init: initWarehouse, currentTab: whCurrentTab };
   // Функции, вызываемые из onclick в index.html — навешиваем на VetPages,
   // чтобы разметку не трогать.

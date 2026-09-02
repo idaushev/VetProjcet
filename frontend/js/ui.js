@@ -51,20 +51,39 @@
   // position:fixed от кнопки: список имеет overflow:hidden, но у .erow нет
   // transform, поэтому fixed-меню не обрезается и не требует портала в body.
   //
-  // rowMenu(items): items = [{label, icon, onclick, danger} | {sep:true}].
-  // onclick — «сырой» вызов без event.stopPropagation (обёртку добавляем сами).
+  // rowMenu(items): items = [{label, icon, act, data, danger} | {sep:true}].
+  //
+  // act — ИМЯ действия из реестра VetActions, data — строковые параметры.
+  // Раньше пункт нёс готовый код (onclick:"VetPages.deleteOwner('id','ФИО')"),
+  // и ФИО владельца попадало прямо в JS-строку — та же дыра, что в находке 1
+  // аудита. Теперь имя и данные разъехались: данные остаются данными.
+  //
+  // closeRowMenu вызывать в каждом действии не нужно — меню закрывает сам
+  // диспетчер (см. регистрацию ui.rowmenu.close ниже).
   function rowMenu(items) {
     var body = (items||[]).map(function(it) {
       if (it.sep) return '<div class="row-menu-sep"></div>';
       return '<button class="row-menu-item'+(it.danger?' danger':'')+'" role="menuitem"'
-        + ' onclick="event.stopPropagation();VetUI.closeRowMenu();'+it.onclick+'">'
+        + ' ' + actAttrs(it.act, it.data) + '>'
         + (it.icon ? I(ICON_ALIAS[it.icon]||it.icon) : '')
         + '<span>'+esc(it.label)+'</span></button>';
     }).join('');
     return '<span class="row-menu-wrap">'
       + '<button class="btn btn-icon row-menu-btn" aria-label="Ещё действия" aria-haspopup="true"'
-      + ' onclick="VetUI.toggleRowMenu(event,this)"><span class="row-menu-dots">⋯</span></button>'
+      + ' data-act="ui.rowmenu.toggle"><span class="row-menu-dots">⋯</span></button>'
       + '<div class="row-menu" role="menu">'+body+'</div></span>';
+  }
+
+  // actAttrs('pet.delete', {id: '...'}) -> ' data-act="pet.delete" data-id="..."'
+  // Значения экранируем как обычный текст атрибута: кодом они больше не станут.
+  function actAttrs(act, data) {
+    var out = 'data-act="' + esc(act) + '"';
+    for (var k in (data || {})) {
+      if (Object.prototype.hasOwnProperty.call(data, k)) {
+        out += ' data-' + k + '="' + esc(data[k]) + '"';
+      }
+    }
+    return out;
   }
 
   // R4: клавиатура в автокомплитах. ↑/↓ двигают подсветку .ac-active,
@@ -103,6 +122,10 @@
     }
   }
   function toggleRowMenu(e, btn) {
+    // stopPropagation здесь уже ничего не решает: обработчик делегирован и
+    // выполняется на document, гасить всплытие поздно. Чтобы меню не
+    // закрылось сразу после открытия, клик по кнопке исключён в слушателе
+    // закрытия ниже.
     e.stopPropagation();
     var menu = btn.parentNode.querySelector('.row-menu');
     if (!menu) return;
@@ -121,8 +144,15 @@
     menu.style.visibility = '';
     _openRowMenu = menu;
   }
-  // Закрытие: клик вне (кнопка и пункты сами гасят всплытие), скролл, ресайз, Esc.
-  document.addEventListener('click', closeRowMenu);
+  // Закрытие: клик вне меню, скролл, ресайз, Esc.
+  //
+  // Клик по самой кнопке «⋯» пропускаем: её обработчик — делегат на document,
+  // он открывает меню, и этот слушатель тут же закрыл бы его обратно. Клик по
+  // пункту меню, наоборот, закрывать нужно — действие уже отработало.
+  document.addEventListener('click', function (e) {
+    if (e.target && e.target.closest && e.target.closest('.row-menu-btn')) return;
+    closeRowMenu();
+  });
   window.addEventListener('scroll', closeRowMenu, true);
   window.addEventListener('resize', closeRowMenu);
   document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeRowMenu(); });
@@ -339,13 +369,13 @@
     d=d||{};
     var legal = d.owner_type === 'legal';
     return '<div class="form-grid">'
-      +'<div class="form-group form-span-2"><label class="form-label">Владелец</label><select id="f-owner-type" class="form-select" onchange="VetUI.ownerTypeSwitch()">'
+      +'<div class="form-group form-span-2"><label class="form-label">Владелец</label><select id="f-owner-type" class="form-select" data-act="ui.ownerType" data-act-on="change">'
       +'<option value="individual"'+(legal?'':' selected')+'>Физическое лицо</option>'
       +'<option value="legal"'+(legal?' selected':'')+'>Юридическое лицо</option>'
       +'</select></div>'
       +'<div class="form-group form-span-2"><label class="form-label" id="f-fio-label">'+(legal?'Наименование организации':'ФИО')+' <span class="form-req">*</span></label><input id="f-fio" class="form-input" value="'+esc(d.fio||'')+'" placeholder="'+(legal?'ОФ «Приют Друг»':'Иванов Иван Иванович')+'"></div>'
       +'<div class="form-group"><label class="form-label">Телефон <span class="form-req">*</span></label><input id="f-phone" class="form-input" type="tel" value="'+esc(d.phone||'')+'" placeholder="+7 777 000 0000"></div>'
-      +'<div class="form-group"><label class="form-label" id="f-iin-label">'+(legal?'БИН':'ИИН')+'</label><input id="f-iin" class="form-input" inputmode="numeric" value="'+esc(d.iin||'')+'" maxlength="12" placeholder="12 цифр" oninput="VetUI.checkIIN()"><div id="f-iin-hint" class="form-hint">Нужен для регистрации животного в ТАҢБА</div></div>'
+      +'<div class="form-group"><label class="form-label" id="f-iin-label">'+(legal?'БИН':'ИИН')+'</label><input id="f-iin" class="form-input" inputmode="numeric" value="'+esc(d.iin||'')+'" maxlength="12" placeholder="12 цифр" data-act="ui.checkIIN" data-act-on="input"><div id="f-iin-hint" class="form-hint">Нужен для регистрации животного в ТАҢБА</div></div>'
       +'<div class="form-group form-span-2"><label class="form-label" id="f-address-label">'+(legal?'Юридический адрес':'Адрес (место жительства)')+'</label><input id="f-address" class="form-input" value="'+esc(d.address||'')+'" placeholder="Город, улица, дом"></div>'
       +'<div class="form-group form-span-2"><label class="form-label">Примечания</label><textarea id="f-notes" class="form-textarea">'+esc(d.notes||'')+'</textarea></div>'
       +'</div>';
@@ -455,16 +485,16 @@
         +'<div style="display:flex;gap:14px;align-items:center;">'
         +(d.photo ? '<img src="'+d.photo+'" class="pet-photo-preview" alt="Фото '+esc(d.name||'')+'">' : '')
         +'<div style="display:flex;flex-direction:column;gap:8px;">'
-        +'<button class="btn btn-ghost btn-sm" type="button" onclick="event.preventDefault();VetPages.petPhotoInput(\''+esc(d.id)+'\')">'+I('camera')+' '+(d.photo?'Изменить фото':'Добавить фото')+'</button>'
+        +'<button class="btn btn-ghost btn-sm" type="button" data-act="pet.photo" data-act-prevent="1" data-id="'+esc(d.id)+'">'+I('camera')+' '+(d.photo?'Изменить фото':'Добавить фото')+'</button>'
         +'</div></div></div>'
         : '')
       // Кнопки отчётов (только при редактировании)
       +(d.id ? '<div class="form-group form-span-2">'
         +'<label class="form-label">История</label>'
         +'<div style="display:flex;gap:8px;flex-wrap:wrap;">'
-        +'<button class="btn btn-ghost btn-sm" type="button" onclick="event.preventDefault();VetUI.hideModal();setTimeout(function(){VetPages.showPetHistory(\''+esc(d.id)+'\');},200)">'+I('clipboard')+' История посещений</button>'
-        +'<button class="btn btn-ghost btn-sm" type="button" onclick="event.preventDefault();VetUI.hideModal();setTimeout(function(){VetPages.showPetHistory(\''+esc(d.id)+'\');},200)">'+I('microscope')+' История болезней</button>'
-        +'<button class="btn btn-ghost btn-sm" type="button" onclick="event.preventDefault();VetUI.hideModal();setTimeout(function(){VetPages.showPetHistory(\''+esc(d.id)+'\');},200)">'+I('scale')+' История веса</button>'
+        +'<button class="btn btn-ghost btn-sm" type="button" data-act="pet.history" data-act-prevent="1" data-id="'+esc(d.id)+'">'+I('clipboard')+' История посещений</button>'
+        +'<button class="btn btn-ghost btn-sm" type="button" data-act="pet.history" data-act-prevent="1" data-id="'+esc(d.id)+'">'+I('microscope')+' История болезней</button>'
+        +'<button class="btn btn-ghost btn-sm" type="button" data-act="pet.history" data-act-prevent="1" data-id="'+esc(d.id)+'">'+I('scale')+' История веса</button>'
         +'</div></div>'
         : '')
       +'</div>'
@@ -474,7 +504,7 @@
       // который реестр присвоил, чтобы потом было с чем сверяться.
       +'</div><div class="form-section"><div class="form-section-title">Госучёт (ТАҢБА)</div><div class="form-grid">'
       +'<div class="form-group"><label class="form-label">Способ учёта</label><select id="f-id-method" class="form-select">'+idMethodOpts(d.id_method||(d.chip_number?'chip':''))+'</select></div>'
-      +'<div class="form-group"><label class="form-label">№ чипа</label><input id="f-chip" class="form-input" inputmode="numeric" value="'+esc(d.chip_number||'')+'" placeholder="643094100001234" maxlength="20" oninput="VetUI.checkChip()"><div id="f-chip-hint" class="form-hint"></div></div>'
+      +'<div class="form-group"><label class="form-label">№ чипа</label><input id="f-chip" class="form-input" inputmode="numeric" value="'+esc(d.chip_number||'')+'" placeholder="643094100001234" maxlength="20" data-act="ui.checkChip" data-act-on="input"><div id="f-chip-hint" class="form-hint"></div></div>'
       +'<div class="form-group"><label class="form-label">Дата чипирования</label><input id="f-chip-date" class="form-input" type="date" value="'+esc(dateVal(d.chip_date))+'"></div>'
       +'<div class="form-group"><label class="form-label">Индивидуальный № в ТАҢБА</label><input id="f-tanba" class="form-input" value="'+esc(d.tanba_number||'')+'" placeholder="Номер из реестра"></div>'
       +'<div class="form-group form-span-2"><label class="form-label">Внесено в ТАҢБА</label><input id="f-tanba-at" class="form-input" type="date" value="'+esc(dateVal(d.tanba_at))+'"><div class="form-hint">Заполните после регистрации на портале — по этой дате видно, кого ещё не внесли</div></div>'
@@ -556,13 +586,13 @@
     return '<div class="form-grid">'
       +'<div class="form-group form-span-2"><label class="form-label">Название <span class="form-req">*</span></label><input id="f-name" class="form-input" value="'+esc(d.name||'')+'" placeholder="Первичный осмотр"></div>'
       +'<div class="form-group"><label class="form-label">Тип <span class="form-req">*</span></label><select id="f-type" class="form-select"><option value="service"'+(d.type==='service'?' selected':'')+'>Услуга</option><option value="drug"'+(d.type==='drug'?' selected':'')+'>Препарат</option></select></div>'
-      +'<div class="form-group"><label class="form-label">Цена (₸) <span class="form-req">*</span></label><input id="f-price" class="form-input" type="number" min="0" step="0.01" value="'+esc(d.price!=null?d.price:'')+'" placeholder="1500" oninput="VetUI.recalcItemCost()"></div>'
-      +'<div class="form-group"><label class="form-label">Кассовая стоимость</label><select id="f-cost-mode" class="form-select" onchange="VetUI.recalcItemCost()">'
+      +'<div class="form-group"><label class="form-label">Цена (₸) <span class="form-req">*</span></label><input id="f-price" class="form-input" type="number" min="0" step="0.01" value="'+esc(d.price!=null?d.price:'')+'" placeholder="1500" data-act="ui.itemCost" data-act-on="input"></div>'
+      +'<div class="form-group"><label class="form-label">Кассовая стоимость</label><select id="f-cost-mode" class="form-select" data-act="ui.itemCost" data-act-on="change">'
         +'<option value="fixed"'+(d.cost_mode!=='percent'?' selected':'')+'>Фиксированная сумма</option>'
         +'<option value="percent"'+(d.cost_mode==='percent'?' selected':'')+'>Процент от цены</option>'
       +'</select></div>'
       +'<div class="form-group" id="f-cost-fixed-group"><label class="form-label">Сумма (₸)</label><input id="f-cost-price" class="form-input" type="number" min="0" step="0.01" value="'+esc(d.cost_price!=null&&d.cost_price!==0?d.cost_price:'')+'" placeholder="Стоимость по кассе"></div>'
-      +'<div class="form-group" id="f-cost-percent-group"><label class="form-label">Процент от цены (%)</label><input id="f-cost-percent" class="form-input" type="number" min="0" max="100" step="0.1" value="'+esc(d.cost_percent!=null&&d.cost_percent!==0?d.cost_percent:'')+'" placeholder="50" oninput="VetUI.recalcItemCost()"></div>'
+      +'<div class="form-group" id="f-cost-percent-group"><label class="form-label">Процент от цены (%)</label><input id="f-cost-percent" class="form-input" type="number" min="0" max="100" step="0.1" value="'+esc(d.cost_percent!=null&&d.cost_percent!==0?d.cost_percent:'')+'" placeholder="50" data-act="ui.itemCost" data-act-on="input"></div>'
       +'<div class="form-group form-span-2"><div id="f-cost-hint" class="form-hint"></div></div>'
       +'</div>';
   }
@@ -676,8 +706,8 @@
       +'<div class="form-group form-span-2"><label class="form-label">Фото</label>'
         +'<div style="display:flex;align-items:center;gap:12px;">'
         +(d.photo?'<img id="f-staff-photo-preview" src="'+esc(d.photo)+'" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid var(--border);">':'<span id="f-staff-photo-preview"></span>')
-        +'<button type="button" class="btn btn-ghost btn-sm" onclick="VetUI.staffPhotoPick()">'+I('camera')+' '+(d.photo?'Изменить фото':'Добавить фото')+'</button>'
-        +(d.photo?'<button type="button" class="btn btn-ghost btn-sm" onclick="VetUI.staffPhotoClear()">'+I('x')+' Убрать</button>':'')
+        +'<button type="button" class="btn btn-ghost btn-sm" data-act="staff.photoPick">'+I('camera')+' '+(d.photo?'Изменить фото':'Добавить фото')+'</button>'
+        +(d.photo?'<button type="button" class="btn btn-ghost btn-sm" data-act="staff.photoClear">'+I('x')+' Убрать</button>':'')
         +'</div>'
         +'<input type="hidden" id="f-staff-photo" value="'+esc(d.photo||'')+'">'
       +'</div>'
@@ -844,7 +874,7 @@
     return `<div class="visit-form" id="vf-root">
 
   <div class="visit-section${foldTop}" id="vs-owner">
-    <div class="visit-section-header" onclick="VetUI._toggleSection('vs-owner')">
+    <div class="visit-section-header" data-act="ui.section" data-section="vs-owner">
       <span class="visit-section-num">1</span><span>Владелец</span>
       <span class="vs-summary" id="vs-owner-summary"></span>
       <span class="vs-toggle">▾</span>
@@ -853,7 +883,7 @@
   </div>
 
   <div class="visit-section${foldTop}" id="vs-pet">
-    <div class="visit-section-header" onclick="VetUI._toggleSection('vs-pet')">
+    <div class="visit-section-header" data-act="ui.section" data-section="vs-pet">
       <span class="visit-section-num">2</span><span>Животное</span>
       <span class="vs-summary" id="vs-pet-summary"></span>
       <span class="vs-toggle">▾</span>
@@ -862,7 +892,7 @@
   </div>
 
   <div class="visit-section" id="vs-data">
-    <div class="visit-section-header" onclick="VetUI._toggleSection('vs-data')">
+    <div class="visit-section-header" data-act="ui.section" data-section="vs-data">
       <span class="visit-section-num">3</span><span>Данные приёма</span>
       <span class="vs-toggle">▾</span>
     </div>
@@ -870,25 +900,25 @@
       <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
         <div class="form-group" style="flex:0 0 200px;">
           <label class="form-label">Дата и время</label>
-          <input id="f-visit-date" class="form-input" type="datetime-local" value="${esc(dateVal)}" oninput="VetUI.recalcTreatment()">
+          <input id="f-visit-date" class="form-input" type="datetime-local" value="${esc(dateVal)}" data-act="ui.treatment" data-act-on="input">
         </div>
         <div class="form-group" style="flex:0 0 230px;">
           <label class="form-label">Следующий приём</label>
           <input id="f-next-visit-date" class="form-input" type="date" value="${esc(prefill.next_visit_date?new Date(prefill.next_visit_date).toISOString().slice(0,10):'')}">
           <div class="next-presets" id="next-presets">
-            <button type="button" class="next-preset" onclick="VetUI.setNextVisitPreset('7d')">+7д</button>
-            <button type="button" class="next-preset" onclick="VetUI.setNextVisitPreset('2w')">+2нед</button>
-            <button type="button" class="next-preset" onclick="VetUI.setNextVisitPreset('1m')">+1мес</button>
-            <button type="button" class="next-preset" onclick="VetUI.setNextVisitPreset('3m')">+3мес</button>
-            <button type="button" class="next-preset" onclick="VetUI.setNextVisitPreset('6m')">+6мес</button>
-            <button type="button" class="next-preset" onclick="VetUI.setNextVisitPreset('1y')">+1год</button>
+            <button type="button" class="next-preset" data-act="ui.nextVisit" data-preset="7d">+7д</button>
+            <button type="button" class="next-preset" data-act="ui.nextVisit" data-preset="2w">+2нед</button>
+            <button type="button" class="next-preset" data-act="ui.nextVisit" data-preset="1m">+1мес</button>
+            <button type="button" class="next-preset" data-act="ui.nextVisit" data-preset="3m">+3мес</button>
+            <button type="button" class="next-preset" data-act="ui.nextVisit" data-preset="6m">+6мес</button>
+            <button type="button" class="next-preset" data-act="ui.nextVisit" data-preset="1y">+1год</button>
           </div>
         </div>
         <div class="form-group" style="flex:0 0 165px;">
           <label class="form-label">Курс лечения, дней</label>
           <input id="f-treatment-days" class="form-input" type="number" min="0" max="365" step="1"
                  value="${esc(prefill.treatment_days ? prefill.treatment_days : '')}"
-                 placeholder="0 — не назначен" oninput="VetUI.recalcTreatment()">
+                 placeholder="0 — не назначен" data-act="ui.treatment" data-act-on="input">
           <div id="f-treatment-hint" class="form-hint"></div>
         </div>
         <div class="form-group" style="flex:0 0 200px;">
@@ -918,12 +948,12 @@
         <div>
           <div class="form-group" style="margin-bottom:12px;">
             <label class="form-label">Анамнез</label>
-            <textarea id="f-anamnesis" class="form-textarea vf-grow" rows="2" placeholder="История болезни, жалобы..." oninput="VetUI._autoGrow(this)">${esc(prefill.anamnesis||'')}</textarea>
+            <textarea id="f-anamnesis" class="form-textarea vf-grow" rows="2" placeholder="История болезни, жалобы..." data-act="ui.autoGrow" data-act-on="input">${esc(prefill.anamnesis||'')}</textarea>
           </div>
           <div class="form-group">
             <label class="form-label">Диагноз</label>
             <div class="autocomplete" style="width:100%;">
-            <textarea id="f-diagnosis" class="form-textarea vf-grow" rows="2" placeholder="Поставленный диагноз..." oninput="VetUI._diagAutocomplete(this);VetUI._autoGrow(this)">${esc(prefill.diagnosis||'')}</textarea>
+            <textarea id="f-diagnosis" class="form-textarea vf-grow" rows="2" placeholder="Поставленный диагноз..." data-act="ui.diagInput" data-act-on="input">${esc(prefill.diagnosis||'')}</textarea>
             <div class="autocomplete-dropdown" id="diag-dd" style="max-height:160px;overflow-y:auto;"></div>
             </div>
           </div>
@@ -931,11 +961,11 @@
         <div>
           <div class="form-group" style="margin-bottom:12px;">
             <label class="form-label">Назначение и рекомендации</label>
-            <textarea id="f-treatment" class="form-textarea vf-grow" rows="2" placeholder="Назначения, рекомендации..." oninput="VetUI._autoGrow(this)">${esc(prefill.treatment||'')}</textarea>
+            <textarea id="f-treatment" class="form-textarea vf-grow" rows="2" placeholder="Назначения, рекомендации..." data-act="ui.autoGrow" data-act-on="input">${esc(prefill.treatment||'')}</textarea>
           </div>
           <div class="form-group">
             <label class="form-label">Примечания</label>
-            <textarea id="f-vnotes" class="form-textarea vf-grow" rows="2" placeholder="Дополнительно..." oninput="VetUI._autoGrow(this)">${esc(prefill.notes||'')}</textarea>
+            <textarea id="f-vnotes" class="form-textarea vf-grow" rows="2" placeholder="Дополнительно..." data-act="ui.autoGrow" data-act-on="input">${esc(prefill.notes||'')}</textarea>
           </div>
         </div>
       </div>
@@ -943,7 +973,7 @@
   </div>
 
   <div class="visit-section" id="vs-items">
-    <div class="visit-section-header" onclick="VetUI._toggleSection('vs-items')">
+    <div class="visit-section-header" data-act="ui.section" data-section="vs-items">
       <span class="visit-section-num">4</span><span>Услуги и препараты</span>
       <span class="vs-toggle">▾</span>
     </div>
@@ -970,7 +1000,7 @@
          только при безналичной оплате. Если карта уже была указана —
          показываем развёрнутой, иначе врач не увидит, что там есть данные. -->
     <div class="vf-section">
-      <div class="vf-section-title" onclick="VetUI._toggleSection('vf-payment')">
+      <div class="vf-section-title" data-act="ui.section" data-section="vf-payment">
         ${I('card')} Оплата
         <span class="vs-summary" id="vf-payment-summary">${prefill && prefill.payment_card ? 'картой ' + prefill.payment_card + ' ₸' : 'наличными'}</span>
         <span class="vf-section-arrow">▾</span>
@@ -981,7 +1011,7 @@
             <label class="form-label">${I('cash')} Скидка, ₸</label>
             <input id="f-discount" class="form-input" type="number" min="0" step="1"
                    placeholder="0" value="${prefill && prefill.discount ? prefill.discount : 0}"
-                   oninput="VetUI._updatePaymentSummary()">
+                   data-act="ui.paySummary" data-act-on="input">
           </div>
           <div class="payment-field" id="f-discount-reason-wrap" style="${prefill && prefill.discount ? '' : 'display:none;'}">
             <label class="form-label">Причина скидки <span class="form-req">*</span></label>
@@ -992,7 +1022,7 @@
             <label class="form-label">${I('card')} Оплата картой (безнал), ₸</label>
             <input id="f-payment-card" class="form-input" type="number" min="0" step="1"
                    placeholder="0" value="${prefill && prefill.payment_card ? prefill.payment_card : 0}"
-                   oninput="VetUI._updatePaymentSummary()">
+                   data-act="ui.paySummary" data-act-on="input">
           </div>
           <div class="payment-field">
             <label class="form-label">${I('cash')} Наличные, ₸</label>
@@ -1696,6 +1726,35 @@
     return !first; // true — все поля заполнены
   }
 
+  // ── Действия ui.js для делегата (см. actions.js) ─────────────────────
+  // Имена ссылаются на функции этого модуля; данные приходят из data-атрибутов.
+  if (window.VetActions) {
+    window.VetActions.register({
+      'ui.rowmenu.toggle': function (el, e) { toggleRowMenu(e, el); },
+      'ui.ownerType':      function () { ownerTypeSwitch(); },
+      'ui.checkIIN':       function () { checkIIN(); },
+      'ui.checkChip':      function () { checkChip(); },
+      'ui.itemCost':       function () { recalcItemCost(); },
+      'ui.section':        function (el) { _toggleSection(el.dataset.section); },
+      'ui.treatment':      function () { recalcTreatment(); },
+      'ui.nextVisit':      function (el) { setNextVisitPreset(el.dataset.preset); },
+      'ui.autoGrow':       function (el) { _autoGrow(el); },
+      'ui.diagInput':      function (el) { _diagAutocomplete(el); _autoGrow(el); },
+      'ui.paySummary':     function () { _updatePaymentSummary(); },
+      'ui.modal.close':    function () { hideModal(); },
+      'staff.photoPick':   function () { staffPhotoPick(); },
+      'staff.photoClear':  function () { staffPhotoClear(); },
+      // Карточку животного и фото открывает pages.js — зовём через window,
+      // чтобы ui.js не зависел от порядка загрузки.
+      'pet.photo':   function (el) { window.VetPages && VetPages.petPhotoInput(el.dataset.id); },
+      'pet.history': function (el) {
+        hideModal();
+        var id = el.dataset.id;
+        setTimeout(function () { window.VetPages && VetPages.showPetHistory(id); }, 200);
+      }
+    });
+  }
+
   window.VetUI = {
     markInvalid: markInvalid,
     icon:icon, esc:esc, avatar:avatar,
@@ -1706,7 +1765,7 @@
     ownerFormHTML:ownerFormHTML, ownerFormData:ownerFormData,
     petFormHTML:petFormHTML, petFormData:petFormData, petFormAfterOpen:petFormAfterOpen,
     itemFormHTML:itemFormHTML, itemFormData:itemFormData, recalcItemCost:recalcItemCost,
-    checkChip:checkChip, normalizeChip:normalizeChip,
+    checkChip:checkChip, normalizeChip:normalizeChip, actAttrs:actAttrs,
     checkIIN:checkIIN, validIINChecksum:validIINChecksum, ownerTypeSwitch:ownerTypeSwitch,
     _autoGrow:_autoGrow, _autoGrowAll:_autoGrowAll,
     recalcTreatment:recalcTreatment, treatmentUntil:treatmentUntil,
