@@ -604,12 +604,10 @@ h4 { font-size: var(--fs-md);   font-weight: 600; }
   background: var(--bg-s);
   border: 1.5px solid var(--border);
   color: var(--text-2);
-  box-shadow: var(--shadow-xs);
 }
 .btn-ghost:hover {
   background: var(--bg-hover); color: var(--text);
   border-color: var(--border-strong);
-  box-shadow: var(--shadow-sm);
 }
 
 .btn-danger {
@@ -671,11 +669,21 @@ h4 { font-size: var(--fs-md);   font-weight: 600; }
 .btn svg { width: 16px; height: 16px; }
 
 /* ── Entity list ─────────────────────────────────────────────────── */
+/* ── Разделение поверхностей (UX-014) ────────────────────────────────────
+   Карточки имели И границу, И тень: разделение задавалось дважды, а в
+   плотных списках это давало заметный шум. Правило теперь одно:
+     • поверхность в потоке (карточка, список, секция формы) — ГРАНИЦА, без тени;
+     • всплывает над потоком (модалка, выпадающий список, тост, липкая
+       панель, оверлей меню) — ТЕНЬ.
+   Тень остаётся у наведения там, где элемент действительно приподнимается
+   при нажатии (плитки-ссылки на дашборде, карточки животных владельца).
+   Поля ввода и переключатели правило не затрагивает: там тень входит в
+   состав кольца фокуса, а не размечает поверхность.
+   ────────────────────────────────────────────────────────────────────── */
 .entity-list {
   background: var(--bg-s);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-sm);
   overflow: hidden;
   margin-top: var(--sp-3);
 }
@@ -1114,7 +1122,6 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   padding: var(--sp-6) var(--sp-6) var(--sp-5);
-  box-shadow: var(--shadow-sm);
   position: relative; overflow: hidden;
   transition: box-shadow var(--t), transform var(--t);
 }
@@ -1147,7 +1154,6 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
   background: var(--bg-s);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
 
@@ -1359,7 +1365,6 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
   padding: var(--sp-3) var(--sp-4); border-radius: var(--r-lg);
   background: var(--accent-dim);
   border: 1.5px solid var(--accent-border);
-  box-shadow: var(--shadow-xs);
 }
 .selected-card-info { flex: 1; }
 .selected-card-title { font-weight: 600; font-size: var(--fs-md); color: var(--text); }
@@ -1380,10 +1385,9 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
   border: 1.5px solid var(--border);
   border-radius: var(--r-lg);
   overflow: hidden;
-  box-shadow: var(--shadow-xs);
   transition: box-shadow var(--t);
 }
-.visit-section:focus-within { box-shadow: 0 0 0 3px var(--accent-dim), var(--shadow-sm); }
+.visit-section:focus-within { box-shadow: 0 0 0 3px var(--accent-dim); }
 
 .visit-section-header {
   display: flex; align-items: center; gap: var(--sp-3);

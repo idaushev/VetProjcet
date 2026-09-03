@@ -475,6 +475,14 @@
   // текста «Загрузка…». На планшете при рефреше меньше моргает и ощущается
   // быстрее. Ширины детерминированы (не случайны), чтобы блок не «дрожал».
   var _skWidths = [58, 42, 66, 48, 60, 52];
+  // Показать «загружается» — только если показывать пока нечего. При
+  // возврате в раздел список уже отрисован, и подмена его серыми полосками
+  // читалась бы как мигание, а не как загрузка.
+  function showLoading(elId) {
+    var el = document.getElementById(elId);
+    if (el && !el.children.length) el.innerHTML = skeletonRows();
+  }
+
   function skeletonRows(n) {
     n = n || 5;
     var s = '<div class="skeleton-list" aria-hidden="true">';
@@ -491,6 +499,7 @@
   var _ownersLimit = 60; // порция рендера — база растёт, весь архив на страницу не льём
 
   async function initOwners() {
+    showLoading('owners-list');
     var [owners, pets] = await Promise.all([api('GET','/owners'), api('GET','/pets?status=all')]);
     _owners = owners || [];
     _petsMap = buildMap(pets || []);
@@ -515,7 +524,7 @@
     var el = document.getElementById('owners-list');
     if (!el) return;
     if (!owners.length) {
-      el.innerHTML = q ? searchEmpty('search-owners') : emptyState('Владельцев ещё нет', '+ Добавить', 'owner.add', 'user');
+      el.innerHTML = q ? searchEmpty('search-owners') : emptyState('Владельцев ещё нет', '+ Владелец', 'owner.add', 'user');
       return;
     }
     var ownersTotal = owners.length;
@@ -639,6 +648,7 @@
   function activeCourse(petId) { return _coursesByPet[petId] || null; }
 
   async function initPets() {
+    showLoading('pets-list');
     var [pets, owners, visits] = await Promise.all([
       api('GET','/pets?status=all'), api('GET','/owners'), api('GET','/visits')
     ]);
@@ -697,7 +707,7 @@
     var el = document.getElementById('pets-list');
     if (!el) return;
     if (!pets.length) {
-      el.innerHTML = q ? searchEmpty('search-pets') : emptyState('Животных нет', '+ Добавить', 'pet.add', 'paw');
+      el.innerHTML = q ? searchEmpty('search-pets') : emptyState('Животных нет', '+ Животное', 'pet.add', 'paw');
       return;
     }
     var petsTotal = pets.length;
@@ -835,6 +845,7 @@
       _pendingVisitFilter = null;
     }
 
+    showLoading('visits-list');
     var data = await loadAll();
     _visits   = data.visits || [];
     _vpetsMap  = buildMap(data.pets || []);
@@ -941,7 +952,9 @@
         +'<span class="erow-date">'+fmtDate(v.date)+'</span>'
         +(v.total_amount?(window.VetAuth&&!VetAuth.canSeeSum(v.staff_id)?'<span class="erow-amount" title="Сумма скрыта настройками прав" aria-label="Сумма скрыта настройками прав">···</span>':'<span class="erow-amount">'+Number(v.total_amount).toFixed(0)+' ₸</span>'):'')
         +'<div class="erow-actions">'
-        +'<button class="btn btn-icon" data-act="visit.edit" data-id="'+v.id+'" title="Открыть приём" aria-label="Открыть приём">'+UI.icon('edit','')+'</button>'
+        // Кнопка «открыть приём» удалена: клик по самой строке делает ровно
+        // то же самое (data-act="visit.edit" на .erow). Две одинаковые цели
+        // рядом — не выбор, а шум.
         +UI.rowMenu([
             {label:'Печать для владельца', icon:'print', act:'visit.print', data:{id:v.id}},
             {label:'Копировать приём', icon:'clipboard', act:'visit.copy', data:{id:v.id}},
@@ -1543,6 +1556,7 @@
       _vaccDateFilter = _pendingVaccFilter;
       _pendingVaccFilter = null;
     }
+    showLoading('vaccinations-list');
     var [vacc, pets] = await Promise.all([api('GET','/vaccinations'), api('GET','/pets?status=all')]);
     _vaccinations = vacc || [];
     _vacPetsMap   = buildMap(pets || []);
@@ -1600,7 +1614,7 @@
     if (!list.length) {
       el.innerHTML = (q || _vaccDateFilter !== 'all')
         ? searchEmpty('search-vaccinations')
-        : emptyState('Вакцинаций нет', '+ Добавить', 'vacc.add', 'syringe');
+        : emptyState('Вакцинаций нет', '+ Вакцинация', 'vacc.add', 'syringe');
       return;
     }
     el.innerHTML = list.map(function(v) {
@@ -2687,6 +2701,7 @@
   var _items = [], _itemTypeFilter = 'all';
 
   async function initItems() {
+    showLoading('items-list');
     _items = await api('GET', '/items') || [];
     renderItemList();
     setupSearch('search-items', function(q){ renderItemList(); });
@@ -2715,7 +2730,7 @@
 
     var el = document.getElementById('items-list');
     if (!el) return;
-    if (!list.length) { el.innerHTML = q ? searchEmpty('search-items') : emptyState('Каталог пуст', '+ Добавить', 'item.add', 'box'); return; }
+    if (!list.length) { el.innerHTML = q ? searchEmpty('search-items') : emptyState('Каталог пуст', '+ Позиция', 'item.add', 'box'); return; }
     el.innerHTML = list.map(function(it) {
       var typeLabel = it.type==='drug'?'Препарат':'Услуга';
       var badgeCls  = it.type==='drug'?'drug':'service';
@@ -2729,8 +2744,12 @@
         +'<span class="erow-amount">'+Number(it.price).toFixed(0)+' ₸</span>'
         +'<div class="erow-actions">'
         +'<button class="btn btn-icon" data-act="item.edit" data-id="'+it.id+'" title="Редактировать" aria-label="Редактировать">'+UI.icon('edit','')+'</button>'
-        +'<span class="erow-actions-sep"></span>'
-        +'<button class="btn btn-icon danger" data-act="item.delete" data-id="'+it.id+'" title="Удалить" aria-label="Удалить">'+UI.icon('trash','')+'</button>'
+        // UX-012: удаление ушло в «⋯». Икона-корзина стояла вплотную к
+        // карандашу и на планшете ловила промах пальцем — а это позиция
+        // каталога, на которую ссылаются приёмы.
+        +UI.rowMenu([
+            {label:'Удалить', icon:'trash', danger:true, act:'item.delete', data:{id:it.id}}
+          ])
         +'</div></div></div>';
     }).join('');
   }
@@ -2788,6 +2807,7 @@
   var _staff = [];
 
   async function initStaff() {
+    showLoading('staff-list');
     _staff = await api('GET','/staff') || [];
     renderStaffList();
     setupSearch('search-staff', function(q){ renderStaffList(); });
@@ -2803,7 +2823,7 @@
     }).sort(function(a,b){ return a.name.localeCompare(b.name,'ru'); });
     var el = document.getElementById('staff-list');
     if (!el) return;
-    if (!list.length) { el.innerHTML = q ? searchEmpty('search-staff') : emptyState('Персонал не добавлен', '+ Добавить', 'staff.add', 'users'); return; }
+    if (!list.length) { el.innerHTML = q ? searchEmpty('search-staff') : emptyState('Персонал не добавлен', '+ Сотрудник', 'staff.add', 'users'); return; }
     el.innerHTML = list.map(function(s) {
       var media = s.photo
         ? '<img class="pet-photo" src="'+s.photo+'" alt="">'
@@ -2818,8 +2838,9 @@
         +(s.is_active?'<span class="badge badge-active">Активен</span>':'<span class="badge badge-inactive">Неактивен</span>')
         +'<div class="erow-actions">'
         +'<button class="btn btn-icon" data-act="staff.edit" data-id="'+s.id+'" title="Редактировать" aria-label="Редактировать">'+UI.icon('edit','')+'</button>'
-        +'<span class="erow-actions-sep"></span>'
-        +'<button class="btn btn-icon danger" data-act="staff.delete" data-id="'+s.id+'" title="Удалить" aria-label="Удалить">'+UI.icon('trash','')+'</button>'
+        +UI.rowMenu([
+            {label:'Удалить', icon:'trash', danger:true, act:'staff.delete', data:{id:s.id}}
+          ])
         +'</div></div></div>';
     }).join('');
   }
