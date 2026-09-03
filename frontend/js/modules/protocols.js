@@ -389,9 +389,15 @@
       // ровно то, ради чего делался стек модалок (F2/UX-022).
       stacked: true,
       title: res.title || 'Результат',
-      bodyHTML: body,
+      // Исправление уже внесённого результата называем своим именем: врач
+      // должен понимать, что переписывает медицинскую запись, на которую
+      // могли опереться при назначении, а не заполняет пустую форму.
+      bodyHTML: (res.status === 'done'
+        ? '<div class="form-hint mb-2">Результат уже внесён ' + esc(fmtWhenExact(res.filled_at))
+          + '. Изменения перезапишут его; дата поступления сохранится.</div>'
+        : '') + body,
       size: 'lg',
-      saveLabel: 'Сохранить результат',
+      saveLabel: res.status === 'done' ? 'Сохранить исправление' : 'Сохранить результат',
       onSave: async function () {
         var d = collectProtocolValues();
         try {
@@ -402,7 +408,7 @@
             status: 'done'
           });
           UI.hideModal();
-          UI.toast('Результат сохранён', 'ok');
+          UI.toast(res.status === 'done' ? 'Результат исправлен' : 'Результат сохранён', 'ok');
           window.dispatchEvent(new Event('vetdata:changed'));
           // Если протокол заполняли из открытой формы приёма — обновим там
           // строку, иначе она осталась бы «ожидает результата» до перезахода.
@@ -421,12 +427,21 @@
     var res = (all || []).find(function (r) { return r.id === resultId; });
     if (!res) { UI.toast('Результат не найден', 'err'); return; }
     UI.showModal({
+
       // Поверх того, откуда пришли (лента истории, контекст пациента, приём),
       // а не вместо: иначе просмотр результата уничтожал бы экран, с которого
       // его открыли, и возвращаться было бы некуда (F2/UX-022).
       stacked: true,
       title: res.title || 'Результат',
-      bodyHTML: await resultBodyHTML(res),
+      // Правка живёт ЗДЕСЬ, а не кнопкой в списке. Результат — медицинская
+      // запись: её открывают, чтобы ПОСМОТРЕТЬ (в просмотре есть нормы,
+      // отклонения и динамика показателя — в форме заполнения этого нет), и
+      // лишь изредка — чтобы исправить цифру или дописать заключение. Кнопка
+      // правки прямо в списке провоцировала бы менять запись, не взглянув
+      // на неё.
+      bodyHTML: '<div class="res-actions"><button type="button" class="btn btn-ghost btn-sm"'
+        + ' data-act="result.edit" data-id="' + esc(res.id) + '">Изменить результат</button></div>'
+        + await resultBodyHTML(res),
       size: 'lg',
       onSave: false,
       cancelLabel: 'Закрыть'
@@ -513,6 +528,16 @@
     try { return new Date(s).toLocaleDateString('ru-RU'); } catch (e) { return String(s).slice(0, 10); }
   }
 
+  // Со временем. Для следа исправления одной даты мало: описку замечают через
+  // час, и «внесён 03.09, исправлен 03.09» не говорит ничего.
+  function fmtWhenExact(s) {
+    if (!s) return '—';
+    try {
+      var d = new Date(s);
+      return d.toLocaleDateString('ru-RU') + ' в ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    } catch (e) { return String(s).slice(0, 16); }
+  }
+
   // Разворачивается прямо под строкой показателя: результат остаётся на экране,
   // и врач видит цифру и её историю одновременно. Отдельным окном это потребовало
   // бы стека модалок, которого пока нет (F2/UX-022).
@@ -557,6 +582,16 @@
     cell.innerHTML = html;
     row.dataset.open = '1';
     row.style.display = '';
+  }
+
+  // Результат считаем исправленным, если запись меняли ЗАМЕТНО позже внесения.
+  // Минута запаса — на разницу часов планшета и сервера и на то, что синк
+  // проставляет updated_at своим временем: иначе «исправлен» загоралось бы у
+  // каждого только что заполненного протокола.
+  function wasCorrected(res) {
+    if (!res.filled_at || !res.updated_at) return false;
+    var f = new Date(res.filled_at).getTime(), u = new Date(res.updated_at).getTime();
+    return isFinite(f) && isFinite(u) && (u - f) > 60000;
   }
 
   async function resultBodyHTML(res) {
@@ -618,6 +653,15 @@
     if (res.lab_name) {
       html += '<div class="res-lab">' + I('hospital') + ' Исполнитель: ' + esc(res.lab_name) + '</div>';
     }
+    // След исправления. Без него переписанный результат ничем не отличается от
+    // исходного, а на его цифры могли опереться при назначении: вопрос «мы это
+    // правили?» возникает именно тогда, когда разбирают спорный случай.
+    // Отдельного журнала не заводим — дата внесения и дата последней правки уже
+    // хранятся, их достаточно, чтобы увидеть сам факт.
+    if (wasCorrected(res)) {
+      html += '<div class="res-corrected">' + I('clock') + ' Внесён ' + esc(fmtWhenExact(res.filled_at))
+        + ', исправлен ' + esc(fmtWhenExact(res.updated_at)) + '</div>';
+    }
     if (res.conclusion) {
       html += '<div class="form-section"><div class="form-section-title">Заключение</div>'
         + '<div>' + esc(res.conclusion) + '</div></div>';
@@ -642,12 +686,21 @@
       'protocol.fieldRemove': function (el) { fieldRemove(Number(el.dataset.idx)); },
       'result.fill':          function (el) { fillResult(el.dataset.id); },
       'result.view':          function (el) { viewResult(el.dataset.id); },
+      // Просмотр закрываем ПЕРЕД открытием правки: иначе под формой осталась
+      // бы карточка со старыми значениями, и после сохранения врач вернулся
+      // бы к тому, что уже исправил.
+      'result.edit':          function (el) {
+                                var id = el.dataset.id;
+                                UI.hideModal();
+                                setTimeout(function () { fillResult(id); }, 60);
+                              },
       'result.series':        function (el) { toggleSeries(el.dataset.id, el.dataset.key); }
     });
   }
 
   window.VetProtocols = {
     init: renderTemplateList,
+    wasCorrected: wasCorrected,
     fillProtocolDraft: fillProtocolDraft,
     loadTemplates: loadTemplates,
     fieldsOf: fieldsOf,

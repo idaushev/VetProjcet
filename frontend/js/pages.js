@@ -2445,7 +2445,10 @@
       html += '<div class="attach-row' + (done ? '' : ' attach-pending') + '">' + I(done ? 'check' : 'clock')
         + '<div class="attach-body"><div class="attach-name">' + esc(r.title || 'Результат') + '</div>'
         + '<div class="attach-meta">' + (done ? 'заполнен ' + esc(fmtDate(r.filled_at || r.updated_at)) : 'ожидает результата')
-        + (r.lab_name ? ' · ' + esc(r.lab_name) : '') + '</div></div>'
+        + (r.lab_name ? ' · ' + esc(r.lab_name) : '')
+        + (done && window.VetProtocols && VetProtocols.wasCorrected && VetProtocols.wasCorrected(r)
+            ? ' · исправлен' : '')
+        + '</div></div>'
         + '<button type="button" class="btn btn-ghost btn-sm" data-act="'
         + (done ? 'result.view' : 'result.fill') + '" data-id="' + esc(r.id) + '">'
         + (done ? 'Открыть' : 'Заполнить') + '</button>'

@@ -3274,6 +3274,9 @@ body.mod-portal-off .needs-mod-portal { display: none !important; }
 .res-pending { color: var(--warn); }
 
 /* Таблица показателей протокола. */
+.res-actions { display: flex; justify-content: flex-end; margin-bottom: var(--sp-2); }
+.res-corrected { display: flex; align-items: center; gap: var(--sp-1);
+                 margin-top: var(--sp-2); font-size: var(--fs-sm); color: var(--text-2); }
 .res-table { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
 .res-table th {
   text-align: left; font-size: var(--fs-sm); font-weight: 700;
