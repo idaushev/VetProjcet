@@ -338,9 +338,9 @@ func pushPet(ctx context.Context, db *sql.DB, rec petSyncRecord) (bool, error) {
 		INSERT INTO pets (id, owner_id, name, type, gender, birth_date, age, breed, color, chip_number, chip_date,
 		                  id_method, tanba_number, tanba_at, keep_address, sterilized, sterilized_at,
 		                  photo, weight,
-		                  status, death_date, death_reason, notes,
+		                  status, death_date, death_reason, notes, allergies,
 		                  updated_at, deleted_at, is_deleted, device_id, version, created_at, client_updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		  owner_id=excluded.owner_id, name=excluded.name, type=excluded.type,
 		  gender=excluded.gender, birth_date=excluded.birth_date, age=excluded.age,
@@ -354,6 +354,10 @@ func pushPet(ctx context.Context, db *sql.DB, rec petSyncRecord) (bool, error) {
 		  tanba_number=COALESCE(excluded.tanba_number, pets.tanba_number),
 		  tanba_at=COALESCE(excluded.tanba_at, pets.tanba_at),
 		  keep_address=excluded.keep_address,
+		  -- Аллергии от старого клиента не приходят вовсе; пустое значение не
+		  -- должно стирать предупреждение о непереносимости. Та же оговорка,
+		  -- что у номера ТАҢБА, и по той же причине — цена ошибки высокая.
+		  allergies=COALESCE(excluded.allergies, pets.allergies),
 		  sterilized=excluded.sterilized,
 		  sterilized_at=COALESCE(excluded.sterilized_at, pets.sterilized_at),
 		  photo=excluded.photo, weight=excluded.weight,
@@ -376,6 +380,7 @@ func pushPet(ctx context.Context, db *sql.DB, rec petSyncRecord) (bool, error) {
 		clampFlag(sterilized), Tp(sterilizedAt),
 		rec.Photo, rec.Weight, status,
 		Tp(deathDate), nullableString(rec.DeathReason), nullableString(rec.Notes),
+		nullableString(rec.Allergies),
 		serverNow, deletedAt, rec.IsDeleted,
 		nullableString(rec.DeviceID), rec.Version, serverNow, clientAt,
 	)
@@ -591,7 +596,7 @@ func pullOwners(ctx context.Context, db *sql.DB, since time.Time) ([]Owner, erro
 	             created_at, updated_at, deleted_at, is_deleted, COALESCE(device_id,''), COALESCE(version,1)
 	      FROM owners`
 	if !since.IsZero() {
-		q += ` WHERE updated_at > ?`
+		q += ` WHERE updated_at >= ?`
 		rows, err := db.QueryContext(ctx, q, S(since))
 		if err != nil {
 			return nil, err
@@ -626,7 +631,7 @@ func pullPets(ctx context.Context, db *sql.DB, since time.Time) ([]Pet, error) {
 	filter := ""
 	var args []interface{}
 	if !since.IsZero() {
-		filter = ` WHERE updated_at > ?`
+		filter = ` WHERE updated_at >= ?`
 		args = []interface{}{S(since)}
 	}
 
@@ -664,7 +669,7 @@ SELECT id, owner_id, name, type, gender, birth_date, age, COALESCE(breed,''),
        COALESCE(id_method,''), COALESCE(tanba_number,''), tanba_at, COALESCE(keep_address,''),
        COALESCE(sterilized,0), sterilized_at,
        COALESCE(photo,''), weight, COALESCE(status,'active'),
-       death_date, COALESCE(death_reason,''), COALESCE(notes,''),
+       death_date, COALESCE(death_reason,''), COALESCE(notes,''), COALESCE(allergies,''),
        created_at, updated_at, deleted_at, is_deleted, COALESCE(device_id,''), COALESCE(version,1)
 FROM pets`
 
@@ -673,7 +678,7 @@ func pullItems(ctx context.Context, db *sql.DB, since time.Time) ([]Item, error)
 	var rows *sql.Rows
 	var err error
 	if !since.IsZero() {
-		rows, err = db.QueryContext(ctx, q+` WHERE updated_at > ?`, S(since))
+		rows, err = db.QueryContext(ctx, q+` WHERE updated_at >= ?`, S(since))
 	} else {
 		rows, err = db.QueryContext(ctx, q)
 	}
@@ -699,7 +704,7 @@ func pullVisits(ctx context.Context, db *sql.DB, since time.Time) ([]Visit, erro
 	filter := ""
 	var args []interface{}
 	if !since.IsZero() {
-		filter = ` WHERE v.updated_at > ?`
+		filter = ` WHERE v.updated_at >= ?`
 		args = []interface{}{S(since)}
 	}
 
@@ -734,7 +739,7 @@ func pullVisitItems(ctx context.Context, db *sql.DB, since time.Time) ([]VisitIt
 	var rows *sql.Rows
 	var err error
 	if !since.IsZero() {
-		rows, err = db.QueryContext(ctx, q+` WHERE vi.updated_at > ?`, S(since))
+		rows, err = db.QueryContext(ctx, q+` WHERE vi.updated_at >= ?`, S(since))
 	} else {
 		rows, err = db.QueryContext(ctx, q)
 	}
@@ -761,7 +766,7 @@ func pullVaccinations(ctx context.Context, db *sql.DB, since time.Time) ([]Vacci
 	var rows *sql.Rows
 	var err error
 	if !since.IsZero() {
-		rows, err = db.QueryContext(ctx, q+` WHERE updated_at > ?`, S(since))
+		rows, err = db.QueryContext(ctx, q+` WHERE updated_at >= ?`, S(since))
 	} else {
 		rows, err = db.QueryContext(ctx, q)
 	}
@@ -788,7 +793,7 @@ func pullStaff(ctx context.Context, db *sql.DB, since time.Time) ([]Staff, error
 	var rows *sql.Rows
 	var err error
 	if !since.IsZero() {
-		rows, err = db.QueryContext(ctx, q+` WHERE updated_at > ?`, S(since))
+		rows, err = db.QueryContext(ctx, q+` WHERE updated_at >= ?`, S(since))
 	} else {
 		rows, err = db.QueryContext(ctx, q)
 	}
@@ -828,7 +833,7 @@ func pullAttachments(ctx context.Context, db *sql.DB, since time.Time) ([]Attach
 	var rows *sql.Rows
 	var err error
 	if !since.IsZero() {
-		rows, err = db.QueryContext(ctx, q+` WHERE updated_at > ?`, S(since))
+		rows, err = db.QueryContext(ctx, q+` WHERE updated_at >= ?`, S(since))
 	} else {
 		rows, err = db.QueryContext(ctx, q)
 	}
@@ -912,7 +917,7 @@ func pullWarehouses(ctx context.Context, db *sql.DB, since time.Time) ([]Warehou
 	var rows *sql.Rows
 	var err error
 	if !since.IsZero() {
-		q += ` WHERE updated_at > ?`
+		q += ` WHERE updated_at >= ?`
 		rows, err = db.QueryContext(ctx, q, S(since))
 	} else {
 		rows, err = db.QueryContext(ctx, q)
@@ -950,7 +955,7 @@ func pullStockMovements(ctx context.Context, db *sql.DB, since time.Time) ([]Sto
 	var rows *sql.Rows
 	var err error
 	if !since.IsZero() {
-		q += ` WHERE updated_at > ?`
+		q += ` WHERE updated_at >= ?`
 		rows, err = db.QueryContext(ctx, q, S(since))
 	} else {
 		rows, err = db.QueryContext(ctx, q)

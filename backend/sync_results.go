@@ -58,7 +58,7 @@ func pullProtocols(ctx context.Context, db *sql.DB, since time.Time) ([]Protocol
 	q := protocolSelectAll
 	var args []interface{}
 	if !since.IsZero() {
-		q += ` WHERE updated_at > ?`
+		q += ` WHERE updated_at >= ?`
 		args = []interface{}{S(since)}
 	}
 	rows, err := db.QueryContext(ctx, q, args...)
@@ -152,7 +152,7 @@ func pullVisitResults(ctx context.Context, db *sql.DB, since time.Time) ([]Visit
 	q := resultSelectAll
 	var args []interface{}
 	if !since.IsZero() {
-		q += ` WHERE updated_at > ?`
+		q += ` WHERE updated_at >= ?`
 		args = []interface{}{S(since)}
 	}
 	rows, err := db.QueryContext(ctx, q, args...)

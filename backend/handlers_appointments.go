@@ -324,7 +324,7 @@ func pullAppointments(ctx context.Context, db *sql.DB, since time.Time) ([]Appoi
 	q := appointmentSelectAll
 	args := []interface{}{}
 	if !since.IsZero() {
-		q += ` WHERE a.updated_at > ?`
+		q += ` WHERE a.updated_at >= ?`
 		args = append(args, S(since))
 	}
 	rows, err := db.QueryContext(ctx, q, args...)

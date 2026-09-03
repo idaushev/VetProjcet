@@ -241,7 +241,7 @@ func pullDiagnoses(ctx context.Context, db *sql.DB, since time.Time) ([]Diagnosi
 	filter := ""
 	var args []interface{}
 	if !since.IsZero() {
-		filter = ` WHERE updated_at > ?`
+		filter = ` WHERE updated_at >= ?`
 		args = []interface{}{S(since)}
 	}
 	rows, err := db.QueryContext(ctx, diagnosisSelectAll+filter, args...)
