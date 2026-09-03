@@ -592,7 +592,7 @@ func pullOwners(ctx context.Context, db *sql.DB, since time.Time) ([]Owner, erro
 	      FROM owners`
 	if !since.IsZero() {
 		q += ` WHERE updated_at > ?`
-		rows, err := db.QueryContext(ctx, q, T(since))
+		rows, err := db.QueryContext(ctx, q, S(since))
 		if err != nil {
 			return nil, err
 		}
@@ -627,7 +627,7 @@ func pullPets(ctx context.Context, db *sql.DB, since time.Time) ([]Pet, error) {
 	var args []interface{}
 	if !since.IsZero() {
 		filter = ` WHERE updated_at > ?`
-		args = []interface{}{T(since)}
+		args = []interface{}{S(since)}
 	}
 
 	// Legacy-fallback здесь убран сознательно: он выбирал меньше колонок,
@@ -673,7 +673,7 @@ func pullItems(ctx context.Context, db *sql.DB, since time.Time) ([]Item, error)
 	var rows *sql.Rows
 	var err error
 	if !since.IsZero() {
-		rows, err = db.QueryContext(ctx, q+` WHERE updated_at > ?`, T(since))
+		rows, err = db.QueryContext(ctx, q+` WHERE updated_at > ?`, S(since))
 	} else {
 		rows, err = db.QueryContext(ctx, q)
 	}
@@ -700,7 +700,7 @@ func pullVisits(ctx context.Context, db *sql.DB, since time.Time) ([]Visit, erro
 	var args []interface{}
 	if !since.IsZero() {
 		filter = ` WHERE v.updated_at > ?`
-		args = []interface{}{T(since)}
+		args = []interface{}{S(since)}
 	}
 
 	// Раньше здесь был fallback на visitSelectAllLegacy для БД без новых колонок.
@@ -734,7 +734,7 @@ func pullVisitItems(ctx context.Context, db *sql.DB, since time.Time) ([]VisitIt
 	var rows *sql.Rows
 	var err error
 	if !since.IsZero() {
-		rows, err = db.QueryContext(ctx, q+` WHERE vi.updated_at > ?`, T(since))
+		rows, err = db.QueryContext(ctx, q+` WHERE vi.updated_at > ?`, S(since))
 	} else {
 		rows, err = db.QueryContext(ctx, q)
 	}
@@ -761,7 +761,7 @@ func pullVaccinations(ctx context.Context, db *sql.DB, since time.Time) ([]Vacci
 	var rows *sql.Rows
 	var err error
 	if !since.IsZero() {
-		rows, err = db.QueryContext(ctx, q+` WHERE updated_at > ?`, T(since))
+		rows, err = db.QueryContext(ctx, q+` WHERE updated_at > ?`, S(since))
 	} else {
 		rows, err = db.QueryContext(ctx, q)
 	}
@@ -788,7 +788,7 @@ func pullStaff(ctx context.Context, db *sql.DB, since time.Time) ([]Staff, error
 	var rows *sql.Rows
 	var err error
 	if !since.IsZero() {
-		rows, err = db.QueryContext(ctx, q+` WHERE updated_at > ?`, T(since))
+		rows, err = db.QueryContext(ctx, q+` WHERE updated_at > ?`, S(since))
 	} else {
 		rows, err = db.QueryContext(ctx, q)
 	}
@@ -828,7 +828,7 @@ func pullAttachments(ctx context.Context, db *sql.DB, since time.Time) ([]Attach
 	var rows *sql.Rows
 	var err error
 	if !since.IsZero() {
-		rows, err = db.QueryContext(ctx, q+` WHERE updated_at > ?`, T(since))
+		rows, err = db.QueryContext(ctx, q+` WHERE updated_at > ?`, S(since))
 	} else {
 		rows, err = db.QueryContext(ctx, q)
 	}
@@ -913,7 +913,7 @@ func pullWarehouses(ctx context.Context, db *sql.DB, since time.Time) ([]Warehou
 	var err error
 	if !since.IsZero() {
 		q += ` WHERE updated_at > ?`
-		rows, err = db.QueryContext(ctx, q, T(since))
+		rows, err = db.QueryContext(ctx, q, S(since))
 	} else {
 		rows, err = db.QueryContext(ctx, q)
 	}
@@ -951,7 +951,7 @@ func pullStockMovements(ctx context.Context, db *sql.DB, since time.Time) ([]Sto
 	var err error
 	if !since.IsZero() {
 		q += ` WHERE updated_at > ?`
-		rows, err = db.QueryContext(ctx, q, T(since))
+		rows, err = db.QueryContext(ctx, q, S(since))
 	} else {
 		rows, err = db.QueryContext(ctx, q)
 	}

@@ -252,7 +252,7 @@ func pullTasks(ctx context.Context, db *sql.DB, since time.Time) ([]Task, error)
 	var args []interface{}
 	if !since.IsZero() {
 		q += ` WHERE updated_at > ?`
-		args = []interface{}{T(since)}
+		args = []interface{}{S(since)}
 	}
 	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {

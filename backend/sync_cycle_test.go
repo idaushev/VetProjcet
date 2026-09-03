@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Полный цикл push -> pull через настоящие HTTP-обработчики и настоящую схему.
@@ -367,5 +369,177 @@ func TestSyncCycleResultEmptyJSONBecomesObject(t *testing.T) {
 	}
 	if v, _ := results[0]["values_json"].(string); v != "{}" {
 		t.Errorf("values_json = %q, ожидался {}", v)
+	}
+}
+
+// ─── TECH-001: инкрементальный pull ───────────────────────────────────────────
+//
+// Клиент после каждого push с изменениями делал ПОЛНУЮ выгрузку всех таблиц
+// (pullFull без since) — «чтобы гарантированно не пропустить удалённые».
+// Тесты ниже фиксируют, что инкрементальный pull этого не пропускает, и что
+// граница since не теряет записи. Без них замена pullFull на pullSync была бы
+// заменой известного поведения на предполагаемое.
+
+// pullWithTime отдаёт и записи, и server_time — именно его клиент запоминает
+// как точку отсчёта для следующего since.
+func pullWithTime(t *testing.T, a *app, since string) (map[string][]map[string]any, string) {
+	t.Helper()
+	url := "/sync/pull"
+	if since != "" {
+		url += "?since=" + since
+	}
+	rec := httptest.NewRecorder()
+	a.handleSyncPull(rec, httptest.NewRequest(http.MethodGet, url, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("pull HTTP %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Data map[string]json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("pull ответ не JSON: %v", err)
+	}
+	out := map[string][]map[string]any{}
+	serverTime := ""
+	for k, raw := range resp.Data {
+		if k == "server_time" {
+			_ = json.Unmarshal(raw, &serverTime)
+			continue
+		}
+		var rows []map[string]any
+		if json.Unmarshal(raw, &rows) == nil {
+			out[k] = rows
+		}
+	}
+	if serverTime == "" {
+		t.Fatal("pull не вернул server_time — клиенту нечего запомнить как точку отсчёта")
+	}
+	return out, serverTime
+}
+
+// Удаление, пришедшее push'ем, должно возвращаться инкрементальным pull.
+// Ровно это и было причиной полной выгрузки после каждого push.
+func TestIncrementalPullReturnsDeletion(t *testing.T) {
+	a := testApp(t)
+
+	doPush(t, a, `{"device_id":"dev-1","owners":[{
+		"id":"o-del","fio":"Удаляемый","phone":"+7 700 111 1111",
+		"version":1,"updated_at":"2026-09-01T10:00:00Z"}]}`)
+
+	_, mark := pullWithTime(t, a, "")
+
+	// Планшет удалил владельца и отправил флаг.
+	doPush(t, a, `{"device_id":"dev-1","owners":[{
+		"id":"o-del","fio":"Удаляемый","phone":"+7 700 111 1111",
+		"is_deleted":1,"deleted_at":"2026-09-01T11:00:00Z",
+		"version":2,"updated_at":"2026-09-01T11:00:00Z"}]}`)
+
+	data, _ := pullWithTime(t, a, mark)
+	owners := data["owners"]
+	if len(owners) != 1 {
+		t.Fatalf("инкрементальный pull вернул %d владельцев, ждём 1 (удаление) — "+
+			"именно из-за такого пропуска после каждого push шла полная выгрузка", len(owners))
+	}
+	if fmt.Sprintf("%v", owners[0]["is_deleted"]) != "1" {
+		t.Errorf("is_deleted = %v, ждём 1", owners[0]["is_deleted"])
+	}
+}
+
+// Граница since. Время в базе хранится как RFC3339 с ПЕРЕМЕННЫМ числом знаков
+// после точки (формат .999 отбрасывает нули), а сравнение в SQLite —
+// текстовое. Поэтому «10:00:00.5Z» строкой МЕНЬШЕ, чем «10:00:00Z», хотя
+// хронологически позже. Запись, сделанная сразу после pull, не должна теряться.
+func TestIncrementalPullDoesNotLoseRecordsAtBoundary(t *testing.T) {
+	a := testApp(t)
+
+	_, mark := pullWithTime(t, a, "")
+
+	// Пишем сразу после отметки — тот самый случай «в пределах той же секунды».
+	doPush(t, a, `{"device_id":"dev-1","owners":[{
+		"id":"o-edge","fio":"Пограничный","phone":"+7 700 222 2222",
+		"version":1,"updated_at":"2026-09-01T10:00:00Z"}]}`)
+
+	data, _ := pullWithTime(t, a, mark)
+	if len(data["owners"]) != 1 {
+		t.Fatalf("запись, созданная сразу после отметки времени, не вернулась "+
+			"инкрементальным pull (получено %d) — планшет её не увидит до полной выгрузки",
+			len(data["owners"]))
+	}
+}
+
+// Несколько сущностей разом: удаление животного и правка приёма должны
+// приезжать одним инкрементальным pull, без полной выгрузки.
+func TestIncrementalPullCoversSeveralStores(t *testing.T) {
+	a := testApp(t)
+
+	doPush(t, a, `{"device_id":"dev-1",
+		"owners":[{"id":"o-2","fio":"Хозяин","phone":"+7 700 333 3333","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"pets":[{"id":"p-2","owner_id":"o-2","name":"Барсик","type":"cat","gender":"m","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"visits":[{"id":"v-2","pet_id":"p-2","date":"2026-09-01T10:00:00Z","version":1,"updated_at":"2026-09-01T10:00:00Z"}]}`)
+
+	_, mark := pullWithTime(t, a, "")
+
+	doPush(t, a, `{"device_id":"dev-1",
+		"pets":[{"id":"p-2","owner_id":"o-2","name":"Барсик","type":"cat","gender":"m",
+		         "is_deleted":1,"deleted_at":"2026-09-01T12:00:00Z","version":2,"updated_at":"2026-09-01T12:00:00Z"}],
+		"visits":[{"id":"v-2","pet_id":"p-2","date":"2026-09-01T10:00:00Z","diagnosis":"отит",
+		           "version":2,"updated_at":"2026-09-01T12:00:00Z"}]}`)
+
+	data, _ := pullWithTime(t, a, mark)
+	if len(data["pets"]) != 1 {
+		t.Errorf("удаление животного не пришло инкрементально (pets=%d)", len(data["pets"]))
+	}
+	if len(data["visits"]) != 1 {
+		t.Fatalf("правка приёма не пришла инкрементально (visits=%d)", len(data["visits"]))
+	}
+	if data["visits"][0]["diagnosis"] != "отит" {
+		t.Errorf("diagnosis = %v, ждём «отит»", data["visits"][0]["diagnosis"])
+	}
+	// Владельца не трогали — он приезжать не должен: в этом весь смысл
+	// инкрементальности, иначе экономии нет.
+	if len(data["owners"]) != 0 {
+		t.Errorf("нетронутый владелец приехал повторно (owners=%d) — pull не инкрементален",
+			len(data["owners"]))
+	}
+}
+
+// Формат границы: доля секунды ВСЕГДА три знака, поэтому текстовый порядок
+// (а именно так сравнивает SQLite) совпадает с хронологическим. Тест
+// детерминирован: не зависит от того, какое время выпало на прогоне.
+func TestSinceBoundaryFormatIsLexicographic(t *testing.T) {
+	base := time.Date(2026, 9, 3, 7, 27, 12, 0, time.UTC)
+	// 190 мс — ровно тот случай, где формат «.999» даёт «.19Z» и ломает порядок.
+	cases := []struct {
+		ms   int
+		want string
+	}{
+		{0, "2026-09-03T07:27:12.000Z"},
+		{100, "2026-09-03T07:27:12.100Z"},
+		{190, "2026-09-03T07:27:12.190Z"},
+		{193, "2026-09-03T07:27:12.193Z"},
+	}
+	for _, c := range cases {
+		v, err := S(base.Add(time.Duration(c.ms) * time.Millisecond)).Value()
+		if err != nil {
+			t.Fatalf("S(%d мс): %v", c.ms, err)
+		}
+		if v != c.want {
+			t.Errorf("S(%d мс) = %v, ждём %q", c.ms, v, c.want)
+		}
+	}
+
+	// Граница 190 мс против записи 193 мс — та самая пара, на которой запись
+	// пропадала: строкой «.19Z» больше, чем «.193Z», потому что 'Z' > '3'.
+	bound, _ := S(base.Add(190 * time.Millisecond)).Value()
+	row, _ := T(base.Add(193 * time.Millisecond)).Value()
+	if !(row.(string) > bound.(string)) {
+		t.Errorf("запись %q должна быть строкой БОЛЬШЕ границы %q — иначе "+
+			"инкрементальный pull её теряет", row, bound)
+	}
+
+	// И обратно: запись раньше границы не должна в неё попадать.
+	older, _ := T(base.Add(180 * time.Millisecond)).Value()
+	if older.(string) > bound.(string) {
+		t.Errorf("запись %q старше границы %q, но считается новее", older, bound)
 	}
 }
