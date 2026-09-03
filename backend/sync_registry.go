@@ -177,7 +177,9 @@ func coreSyncEntities() []syncEntity {
 		{
 			Name: "diagnosis_templates",
 			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
-				pushEntity(ctx, a, raw, "diagnosis_templates", "visits", "diagnosis_templates", uid, cp, pushDiagnosis, res)
+				// Право «templates», а не «visits»: справочник — общая настройка
+				// клиники, а не медицинская запись конкретного приёма.
+				pushEntity(ctx, a, raw, "diagnosis_templates", "templates", "diagnosis_templates", uid, cp, pushDiagnosis, res)
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullDiagnoses(ctx, db, since) },
 		},
@@ -187,7 +189,9 @@ func coreSyncEntities() []syncEntity {
 			// Гейт прав — на маршрутах (requireAdmin), а не в синке.
 			Name: "protocol_templates",
 			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
-				pushEntity(ctx, a, raw, "protocol_templates", "items", "protocol_templates", uid, cp, pushProtocol, res)
+				// Право «templates», а не «items»: раньше правку бланков анализов
+				// открывало право на каталог — цены и протоколы разные вещи.
+				pushEntity(ctx, a, raw, "protocol_templates", "templates", "protocol_templates", uid, cp, pushProtocol, res)
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullProtocols(ctx, db, since) },
 		},

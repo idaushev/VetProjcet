@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -144,5 +145,60 @@ func TestCORSOnlySameOrigin(t *testing.T) {
 	}
 	if got := check("http://vet.local"); got != "http://vet.local" {
 		t.Errorf("своему источнику ACAO не выдан: %q", got)
+	}
+}
+
+// ─── Право «Справочники» ─────────────────────────────────────────────────────
+//
+// Шаблоны протоколов и заготовки диагнозов задают, что и как заполняют ВСЕ
+// врачи. Раньше протоколы были закрыты жёсткой проверкой роли (делегировать
+// ведение старшему врачу было нельзя), а справочник диагнозов не был закрыт
+// ВООБЩЕ. Теперь и то и другое — по праву templates.
+func TestTemplatesPermissionGuardsReferenceBooks(t *testing.T) {
+	a := testApp(t)
+
+	// Пользователь без настроенных прав: остальные таблицы — edit по
+	// умолчанию, а справочники — только чтение. Новое право не должно молча
+	// открыть их тем, у кого доступа не было.
+	plain := &User{ID: "u1", Login: "doc", Role: "doctor", IsActive: true}
+	if got := plain.tableLevel("visits"); got != permLevels["edit"] {
+		t.Errorf("visits без настройки = %d, ждём edit", got)
+	}
+	if got := plain.tableLevel("templates"); got != permLevels["view"] {
+		t.Errorf("templates без настройки = %d, ждём view — иначе право молча "+
+			"откроет справочники всем", got)
+	}
+
+	// Явная выдача правки работает.
+	editor := &User{ID: "u2", Login: "senior", Role: "doctor", IsActive: true,
+		Permissions: []byte(`{"tables":{"templates":"edit"}}`)}
+	if got := editor.tableLevel("templates"); got != permLevels["edit"] {
+		t.Errorf("templates с явным edit = %d, ждём edit", got)
+	}
+
+	// Гейт маршрута: без права — 403, с правом — проходит дальше.
+	called := false
+	h := a.requireTableEdit("templates", func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/protocols", nil)
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{}, plain))
+	rec := httptest.NewRecorder()
+	h(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("без права правки справочника ждём 403, получили %d", rec.Code)
+	}
+	if called {
+		t.Error("обработчик выполнился, хотя права нет")
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/protocols", nil)
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{}, editor))
+	rec = httptest.NewRecorder()
+	h(rec, req)
+	if rec.Code != http.StatusOK || !called {
+		t.Errorf("с правом правки ждём проход, получили %d", rec.Code)
 	}
 }

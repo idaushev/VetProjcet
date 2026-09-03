@@ -134,6 +134,11 @@ func (a *app) handleSyncPull(w http.ResponseWriter, r *http.Request) {
 		case "visit_items", "appointments", "attachments", "prescriptions":
 			// Назначения — часть медкарты: право на них то же, что на приёмы.
 			return "visits"
+		case "protocol_templates", "diagnosis_templates":
+			// Справочники: своё право. ЧИТАТЬ их нужно всем, кто заполняет
+			// приём (иначе бланк анализа не откроется), поэтому умолчание
+			// для «templates» — view; ограничивается именно ПРАВКА.
+			return "templates"
 		default:
 			return name
 		}

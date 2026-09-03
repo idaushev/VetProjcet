@@ -167,11 +167,27 @@ func (u *User) tableLevel(table string) int {
 		return permLevels["none"]
 	}
 	ps := u.permsParsed()
+	// Умолчание по таблицам — edit: права вводились позже самих таблиц, и
+	// пользователь без настроенных прав не должен внезапно потерять доступ.
+	//
+	// СПРАВОЧНИКИ — исключение, и намеренное. Шаблоны протоколов и заготовки
+	// диагнозов правит один человек на клинику: они задают, что и как будут
+	// заполнять ВСЕ остальные. Раньше протоколы были закрыты проверкой роли в
+	// интерфейсе, а на сервере ехали под правом на каталог — то есть любой с
+	// правкой каталога мог переписать их синхронизацией, минуя интерфейс.
+	// Заводя отдельное право, нельзя открыть его тем, у кого доступа не было:
+	// без явной настройки справочники доступны только на чтение.
 	if ps.Tables == nil {
+		if table == "templates" {
+			return permLevels["view"]
+		}
 		return permLevels["edit"]
 	}
 	lvl, ok := ps.Tables[table]
 	if !ok || lvl == "" {
+		if table == "templates" {
+			return permLevels["view"]
+		}
 		return permLevels["edit"]
 	}
 	n, ok := permLevels[lvl]
@@ -384,6 +400,21 @@ func (a *app) requireAdmin(fn http.HandlerFunc) http.HandlerFunc {
 		u := userFromCtx(r.Context())
 		if u == nil || u.Role != "admin" {
 			writeError(w, http.StatusForbidden, "Доступно только администратору")
+			return
+		}
+		fn(w, r)
+	}
+}
+
+// requireTableEdit — гейт на изменение справочника или таблицы по ПРАВУ, а не
+// по роли. Роль в обёртке — это правило, зашитое в код: администратор клиники
+// не может доверить ведение справочника старшему врачу, не сделав его
+// администратором целиком. Право настраивается в карточке пользователя.
+func (a *app) requireTableEdit(table string, fn http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		u := userFromCtx(r.Context())
+		if u == nil || u.tableLevel(table) < permLevels["edit"] {
+			writeError(w, http.StatusForbidden, "Недостаточно прав для изменения справочника")
 			return
 		}
 		fn(w, r)

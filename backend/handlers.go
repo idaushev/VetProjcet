@@ -125,9 +125,12 @@ func (a *app) routes() http.Handler {
 	// Справочник диагнозов с заготовками лечения (см. handlers_diagnoses.go).
 	// Шаблоны протоколов: читать всем (врач заполняет по ним), править — админу.
 	mux.HandleFunc("GET /protocols",         a.handleProtocols)
-	mux.HandleFunc("POST /protocols",        a.requireAdmin(a.handleProtocols))
-	mux.HandleFunc("PUT /protocols/{id}",    a.requireAdmin(a.handleProtocolByID))
-	mux.HandleFunc("DELETE /protocols/{id}", a.requireAdmin(a.handleProtocolByID))
+	// Правка справочников — по праву «templates», а не по роли: раньше бланки
+	// анализов мог менять только администратор, и делегировать это старшему
+	// врачу было нельзя иначе как выдав ему администратора целиком.
+	mux.HandleFunc("POST /protocols",        a.requireTableEdit("templates", a.handleProtocols))
+	mux.HandleFunc("PUT /protocols/{id}",    a.requireTableEdit("templates", a.handleProtocolByID))
+	mux.HandleFunc("DELETE /protocols/{id}", a.requireTableEdit("templates", a.handleProtocolByID))
 
 	// Результаты услуг — под правами приёмов (см. pathTable).
 	mux.HandleFunc("GET /results",         a.handleResults)
@@ -136,9 +139,11 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("DELETE /results/{id}", a.handleResultByID)
 
 	mux.HandleFunc("GET /diagnoses",         a.handleDiagnoses)
-	mux.HandleFunc("POST /diagnoses",        a.handleDiagnoses)
-	mux.HandleFunc("PUT /diagnoses/{id}",    a.handleDiagnosisByID)
-	mux.HandleFunc("DELETE /diagnoses/{id}", a.handleDiagnosisByID)
+	// Справочник диагнозов не был закрыт ВООБЩЕ: править заготовки лечения,
+	// которые подставляются всем врачам, мог любой пользователь.
+	mux.HandleFunc("POST /diagnoses",        a.requireTableEdit("templates", a.handleDiagnoses))
+	mux.HandleFunc("PUT /diagnoses/{id}",    a.requireTableEdit("templates", a.handleDiagnosisByID))
+	mux.HandleFunc("DELETE /diagnoses/{id}", a.requireTableEdit("templates", a.handleDiagnosisByID))
 
 	// Корзина: права проверяются внутри по каждой таблице (см. trash.go),
 	// поэтому админом не гейтим — врач должен уметь вернуть свой приём.

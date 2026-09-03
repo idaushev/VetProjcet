@@ -146,7 +146,11 @@
     if (u.role === "warehouse") return table === "warehouse" || table === "items";
     var p = u.permissions || {};
     var lvl = p.tables && p.tables[table];
-    var have = PERM_ORDER[lvl] !== undefined ? PERM_ORDER[lvl] : 3;
+    // Умолчание — edit (права вводились позже таблиц), КРОМЕ справочников:
+    // они задают работу всей клиники, и новое право не должно молча открыть
+    // их тем, у кого доступа не было. Зеркало серверного tableLevel.
+    var fallback = (table === 'templates') ? PERM_ORDER['view'] : 3;
+    var have = PERM_ORDER[lvl] !== undefined ? PERM_ORDER[lvl] : fallback;
     return have >= (PERM_ORDER[action] || 0);
   }
 

@@ -4436,14 +4436,20 @@
 
     // Справочник диагнозов
     if (document.getElementById('diagnoses-list')) renderDiagnoses();
-    // Шаблоны протоколов правит только администратор — карточку остальным
-    // не показываем: кнопка всё равно получит 403 от сервера.
+    // Шаблоны протоколов — по ПРАВУ «Справочники», а не по роли: клиника
+    // должна иметь возможность доверить ведение бланков старшему врачу, не
+    // делая его администратором целиком. Сервер закрыт тем же правом.
     var protoCard = document.getElementById('protocols-card');
     if (protoCard) {
-      var isAdmin = !!(window.VetAuth && VetAuth.user() && VetAuth.user().role === 'admin');
-      protoCard.style.display = isAdmin ? '' : 'none';
-      if (isAdmin && window.VetProtocols) VetProtocols.init();
+      var mayEditTpl = !!(window.VetAuth && VetAuth.can('templates', 'edit'));
+      protoCard.style.display = mayEditTpl ? '' : 'none';
+      if (mayEditTpl && window.VetProtocols) VetProtocols.init();
     }
+    // Справочник диагнозов: карточка видна всем (заготовки нужны при
+    // заполнении приёма), но кнопка «Добавить» — только с правом правки.
+    var diagAdd = document.querySelector('[data-act="diagnosis.add"]');
+    if (diagAdd) diagAdd.style.display =
+      (window.VetAuth && VetAuth.can('templates', 'edit')) ? '' : 'none';
 
     // Корзина: доступна всем, кто видит настройки — восстановление идёт
     // через обычный синк и подчиняется тем же правам, что и правка.
@@ -6827,6 +6833,10 @@
     { v: 'vaccinations', l: 'Вакцинации',  hint: '' },
     { v: 'items',        l: 'Каталог',     hint: 'услуги и препараты, цены' },
     { v: 'staff',        l: 'Персонал',    hint: '' },
+    // Глобальная настройка клиники, а не данные приёма: шаблоны протоколов и
+    // заготовки диагнозов задают, что и как заполняют ВСЕ врачи. Поэтому
+    // отдельная строка прав, а не право на приёмы или каталог.
+    { v: 'templates',    l: 'Справочники', hint: 'шаблоны протоколов и заготовки диагнозов — общие для всей клиники; читать их нужно всем, ограничивается правка' },
   ];
 
   // Типовые наборы прав. Роль сама по себе ничего не ограничивала: врач и
@@ -6840,21 +6850,25 @@
       title: 'Врач',
       note: 'Ведёт приёмы и медкарты. Каталог и персонал — только смотрит, суммы видит свои.',
       tables: { visits:'edit', appointments:'edit', owners:'edit', pets:'edit',
-                vaccinations:'edit', items:'view', staff:'view' },
+                vaccinations:'edit', items:'view', staff:'view',
+                // Врач ведёт справочники: он ими и пользуется каждый день.
+                // Не «потому что может», а потому что заготовку лечения
+                // осмысленно правит тот, кто её применяет.
+                templates:'edit' },
       sums: 'own', portal_codes: false
     },
     reception: {
       title: 'Регистратура',
       note: 'Записывает и заводит клиентов. Медкарты видит, но не правит. Выдаёт пароли в кабинет владельца.',
       tables: { visits:'view', appointments:'edit', owners:'edit', pets:'edit',
-                vaccinations:'view', items:'view', staff:'view' },
+                vaccinations:'view', items:'view', staff:'view', templates:'view' },
       sums: 'all', portal_codes: true
     },
     warehouse: {
       title: 'Склад',
       note: 'Работает с каталогом и остатками. К медицинской части доступа нет.',
       tables: { visits:'none', appointments:'none', owners:'none', pets:'none',
-                vaccinations:'none', items:'edit', staff:'none' },
+                vaccinations:'none', items:'edit', staff:'none', templates:'none' },
       sums: 'all', portal_codes: false
     }
   };
