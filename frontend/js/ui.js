@@ -1362,6 +1362,12 @@
        связана с приёмом только по животному и дате — через полгода, разбирая
        реакцию, врач сопоставлял записи вручную. Наполняется
        VetPages.renderVisitVaccinations. -->
+  <!-- Результаты услуг (анализы, УЗИ, рентген). Ставим ПЕРЕД назначениями:
+       врач сначала смотрит, что показало исследование, и только потом
+       назначает. Раньше блока не было вовсе — протокол можно было заполнить
+       только уйдя из приёма на дашборд или в карточку животного. -->
+  <div id="visit-results" class="attach-box"></div>
+
   <!-- F4/VET-004: назначения. Отдельной сущностью, а не строкой в тексте:
        поле «Назначение и рекомендации» выше остаётся (ответ клиники на
        вопрос 5 — одно поле), но препарат, доза, путь и длительность теперь
@@ -1813,7 +1819,12 @@
   }
 
   function updateVitRow(id){var q=parseFloat(document.getElementById('vit-q-'+id).value)||0;var p=parseFloat(document.getElementById('vit-p-'+id).value)||0;var t=Math.round(q*p*100)/100;document.getElementById('vit-tot-'+id).textContent=t.toFixed(0)+' ₸';updateVitTotal();}
-  function updateVitTotal(){var tot=0;document.querySelectorAll('[id^="vit-tot-"]').forEach(function(el){tot+=parseFloat(el.textContent)||0;});var el=document.getElementById('vitem-total');if(el)el.textContent=tot.toFixed(0)+' ₸'; _updatePaymentSummary();}
+  function updateVitTotal(){var tot=0;document.querySelectorAll('[id^="vit-tot-"]').forEach(function(el){tot+=parseFloat(el.textContent)||0;});var el=document.getElementById('vitem-total');if(el)el.textContent=tot.toFixed(0)+' ₸'; _updatePaymentSummary();
+    // Позиции изменились — блок результатов мог измениться вместе с ними:
+    // услуга с протоколом заводит ожидающую строку. Без этого врач добавлял
+    // анализ и не видел, что по нему что-то потребуется заполнить.
+    if (window.VetPages && VetPages.refreshVisitResults) VetPages.refreshVisitResults();
+  }
   function collectVisitItems(){var items=[];document.querySelectorAll('.vitem-row').forEach(function(row){var id=row.dataset.rowId;var name=document.getElementById('vit-n-'+id).value.trim();var type=document.getElementById('vit-t-'+id).value;var qty=parseFloat(document.getElementById('vit-q-'+id).value)||1;var price=parseFloat(document.getElementById('vit-p-'+id).value)||0;var costEl=document.getElementById('vit-c-'+id);var costPrice=costEl?parseFloat(costEl.value)||0:Math.round(price*0.5*100)/100;if(!name)return;items.push({item_id:row.dataset.itemId||null,name:name,type:type,quantity:qty,price:price,cost_price:costPrice,total:Math.round(qty*price*100)/100});});return items;}
 
   // ── Черновики формы приёма ─────────────────────────────────────────────

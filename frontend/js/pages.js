@@ -1052,6 +1052,7 @@
         renderAttachments(attachKey);
         renderVisitVaccinations(attachKey, prefillPet ? prefillPet.id : '');
         renderVisitPrescriptions(attachKey, prefillPet ? prefillPet.id : '');
+        renderVisitResults(attachKey, prefillPet ? prefillPet.id : '');
         renderVisitContext(prefillPet ? prefillPet.id : '', false);
         renderPetAllergies(prefillPet ? prefillPet.id : '');
         // Животное в новом приёме выбирают уже после открытия формы, а прививке
@@ -1064,6 +1065,7 @@
             _vaccPetId = pid;
             renderVisitVaccinations(attachKey, pid);
             renderVisitPrescriptions(attachKey, pid);   // F4/VET-004
+            renderVisitResults(attachKey, pid);
             renderVisitContext(pid, false);   // VET-001: контекст выбранного пациента
             renderPetAllergies(pid);          // VET-013: предупреждение об аллергиях
           }
@@ -1226,6 +1228,7 @@
         // новая прививка пишется сразу, без промежуточного накопления.
         renderVisitVaccinations(id, visit.pet_id);
         renderVisitPrescriptions(id, visit.pet_id);
+        renderVisitResults(id, visit.pet_id);
         renderVisitContext(visit.pet_id, false);
         renderPetAllergies(visit.pet_id);
 
@@ -1397,6 +1400,14 @@
   // Привязка идёт к паре (приём, услуга каталога), а НЕ к строке приёма:
   // сохранение правки удаляет все visit_items и создаёт заново, поэтому их id
   // живут ровно до следующего сохранения. Результат так терялся бы каждый раз.
+  // Перерисовать блок результатов, если форма приёма открыта: строки могли
+  // появиться только что (ensureVisitResults) или быть заполнены поверх.
+  function refreshVisitResultsBlock() {
+    if (_curVisitId && document.getElementById('visit-results')) {
+      renderVisitResults(_curVisitId, _curPetId);
+    }
+  }
+
   async function ensureVisitResults(visitId, petId, items) {
     if (!visitId) return;
     // Каталог читаем из базы, а НЕ из _items: тот массив наполняет initItems,
@@ -2296,6 +2307,76 @@
     });
   }
 
+  // ── Результаты услуг прямо в приёме ──────────────────────────────────
+  //
+  // Услуга, помеченная «требует результата», заводит ожидающую строку — так
+  // забытая пробирка видна сразу. Но заполнить её можно было только с
+  // дашборда или из карточки животного: в самой форме приёма ссылки не было.
+  // Врач, добавивший анализ крови, честно спрашивал «а где заполнять?».
+  //
+  // У НЕсохранённого приёма результатов ещё нет (их заводит ensureVisitResults
+  // после создания), поэтому показываем, что появится, — иначе блок выглядел
+  // бы пустым ровно тогда, когда врач о нём думает.
+  async function renderVisitResults(visitId, petId) {
+    var box = document.getElementById('visit-results');
+    if (!box) return;
+
+    var saved = [];
+    if (!isDraftVisitKey(visitId)) {
+      try {
+        saved = (await window.VetDB.getAll('visit_results'))
+          .filter(function (r) { return r.visit_id === visitId && !r.is_deleted; });
+      } catch (e) {}
+    }
+
+    // Что появится после сохранения: позиции формы, у которых в каталоге
+    // включён результат.
+    var pending = [];
+    try {
+      var vs = UI.getVisitState ? UI.getVisitState() : null;
+      if (vs && vs.items && vs.items.length) {
+        var catalog = await window.VetDB.getAll('items');
+        var byId = {}; catalog.forEach(function (c) { byId[c.id] = c; });
+        var seen = {};
+        vs.items.forEach(function (it) {
+          if (!it.item_id || seen[it.item_id]) return;
+          var cat = byId[it.item_id];
+          if (!cat || !cat.result_mode || cat.result_mode === 'none') return;
+          if (saved.some(function (r) { return r.item_id === it.item_id; })) return;
+          seen[it.item_id] = 1;
+          pending.push({ name: it.name || cat.name, mode: cat.result_mode });
+        });
+      }
+    } catch (e) {}
+
+    if (!saved.length && !pending.length) { box.innerHTML = ''; return; }
+
+    var html = '<div class="attach-head">' + I('microscope') + ' Результаты'
+      + '<span class="attach-count">' + (saved.length + pending.length) + '</span></div>'
+      + '<div class="attach-list">';
+
+    pending.forEach(function (p) {
+      html += '<div class="attach-row attach-pending">' + I('clock')
+        + '<div class="attach-body"><div class="attach-name">' + esc(p.name) + '</div>'
+        + '<div class="attach-meta">'
+        + (p.mode === 'file' ? 'ждёт файл' : 'ждёт заполнения протокола')
+        + ' · строка появится после сохранения приёма</div></div></div>';
+    });
+
+    saved.forEach(function (r) {
+      var done = r.status === 'done';
+      html += '<div class="attach-row">' + I(done ? 'check' : 'clock')
+        + '<div class="attach-body"><div class="attach-name">' + esc(r.title || 'Результат') + '</div>'
+        + '<div class="attach-meta">' + (done ? 'заполнен ' + esc(fmtDate(r.filled_at || r.updated_at)) : 'ожидает результата')
+        + (r.lab_name ? ' · ' + esc(r.lab_name) : '') + '</div></div>'
+        + '<button type="button" class="btn btn-ghost btn-sm" data-act="'
+        + (done ? 'result.view' : 'result.fill') + '" data-id="' + esc(r.id) + '">'
+        + (done ? 'Открыть' : 'Заполнить') + '</button>'
+        + '</div>';
+    });
+    box.innerHTML = html + '</div>';
+  }
+
   // ── F4 / VET-004: назначения ─────────────────────────────────────────
   //
   // Раньше вся терапия была одной строкой в visits.treatment: «амоксиклав
@@ -2568,9 +2649,11 @@
   // вложения, только очередь тут не нужна: запись маленькая и уходит обычным
   // POST, который и сам умеет работать офлайн.
   var _vaccPending = null;   // { visitId, list: [payload], form: bool }
-  // Приём, форма которого открыта: нужен, чтобы задача из контекста
-  // привязалась не только к животному, но и к конкретному приёму.
+  // Приём и животное, форма которых открыта: нужны, чтобы задача из контекста
+  // привязалась не только к животному, но и к конкретному приёму, и чтобы
+  // блок результатов можно было перерисовать снаружи формы.
   var _curVisitId = '';
+  var _curPetId = '';
 
   function pendingVaccList(visitId) {
     return (_vaccPending && _vaccPending.visitId === visitId) ? _vaccPending.list : [];
@@ -2578,6 +2661,7 @@
 
   async function renderVisitVaccinations(visitId, petId) {
     _curVisitId = visitId || '';
+    _curPetId = petId || '';
     var box = document.getElementById('visit-vaccinations');
     if (!box) return;
     var saved = [];
@@ -7444,6 +7528,7 @@
     showPetCard:        showPetCard,
     showPetHistory:     showPetHistory,
     showPetTimeline:    showPetTimeline,
+    refreshVisitResults: refreshVisitResultsBlock,
     showNotificationsLog: showNotificationsLog,
     markDeceased:       markDeceased,
     petPhotoInput:      petPhotoInput,

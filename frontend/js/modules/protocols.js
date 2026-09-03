@@ -326,6 +326,10 @@
       + '</div></div>';
 
     UI.showModal({
+      // Поверх формы приёма, а не вместо неё: заполнение протокола вызывают
+      // прямо из приёма, и замена окна уничтожила бы заполняемую форму —
+      // ровно то, ради чего делался стек модалок (F2/UX-022).
+      stacked: true,
       title: res.title || 'Результат',
       bodyHTML: body,
       size: 'lg',
@@ -347,6 +351,9 @@
           UI.hideModal();
           UI.toast('Результат сохранён', 'ok');
           window.dispatchEvent(new Event('vetdata:changed'));
+          // Если протокол заполняли из открытой формы приёма — обновим там
+          // строку, иначе она осталась бы «ожидает результата» до перезахода.
+          if (window.VetPages && VetPages.refreshVisitResults) VetPages.refreshVisitResults();
         } catch (e) {
           UI.toast(e.message, 'err');
         }
