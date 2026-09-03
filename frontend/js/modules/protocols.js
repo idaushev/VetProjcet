@@ -296,34 +296,75 @@
       + '</div>';
   }
 
+  // Тело формы протокола — общее для двух случаев: заполнения существующего
+  // результата и черновика по услуге, добавленной в ещё не сохранённый приём.
+  function protocolBodyHTML(tpl, values, conclusion, labName) {
+    var fields = fieldsOf(tpl);
+    var body = '';
+    if (fields.length) {
+      body += '<div class="form-grid">' + fields.map(function (f) {
+        return fillFieldHTML(f, (values || {})[f.key]);
+      }).join('') + '</div>';
+    } else {
+      body += '<div class="text-sm text-muted">У этой услуги нет шаблона протокола — впишите заключение свободным текстом.</div>';
+    }
+    body += '<div class="form-section">'
+      + '<div class="form-group"><label class="form-label">Лаборатория-исполнитель</label>'
+      + '<input id="rv-lab" class="form-input" maxlength="120" value="' + esc(labName || '')
+      + '" placeholder="Своя лаборатория / Vet Union / …"></div>'
+      + '<div class="form-group">'
+      + '<label class="form-label">Заключение</label>'
+      + '<textarea id="rv-conclusion" class="form-textarea" rows="3">' + esc(conclusion || '') + '</textarea>'
+      + '</div></div>';
+    return body;
+  }
+
+  function collectProtocolValues() {
+    var vals = {};
+    document.querySelectorAll('.rv-input').forEach(function (el) {
+      var k = el.getAttribute('data-key');
+      if (!k) return;
+      vals[k] = el.type === 'checkbox' ? (el.checked ? '1' : '') : el.value.trim();
+    });
+    return {
+      values: vals,
+      conclusion: (document.getElementById('rv-conclusion') || {}).value || '',
+      lab_name: ((document.getElementById('rv-lab') || {}).value || '').trim(),
+    };
+  }
+
+  // Протокол услуги, добавленной в приём, который ещё не сохранён. Записи
+  // visit_results тогда не существует (её заводит ensureVisitResults после
+  // создания приёма), поэтому собранное отдаём вызывающему — он держит это в
+  // памяти до сохранения. Без этого врач, сделавший УЗИ прямо на приёме, не
+  // мог записать заключение, пока не сохранит и не переоткроет приём.
+  async function fillProtocolDraft(templateId, title, prev, onDone) {
+    var tpls = await loadTemplates();
+    var tpl = templateId ? tpls.find(function (t) { return t.id === templateId; }) : null;
+    prev = prev || {};
+    UI.showModal({
+      stacked: true,
+      title: title || 'Результат',
+      bodyHTML: protocolBodyHTML(tpl, prev.values, prev.conclusion, prev.lab_name),
+      size: 'lg',
+      saveLabel: 'Готово',
+      onSave: function () {
+        var data = collectProtocolValues();
+        UI.hideModal();
+        if (onDone) onDone(data);
+      }
+    });
+  }
+
   async function fillResult(resultId) {
     var all = await window.VetDB.getAll('visit_results');
     var res = (all || []).find(function (r) { return r.id === resultId; });
     if (!res) { UI.toast('Результат не найден', 'err'); return; }
     var tpls = await loadTemplates();
     var tpl = res.template_id ? tpls.find(function (t) { return t.id === res.template_id; }) : null;
-    var fields = fieldsOf(tpl);
-    var values = valuesOf(res);
-
-    var body = '';
-    if (fields.length) {
-      body += '<div class="form-grid">' + fields.map(function (f) {
-        return fillFieldHTML(f, values[f.key]);
-      }).join('') + '</div>';
-    } else {
-      body += '<div class="text-sm text-muted">У этой услуги нет шаблона протокола — впишите заключение свободным текстом.</div>';
-    }
-    body += '<div class="form-section">'
-      // VET-008 (вопрос 14): кто делал исследование. Раньше это читалось
-      // только из названия услуги, то есть никак, если она называется
-      // «Биохимия крови». При разборе спорного результата спрашивают первым.
-      + '<div class="form-group"><label class="form-label">Лаборатория-исполнитель</label>'
-      + '<input id="rv-lab" class="form-input" maxlength="120" value="' + esc(res.lab_name || '')
-      + '" placeholder="Своя лаборатория / Vet Union / …"></div>'
-      + '<div class="form-group">'
-      + '<label class="form-label">Заключение</label>'
-      + '<textarea id="rv-conclusion" class="form-textarea" rows="3">' + esc(res.conclusion || '') + '</textarea>'
-      + '</div></div>';
+    // VET-008 (вопрос 14): в теле формы есть и лаборатория-исполнитель —
+    // при разборе спорного результата её спрашивают первой.
+    var body = protocolBodyHTML(tpl, valuesOf(res), res.conclusion, res.lab_name);
 
     UI.showModal({
       // Поверх формы приёма, а не вместо неё: заполнение протокола вызывают
@@ -335,17 +376,12 @@
       size: 'lg',
       saveLabel: 'Сохранить результат',
       onSave: async function () {
-        var vals = {};
-        document.querySelectorAll('.rv-input').forEach(function (el) {
-          var k = el.getAttribute('data-key');
-          if (!k) return;
-          vals[k] = el.type === 'checkbox' ? (el.checked ? '1' : '') : el.value.trim();
-        });
+        var d = collectProtocolValues();
         try {
           await api('PUT', '/results/' + resultId, {
-            values_json: JSON.stringify(vals),
-            conclusion: (document.getElementById('rv-conclusion') || {}).value || '',
-            lab_name: ((document.getElementById('rv-lab') || {}).value || '').trim(),
+            values_json: JSON.stringify(d.values),
+            conclusion: d.conclusion,
+            lab_name: d.lab_name,
             status: 'done'
           });
           UI.hideModal();
@@ -595,6 +631,7 @@
 
   window.VetProtocols = {
     init: renderTemplateList,
+    fillProtocolDraft: fillProtocolDraft,
     loadTemplates: loadTemplates,
     fieldsOf: fieldsOf,
     valuesOf: valuesOf,

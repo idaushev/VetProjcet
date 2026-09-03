@@ -1078,6 +1078,7 @@
         if (!attachCommitted) discardDraftAttachments(attachKey);
         _vaccPending = null;   // приём не создан — привязывать прививки не к чему
         _prescPending = null;  // и назначения тоже
+        _resultDrafts = {};    // и заполненные протоколы
       },
       onSave: async function() {
         var vs = UI.getVisitState();
@@ -1147,7 +1148,7 @@
         };
         try {
           var created = await api('POST', '/visits/full', body);
-          var attached = 0, vaccAdded = 0, prescAdded = 0;
+          var attached = 0, vaccAdded = 0, prescAdded = 0, resultsFilled = 0;
           if (created && created.visit) {
             await ensureVisitResults(created.visit.id, finalPet.id, vs.items);
             // Приём появился — только теперь у файлов есть к чему привязаться.
@@ -1157,12 +1158,16 @@
             attached = await commitDraftAttachments(attachKey, created.visit.id);
             vaccAdded = await commitPendingVaccinations(attachKey, created.visit.id, finalPet.id);
             prescAdded = await commitPendingPrescriptions(attachKey, created.visit.id, finalPet.id, vs.staff_id);
+            // Протоколы, заполненные ДО сохранения, переносим в строки,
+            // которые только что завела ensureVisitResults.
+            resultsFilled = await applyDraftResults(created.visit.id);
           }
           UI.clearVisitDraft();
           var extra = [];
           if (attached)  extra.push('файлов: ' + attached);
           if (vaccAdded) extra.push('прививок: ' + vaccAdded);
           if (prescAdded) extra.push('назначений: ' + prescAdded);
+          if (resultsFilled) extra.push('протоколов: ' + resultsFilled);
           UI.toast(extra.length ? 'Приём сохранён (' + extra.join(', ') + ')' : 'Приём сохранён', 'ok');
           UI.hideModal();
           if (vaccAdded) await initVaccinations();
@@ -1378,6 +1383,12 @@
             await api('POST', '/visit-items', Object.assign({ visit_id: id }, vs.items[j]));
           }
           await ensureVisitResults(id, finalPet.id, vs.items);
+          // Протоколы, заполненные в этой сессии до сохранения.
+          await applyDraftResults(id);
+          // Услугу убрали из счёта — незаполненная строка результата по ней
+          // больше не нужна. Заполненные не трогаем: это медицинская запись,
+          // а не строка счёта. Порядок важен: сначала перенос, потом уборка.
+          await pruneOrphanResults(id);
           UI.clearVisitDraft();
           if (!failedDeletes) UI.toast('Приём обновлён', 'ok');
           UI.hideModal();
@@ -2317,6 +2328,33 @@
   // У НЕсохранённого приёма результатов ещё нет (их заводит ensureVisitResults
   // после создания), поэтому показываем, что появится, — иначе блок выглядел
   // бы пустым ровно тогда, когда врач о нём думает.
+  // Заполненные протоколы услуг, добавленных в форму: item_id -> {values,
+  // conclusion, lab_name}. Держим в памяти до сохранения приёма — записи
+  // visit_results до этого не существует. После создания приёма значения
+  // переносятся в созданные строки (applyDraftResults).
+  var _resultDrafts = {};
+
+  // Услуги ТЕКУЩЕЙ формы, которым положен результат.
+  async function resultBearingItems() {
+    var out = [];
+    try {
+      var vs = UI.getVisitState ? UI.getVisitState() : null;
+      if (!vs || !vs.items) return out;
+      var catalog = await window.VetDB.getAll('items');
+      var byId = {}; catalog.forEach(function (c) { byId[c.id] = c; });
+      var seen = {};
+      vs.items.forEach(function (it) {
+        if (!it.item_id || seen[it.item_id]) return;
+        var cat = byId[it.item_id];
+        if (!cat || !cat.result_mode || cat.result_mode === 'none') return;
+        seen[it.item_id] = 1;
+        out.push({ item_id: it.item_id, name: it.name || cat.name,
+                   mode: cat.result_mode, protocol_id: cat.protocol_id || '' });
+      });
+    } catch (e) {}
+    return out;
+  }
+
   async function renderVisitResults(visitId, petId) {
     var box = document.getElementById('visit-results');
     if (!box) return;
@@ -2328,44 +2366,52 @@
           .filter(function (r) { return r.visit_id === visitId && !r.is_deleted; });
       } catch (e) {}
     }
+    var wanted = await resultBearingItems();
+    var wantedIds = {};
+    wanted.forEach(function (w) { wantedIds[w.item_id] = w; });
 
-    // Что появится после сохранения: позиции формы, у которых в каталоге
-    // включён результат.
-    var pending = [];
-    try {
-      var vs = UI.getVisitState ? UI.getVisitState() : null;
-      if (vs && vs.items && vs.items.length) {
-        var catalog = await window.VetDB.getAll('items');
-        var byId = {}; catalog.forEach(function (c) { byId[c.id] = c; });
-        var seen = {};
-        vs.items.forEach(function (it) {
-          if (!it.item_id || seen[it.item_id]) return;
-          var cat = byId[it.item_id];
-          if (!cat || !cat.result_mode || cat.result_mode === 'none') return;
-          if (saved.some(function (r) { return r.item_id === it.item_id; })) return;
-          seen[it.item_id] = 1;
-          pending.push({ name: it.name || cat.name, mode: cat.result_mode });
-        });
-      }
-    } catch (e) {}
-
-    if (!saved.length && !pending.length) { box.innerHTML = ''; return; }
-
-    var html = '<div class="attach-head">' + I('microscope') + ' Результаты'
-      + '<span class="attach-count">' + (saved.length + pending.length) + '</span></div>'
-      + '<div class="attach-list">';
-
-    pending.forEach(function (p) {
-      html += '<div class="attach-row attach-pending">' + I('clock')
-        + '<div class="attach-body"><div class="attach-name">' + esc(p.name) + '</div>'
-        + '<div class="attach-meta">'
-        + (p.mode === 'file' ? 'ждёт файл' : 'ждёт заполнения протокола')
-        + ' · строка появится после сохранения приёма</div></div></div>';
+    // Строку счёта удалили — незаполненный результат по ней показывать нельзя:
+    // кнопка «Заполнить» вела бы к услуге, которой в приёме уже нет.
+    // ЗАПОЛНЕННЫЙ результат остаётся: исследование сделали и записали, и
+    // стирать медицинскую запись вслед за строкой счёта нельзя.
+    var shown = saved.filter(function (r) {
+      if (r.status === 'done') return true;
+      return !r.item_id || !!wantedIds[r.item_id];
     });
 
-    saved.forEach(function (r) {
+    // Услуги без созданной строки: приём ещё не сохранён.
+    var drafts = wanted.filter(function (w) {
+      return !saved.some(function (r) { return r.item_id === w.item_id; });
+    });
+
+    if (!shown.length && !drafts.length) { box.innerHTML = ''; return; }
+
+    var html = '<div class="attach-head">' + I('microscope') + ' Результаты'
+      + '<span class="attach-count">' + (shown.length + drafts.length) + '</span></div>'
+      + '<div class="attach-list">';
+
+    drafts.forEach(function (w) {
+      var d = _resultDrafts[w.item_id];
+      var filled = !!d;
+      html += '<div class="attach-row' + (filled ? '' : ' attach-pending') + '">'
+        + I(filled ? 'check' : 'clock')
+        + '<div class="attach-body"><div class="attach-name">' + esc(w.name) + '</div>'
+        + '<div class="attach-meta">'
+        + (filled ? 'заполнен · запишется вместе с приёмом'
+                  : (w.mode === 'file' ? 'ждёт файл' : 'ждёт заполнения протокола'))
+        + '</div>'
+        + (filled && d.conclusion ? '<div class="attach-note">' + esc(d.conclusion) + '</div>' : '')
+        + '</div>'
+        + (w.mode === 'file' ? ''
+            : '<button type="button" class="btn btn-ghost btn-sm" data-act="result.draftFill"'
+              + ' data-item="' + esc(w.item_id) + '" data-tpl="' + esc(w.protocol_id) + '"'
+              + ' data-name="' + esc(w.name) + '">' + (filled ? 'Изменить' : 'Заполнить') + '</button>')
+        + '</div>';
+    });
+
+    shown.forEach(function (r) {
       var done = r.status === 'done';
-      html += '<div class="attach-row">' + I(done ? 'check' : 'clock')
+      html += '<div class="attach-row' + (done ? '' : ' attach-pending') + '">' + I(done ? 'check' : 'clock')
         + '<div class="attach-body"><div class="attach-name">' + esc(r.title || 'Результат') + '</div>'
         + '<div class="attach-meta">' + (done ? 'заполнен ' + esc(fmtDate(r.filled_at || r.updated_at)) : 'ожидает результата')
         + (r.lab_name ? ' · ' + esc(r.lab_name) : '') + '</div></div>'
@@ -2375,6 +2421,89 @@
         + '</div>';
     });
     box.innerHTML = html + '</div>';
+  }
+
+  // Решение «открывать ли протокол сразу» принимаем ЗДЕСЬ: только тут известен
+  // текущий приём, а значит — существует ли уже строка результата. У
+  // сохранённого приёма её надо править как запись, а не заводить черновик
+  // в памяти, иначе повторное открытие услуги затёрло бы заполненное.
+  async function autoOpenProtocol(itemId) {
+    if (!itemId) return;
+    var list = await resultBearingItems();
+    var w = list.find(function (x) { return x.item_id === itemId; });
+    if (!w || w.mode === 'file') return;   // файл прикладывают отдельно
+    if (_resultDrafts[itemId]) return;     // уже заполняли в этой сессии
+
+    if (!isDraftVisitKey(_curVisitId) && _curVisitId) {
+      try {
+        var row = (await window.VetDB.getAll('visit_results')).find(function (r) {
+          return r.visit_id === _curVisitId && r.item_id === itemId && !r.is_deleted;
+        });
+        // Строка есть — открываем её обычным заполнением; заполненную не
+        // трогаем, чтобы повторный выбор услуги не стёр заключение.
+        if (row) {
+          if (row.status !== 'done' && window.VetProtocols) VetPages.fillResultById(row.id);
+          return;
+        }
+      } catch (e) {}
+    }
+    fillResultDraft(w.item_id, w.protocol_id, w.name);
+  }
+
+  // Заполнение протокола по услуге, у которой строки результата ещё нет.
+  function fillResultDraft(itemId, tplId, name) {
+    if (!window.VetProtocols || !VetProtocols.fillProtocolDraft) return;
+    VetProtocols.fillProtocolDraft(tplId, name, _resultDrafts[itemId], function (data) {
+      _resultDrafts[itemId] = data;
+      // Заполненный протокол — работа врача: без пометки «Отмена» выбросила
+      // бы её молча, как это было со снимками до VET-002.
+      if (UI.markModalDirty) UI.markModalDirty();
+      if (UI.forceVisitDraft) UI.forceVisitDraft();
+      refreshVisitResultsBlock();
+      UI.toast('Протокол заполнен — сохранится вместе с приёмом', 'ok');
+    });
+  }
+
+  // После создания приёма ensureVisitResults завела строки — переносим в них
+  // то, что врач заполнил до сохранения.
+  async function applyDraftResults(visitId) {
+    var keys = Object.keys(_resultDrafts);
+    if (!keys.length) return 0;
+    var done = 0;
+    try {
+      var rows = (await window.VetDB.getAll('visit_results'))
+        .filter(function (r) { return r.visit_id === visitId && !r.is_deleted; });
+      for (var i = 0; i < keys.length; i++) {
+        var row = rows.find(function (r) { return r.item_id === keys[i]; });
+        if (!row) continue;
+        var d = _resultDrafts[keys[i]];
+        await api('PUT', '/results/' + row.id, {
+          values_json: JSON.stringify(d.values || {}),
+          conclusion: d.conclusion || '',
+          lab_name: d.lab_name || '',
+          status: 'done'
+        });
+        done++;
+      }
+    } catch (e) { console.warn('[VetPages] перенос протоколов:', e); }
+    _resultDrafts = {};
+    return done;
+  }
+
+  // Удаление незаполненных строк результата, чья услуга убрана из счёта.
+  // Заполненные не трогаем — это медицинская запись, а не строка счёта.
+  async function pruneOrphanResults(visitId) {
+    try {
+      var wanted = {};
+      (await resultBearingItems()).forEach(function (w) { wanted[w.item_id] = 1; });
+      var rows = (await window.VetDB.getAll('visit_results'))
+        .filter(function (r) { return r.visit_id === visitId && !r.is_deleted
+                                    && r.status !== 'done' && r.item_id && !wanted[r.item_id]; });
+      for (var i = 0; i < rows.length; i++) {
+        await api('DELETE', '/results/' + rows[i].id);
+      }
+      return rows.length;
+    } catch (e) { return 0; }
   }
 
   // ── F4 / VET-004: назначения ─────────────────────────────────────────
@@ -7435,6 +7564,7 @@
       'presc.dropPending':     function (el) { dropPendingPresc(el.dataset.visit, el.dataset.idx, el.dataset.pet); },
       'presc.stop':            function (el) { stopPresc(el.dataset.id, el.dataset.visit, el.dataset.pet); },
       'pet.allergyEdit':       function (el) { editPetAllergies(el.dataset.id); },
+      'result.draftFill':      function (el) { fillResultDraft(el.dataset.item, el.dataset.tpl, el.dataset.name); },
       'pet.timeline':          function (el) { showPetTimeline(el.dataset.id); },
       'tl.filter':             function (el) { setTimelineFilter(el.dataset.kind, el); },
       'task.forPet':           function (el) {
@@ -7529,6 +7659,11 @@
     showPetHistory:     showPetHistory,
     showPetTimeline:    showPetTimeline,
     refreshVisitResults: refreshVisitResultsBlock,
+    fillResultDraft:    fillResultDraft,
+    resultBearingItems: resultBearingItems,
+    autoOpenProtocol:   autoOpenProtocol,
+    // run(name, el) ждёт ЭЛЕМЕНТ и читает dataset — подсовываем минимальный.
+    fillResultById:     function (id) { if (window.VetActions) VetActions.run('result.fill', { dataset: { id: id } }); },
     showNotificationsLog: showNotificationsLog,
     markDeceased:       markDeceased,
     petPhotoInput:      petPhotoInput,

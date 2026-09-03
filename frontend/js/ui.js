@@ -1790,6 +1790,10 @@
           row.dataset.itemId = el.dataset.id || '';
           dd.classList.remove('show');
           updateVitRow(id);
+          // Услуга с протоколом — открываем заполнение СРАЗУ: врач делает УЗИ
+          // на приёме и пишет заключение тут же, а не после сохранения и
+          // переоткрытия. Открывается поверх формы, приём не разрушается.
+          _maybeOpenProtocol(el.dataset.id);
         };
       });
     });
@@ -1819,6 +1823,14 @@
   }
 
   function updateVitRow(id){var q=parseFloat(document.getElementById('vit-q-'+id).value)||0;var p=parseFloat(document.getElementById('vit-p-'+id).value)||0;var t=Math.round(q*p*100)/100;document.getElementById('vit-tot-'+id).textContent=t.toFixed(0)+' ₸';updateVitTotal();}
+  // Решение принимает pages.js: только там известен текущий приём и есть ли
+  // у услуги уже заведённая строка результата.
+  function _maybeOpenProtocol(itemId) {
+    if (window.VetPages && VetPages.autoOpenProtocol) {
+      try { VetPages.autoOpenProtocol(itemId); } catch (e) {}
+    }
+  }
+
   function updateVitTotal(){var tot=0;document.querySelectorAll('[id^="vit-tot-"]').forEach(function(el){tot+=parseFloat(el.textContent)||0;});var el=document.getElementById('vitem-total');if(el)el.textContent=tot.toFixed(0)+' ₸'; _updatePaymentSummary();
     // Позиции изменились — блок результатов мог измениться вместе с ними:
     // услуга с протоколом заводит ожидающую строку. Без этого врач добавлял

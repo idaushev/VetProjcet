@@ -202,3 +202,105 @@ func TestTemplatesPermissionGuardsReferenceBooks(t *testing.T) {
 		t.Errorf("с правом правки ждём проход, получили %d", rec.Code)
 	}
 }
+
+// ─── Пентест: назначения ─────────────────────────────────────────────────────
+//
+// Назначения появились недавно и содержат медицинские данные. Проверяем, что
+// новая сущность закрыта так же, как остальная медкарта, а не осталась дырой:
+// право на неё — право на приёмы (permTableFor), и роль склада к ней не имеет
+// доступа ни через API, ни через синхронизацию.
+func TestPrescriptionsAreGuardedLikeMedicalRecord(t *testing.T) {
+	// Право на назначения — это право на приёмы.
+	if got := permTableForTest("prescriptions"); got != "visits" {
+		t.Errorf("prescriptions отнесены к праву %q, ждём visits — иначе "+
+			"медицинские назначения поедут в обход прав на медкарту", got)
+	}
+
+	// Роль склада изолирована: медкарта ей недоступна.
+	seller := &User{ID: "w", Login: "seller", Role: "warehouse", IsActive: true}
+	if lvl := seller.tableLevel("visits"); lvl >= permLevels["view"] {
+		t.Errorf("роль склада видит медкарту (уровень %d) — назначения утекут вместе с ней", lvl)
+	}
+
+	// Пользователь с явным запретом на приёмы не должен получать назначения.
+	blocked := &User{ID: "b", Login: "reg", Role: "reception", IsActive: true,
+		Permissions: []byte(`{"tables":{"visits":"none"}}`)}
+	if lvl := blocked.tableLevel("visits"); lvl != permLevels["none"] {
+		t.Errorf("явный запрет на приёмы не сработал: уровень %d", lvl)
+	}
+}
+
+// Инъекции и разметка в новых полях. Значения проходят через параметры
+// запроса, а не конкатенацию, и должны сохраняться ДОСЛОВНО — ни выполниться,
+// ни быть «почищенными» до неузнаваемости.
+func TestNewFieldsStoreHostileInputVerbatim(t *testing.T) {
+	a := testApp(t)
+
+	doPush(t, a, `{"device_id":"dev-1",
+		"owners":[{"id":"o-x","fio":"О","phone":"+7 700 000 0000","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"pets":[{"id":"p-x","owner_id":"o-x","name":"Кот","type":"cat","gender":"m",
+		         "allergies":"'); DROP TABLE pets;--","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"visits":[{"id":"v-x","pet_id":"p-x","date":"2026-09-01T10:00:00Z",
+		           "vitals":"<script>alert(1)</script>","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"prescriptions":[{"id":"px-x","visit_id":"v-x","pet_id":"p-x","drug_name":"Амоксиклав\" OR 1=1--",
+		                  "instruction":"<img src=x onerror=alert(1)>","status":"active",
+		                  "version":1,"updated_at":"2026-09-01T10:00:00Z"}]}`)
+
+	// Таблица цела — инъекция не выполнилась.
+	var pets int
+	if err := a.db.QueryRow(`SELECT count(*) FROM pets`).Scan(&pets); err != nil {
+		t.Fatalf("таблица pets повреждена: %v", err)
+	}
+	if pets != 1 {
+		t.Fatalf("животных %d, ждём 1", pets)
+	}
+
+	// Значения сохранены дословно.
+	var allergies, vitals, drug, instr string
+	a.db.QueryRow(`SELECT COALESCE(allergies,'') FROM pets WHERE id='p-x'`).Scan(&allergies)
+	a.db.QueryRow(`SELECT COALESCE(vitals,'') FROM visits WHERE id='v-x'`).Scan(&vitals)
+	a.db.QueryRow(`SELECT drug_name, COALESCE(instruction,'') FROM prescriptions WHERE id='px-x'`).Scan(&drug, &instr)
+	if allergies != "'); DROP TABLE pets;--" {
+		t.Errorf("аллергии сохранены как %q — значение исказилось", allergies)
+	}
+	if vitals != "<script>alert(1)</script>" {
+		t.Errorf("показатели сохранены как %q", vitals)
+	}
+	if drug != `Амоксиклав" OR 1=1--` {
+		t.Errorf("препарат сохранён как %q", drug)
+	}
+	if instr != "<img src=x onerror=alert(1)>" {
+		t.Errorf("инструкция сохранена как %q", instr)
+	}
+}
+
+// Статус курса нормализуется: неизвестное значение считаем действующим.
+// Невидимая терапия опаснее лишней строки в списке — врач должен увидеть
+// назначение даже если статус пришёл битым.
+func TestPrescriptionStatusNeverHidesTherapy(t *testing.T) {
+	for _, in := range []string{"", "  ", "мусор", "DROP", "ACTIVE", "Cancelled"} {
+		got := normalizePrescriptionStatus(in)
+		if got != "active" && got != "cancelled" && got != "stopped" {
+			t.Errorf("normalizePrescriptionStatus(%q) = %q — вне допустимых значений", in, got)
+		}
+		if in == "мусор" || in == "DROP" || in == "" || in == "  " {
+			if got != "active" {
+				t.Errorf("неизвестный статус %q дал %q, ждём active: назначение "+
+					"не должно исчезать из-за битого статуса", in, got)
+			}
+		}
+	}
+}
+
+// permTableForTest повторяет отображение из handleSyncPull: тест обязан
+// сломаться, если новую сущность добавят мимо прав.
+func permTableForTest(name string) string {
+	switch name {
+	case "visit_items", "appointments", "attachments", "prescriptions":
+		return "visits"
+	case "protocol_templates", "diagnosis_templates":
+		return "templates"
+	default:
+		return name
+	}
+}

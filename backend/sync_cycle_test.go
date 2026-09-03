@@ -187,7 +187,7 @@ func TestSyncCyclePetSurvivesRoundTrip(t *testing.T) {
 }
 
 // Поля госучёта ТАҢБА проходят полный цикл. Проверка не формальная: колонка
-// photo (NOT NULL DEFAULT '') в паре с nullableString('') уже роняла INSERT,
+// photo (NOT NULL DEFAULT ”) в паре с nullableString(”) уже роняла INSERT,
 // и питомцы без фото молча уходили в skipped — push при этом отвечал 200.
 func TestSyncCycleTanbaFieldsSurviveRoundTrip(t *testing.T) {
 	a := testApp(t)
@@ -622,5 +622,78 @@ func TestItemResultModeSurvivesCreateUpdateAndSync(t *testing.T) {
 	}
 	if mode != "file" || proto != "tpl-3" {
 		t.Errorf("после синка result_mode=%q protocol_id=%q, ждём file/tpl-3", mode, proto)
+	}
+}
+
+// ─── Жизненный цикл результата услуги ────────────────────────────────────────
+//
+// Сценарий из жалобы: услуга с протоколом добавлена в приём, строка результата
+// заведена, потом позицию из счёта убрали. Незаполненная строка должна
+// удаляться, ЗАПОЛНЕННАЯ — оставаться: исследование сделали и записали, и
+// стирать медицинскую запись вслед за строкой счёта нельзя.
+func TestVisitResultLifecycle(t *testing.T) {
+	a := testApp(t)
+
+	doPush(t, a, `{"device_id":"dev-1",
+		"owners":[{"id":"o-r","fio":"Хозяин","phone":"+7 700 111 0000","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"pets":[{"id":"p-r","owner_id":"o-r","name":"Рекс","type":"dog","gender":"m","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"visits":[{"id":"v-r","pet_id":"p-r","date":"2026-09-01T10:00:00Z","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"visit_results":[
+		  {"id":"r-pending","visit_id":"v-r","pet_id":"p-r","item_id":"i-uzi","title":"УЗИ",
+		   "kind":"protocol","status":"pending","values":"{}","version":1,"updated_at":"2026-09-01T10:00:00Z"},
+		  {"id":"r-done","visit_id":"v-r","pet_id":"p-r","item_id":"i-blood","title":"Кровь",
+		   "kind":"protocol","status":"done","values":"{\"hgb\":\"120\"}","conclusion":"норма",
+		   "lab_name":"Своя лаборатория","version":1,"updated_at":"2026-09-01T10:00:00Z"}]}`)
+
+	var pending, done, lab, concl string
+	if err := a.db.QueryRow(`SELECT status FROM visit_results WHERE id='r-pending'`).Scan(&pending); err != nil {
+		t.Fatalf("ожидающий результат не доехал: %v", err)
+	}
+	if err := a.db.QueryRow(`SELECT status, COALESCE(lab_name,''), COALESCE(conclusion,'')
+	                         FROM visit_results WHERE id='r-done'`).Scan(&done, &lab, &concl); err != nil {
+		t.Fatalf("заполненный результат не доехал: %v", err)
+	}
+	if pending != "pending" || done != "done" {
+		t.Errorf("статусы: pending=%q done=%q", pending, done)
+	}
+	if lab != "Своя лаборатория" || concl != "норма" {
+		t.Errorf("заполненный результат потерял данные: lab=%q concl=%q", lab, concl)
+	}
+
+	// Клиент удаляет незаполненную строку (услугу убрали из счёта) и НЕ трогает
+	// заполненную. Удаление приезжает флагом, как любое другое.
+	doPush(t, a, `{"device_id":"dev-1","visit_results":[
+		{"id":"r-pending","visit_id":"v-r","pet_id":"p-r","item_id":"i-uzi","title":"УЗИ",
+		 "kind":"protocol","status":"pending","values":"{}",
+		 "is_deleted":1,"deleted_at":"2026-09-01T12:00:00Z",
+		 "version":2,"updated_at":"2026-09-01T12:00:00Z"}]}`)
+
+	var delPending, delDone int
+	a.db.QueryRow(`SELECT is_deleted FROM visit_results WHERE id='r-pending'`).Scan(&delPending)
+	a.db.QueryRow(`SELECT is_deleted FROM visit_results WHERE id='r-done'`).Scan(&delDone)
+	if delPending != 1 {
+		t.Errorf("незаполненный результат не удалён (is_deleted=%d)", delPending)
+	}
+	if delDone != 0 {
+		t.Errorf("ЗАПОЛНЕННЫЙ результат удалён вместе со строкой счёта — "+
+			"потеряна медицинская запись (is_deleted=%d)", delDone)
+	}
+
+	// Значения протокола и лаборатория переживают синхронизацию туда-обратно.
+	data := doPull(t, a, "")
+	var foundDone bool
+	for _, r := range data["visit_results"] {
+		if r["id"] == "r-done" {
+			foundDone = true
+			if r["lab_name"] != "Своя лаборатория" {
+				t.Errorf("lab_name после pull = %v", r["lab_name"])
+			}
+			if r["values"] == nil && r["values_json"] == nil {
+				t.Error("значения протокола не вернулись")
+			}
+		}
+	}
+	if !foundDone {
+		t.Error("заполненный результат не вернулся инкрементальным pull")
 	}
 }
