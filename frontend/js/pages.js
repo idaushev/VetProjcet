@@ -987,8 +987,20 @@
       var restore = await UI.confirm('Незаконченный приём',
         'Найден несохранённый приём. Восстановить введённые данные?',
         { yes: 'Восстановить', no: 'Начать заново' });
-      if (!restore) { UI.clearVisitDraft(); draft = null; }
+      if (!restore) {
+        // «Начать заново» — снимки прошлой попытки тоже ни к чему не привяжутся.
+        if (draft.attachKey) await discardDraftAttachments(draft.attachKey);
+        UI.clearVisitDraft(); draft = null;
+      }
     }
+
+    // VET-002: временный ключ, под которым файлы ждут создания приёма.
+    // Восстановленный черновик забирает свой прежний ключ — иначе снимок,
+    // сделанный до того, как планшет уснул, остался бы в очереди ничей.
+    var attachKey = (draft && draft.attachKey) || ('draft:' + window.VetDB.uuid());
+    var attachCommitted = false;
+    // Всё, что осталось от прошлых незакрытых форм, к приёму уже не привяжется.
+    await sweepOrphanDraftAttachments([attachKey]);
     if (draft) {
       if (!prefillPet && draft.pet_id)     prefillPet   = (data.pets||[]).find(function(p){ return p.id===draft.pet_id; }) || null;
       if (!prefillOwner && draft.owner_id) prefillOwner = (data.owners||[]).find(function(o){ return o.id===draft.owner_id; }) || null;
@@ -1005,7 +1017,14 @@
           (draft.items||[]).forEach(function(it){ UI.addVisitItemRow(data.items||[], it); });
           UI.applyVisitDraftExtras(draft, data.owners||[], data.pets||[], data.items||[]);
         }
-        UI.startVisitDraftAutosave('new');
+        UI.startVisitDraftAutosave('new', attachKey);
+        renderAttachments(attachKey);
+      },
+      // Уборка за формой: приём не создан — файлы к нему не привяжутся.
+      // Срабатывает на «Отмену», крестик и жест «назад». После успешного
+      // сохранения ключ уже подменён, и удалять нечего.
+      onClose: function() {
+        if (!attachCommitted) discardDraftAttachments(attachKey);
       },
       onSave: async function() {
         var vs = UI.getVisitState();
@@ -1074,11 +1093,19 @@
         };
         try {
           var created = await api('POST', '/visits/full', body);
+          var attached = 0;
           if (created && created.visit) {
             await ensureVisitResults(created.visit.id, finalPet.id, vs.items);
+            // Приём появился — только теперь у файлов есть к чему привязаться.
+            // Ставим флаг ДО hideModal: иначе onClose счёл бы приём несохранённым
+            // и удалил бы уже привязанные снимки.
+            attachCommitted = true;
+            attached = await commitDraftAttachments(attachKey, created.visit.id);
           }
           UI.clearVisitDraft();
-          UI.toast('Приём сохранён', 'ok');
+          UI.toast(attached
+            ? 'Приём сохранён, файлов приложено: ' + attached
+            : 'Приём сохранён', 'ok');
           UI.hideModal();
           await initVisits();
           initDashboard();
@@ -1879,6 +1906,74 @@
     return n + ' Б';
   }
 
+  // ── VET-002: вложения в ещё не сохранённом приёме ────────────────────
+  //
+  // Раньше приложить файл можно было только к сохранённому приёму: врач,
+  // сфотографировав поражение кожи прямо на осмотре, должен был сначала
+  // сохранить приём, потом открыть его заново и лишь тогда добавить снимок.
+  // На практике снимок оставался в галерее планшета и до карты не доходил.
+  //
+  // Приём создаёт СЕРВЕР (POST /visits/full сам генерирует id), поэтому
+  // заранее настоящего id у нас нет. Файл кладём в ту же офлайн-очередь под
+  // временным ключом draft:<uuid>, а сразу после создания приёма подменяем
+  // ключ на настоящий id и отправляем. Очередь не трогали: она уже умеет
+  // ждать сеть, повторять попытки и показывать состояние в карточке.
+  function isDraftVisitKey(id) { return String(id || '').indexOf('draft:') === 0; }
+
+  async function queuedForVisit(visitId) {
+    try {
+      return (await window.VetDB.getAllRaw('attachment_queue'))
+        .filter(function (q) { return q.visit_id === visitId; });
+    } catch (e) { return []; }
+  }
+
+  // Приём создан — переносим файлы с временного ключа на настоящий id и
+  // отправляем. Ошибку отправки не считаем провалом сохранения: файл остаётся
+  // в очереди и уедет со следующей синхронизацией.
+  async function commitDraftAttachments(draftKey, visitId) {
+    var list = await queuedForVisit(draftKey);
+    if (!list.length) return 0;
+    for (var i = 0; i < list.length; i++) {
+      list[i].visit_id = visitId;
+      await window.VetDB.putRaw('attachment_queue', list[i]);
+    }
+    // Приём сохраняется локально и уезжает на сервер отдельным push'ем, поэтому
+    // сначала отправляем ЗАПИСИ, и только потом файлы: иначе сервер честно
+    // отвечает «visit not found» на приём, которого у него ещё нет, и снимок
+    // ждал бы следующего цикла синхронизации без всякой нужды.
+    try { await window.VetSync.pushSync(); } catch (e) {}
+    try { await window.VetSync.pushAttachments(); } catch (e) {}
+    return list.length;
+  }
+
+  // Уборка «ничьих» файлов. Обычную отмену формы закрывает onClose, но если
+  // планшет выключили с открытой формой, onClose не отработает и файл останется
+  // в очереди под draft-ключом навсегда: отправить его нельзя (приёма нет),
+  // видно его тоже нигде. Подметаем при открытии следующего нового приёма —
+  // тогда точно известны оба живых ключа: текущей формы и уцелевшего черновика.
+  async function sweepOrphanDraftAttachments(keepKeys) {
+    try {
+      var all = await window.VetDB.getAllRaw('attachment_queue');
+      for (var i = 0; i < all.length; i++) {
+        var e = all[i];
+        if (!isDraftVisitKey(e.visit_id)) continue;
+        if (keepKeys.indexOf(e.visit_id) !== -1) continue;
+        await window.VetDB.deleteRaw('attachment_queue', e.id);
+      }
+    } catch (e) { console.warn('[VetPages] уборка вложений:', e); }
+  }
+
+  // Приём не сохранён — файлы удаляем: держать в очереди вложения к приёму,
+  // которого не будет, значит копить сирот, которые при каждой синхронизации
+  // будут биться о сервер.
+  async function discardDraftAttachments(draftKey) {
+    var list = await queuedForVisit(draftKey);
+    for (var i = 0; i < list.length; i++) {
+      await window.VetDB.deleteRaw('attachment_queue', list[i].id);
+    }
+    return list.length;
+  }
+
   // Панель вложений внутри карточки приёма.
   async function renderAttachments(visitId) {
     var box = document.getElementById('visit-attachments');
@@ -1898,19 +1993,26 @@
       + I('upload') + ' Добавить</button></div>';
 
     if (!saved.length && !queued.length) {
-      html += '<div class="attach-empty">Сканов и снимков пока нет</div>';
+      html += '<div class="attach-empty">'
+        + (isDraftVisitKey(visitId)
+            ? 'Снимок можно приложить прямо сейчас — он сохранится вместе с приёмом'
+            : 'Сканов и снимков пока нет')
+        + '</div>';
     } else {
       html += '<div class="attach-list">';
       queued.forEach(function (q) {
         // Файл ещё на планшете. Показываем честно: он не на сервере,
         // и другой врач его пока не увидит.
         var err = q.status === 'error';
+        var waitText = isDraftVisitKey(visitId)
+          ? ' · отправится после сохранения приёма'
+          : ' · ждёт отправки на сервер';
         html += '<div class="attach-row' + (err ? ' attach-err' : ' attach-pending') + '">'
           + I(err ? 'alert' : 'clock')
           + '<div class="attach-body"><div class="attach-name">' + esc(q.file_name) + '</div>'
           + '<div class="attach-meta">' + esc(attachKindLabel(q.kind)) + ' · ' + fmtBytes(q.size)
           + (err ? ' · не отправлен: ' + esc((q.last_error || '').slice(0, 90))
-                 : ' · ждёт отправки на сервер')
+                 : waitText)
           + '</div></div>'
           + '<button class="btn btn-icon" title="Убрать из очереди" data-act="attach.dropQueued" data-id="' + q.id + '" data-visit="' + visitId + '" aria-label="Убрать из очереди">' + I('trash') + '</button>'
           + '</div>';
@@ -1962,8 +2064,20 @@
         created_at: new Date().toISOString(),
       });
       await renderAttachments(visitId);
-      UI.toast('Файл добавлен, отправляется на сервер…', 'ok');
 
+      // Приёма ещё нет — отправлять некуда: сервер отверг бы вложение к
+      // несуществующему приёму. Файл ждёт сохранения формы. И помечаем форму
+      // изменённой, иначе «Отмена» выбросила бы снимок без единого вопроса.
+      if (isDraftVisitKey(visitId)) {
+        if (UI.markModalDirty) UI.markModalDirty();
+        // Черновик формы должен сохраниться даже при пустых полях: в нём лежит
+        // ключ, по которому восстановленная форма найдёт этот файл.
+        if (UI.forceVisitDraft) UI.forceVisitDraft();
+        UI.toast('Файл приложен — сохранится вместе с приёмом', 'ok');
+        return;
+      }
+
+      UI.toast('Файл добавлен, отправляется на сервер…', 'ok');
       try {
         var res = await window.VetSync.pushAttachments();
         await renderAttachments(visitId);

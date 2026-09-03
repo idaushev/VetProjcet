@@ -511,9 +511,17 @@
     return window.VetDB.putRaw("attachment_queue", entry);
   }
 
+  // VET-002. Файл можно приложить ещё в НЕсохранённом приёме: он лежит в
+  // очереди под временным ключом draft:… Отправлять такое нельзя — приёма с
+  // таким id нет ни на сервере, ни локально, и сервер ответил бы 400. Ключ
+  // заменяется на настоящий id сразу после создания приёма (commitDraftAttachments).
+  function isDraftVisit(id) { return String(id || "").indexOf("draft:") === 0; }
+
   async function pushAttachments() {
     var queue = await window.VetDB.getAllRaw("attachment_queue");
-    var pending = queue.filter(function (q) { return q.status !== "done"; });
+    var pending = queue.filter(function (q) {
+      return q.status !== "done" && !isDraftVisit(q.visit_id);
+    });
     if (!pending.length) return { uploaded: 0, failed: 0 };
 
     var uploaded = 0, failed = 0;
@@ -537,7 +545,13 @@
           // 4xx — файл не примут и со второй попытки (не тот тип, слишком большой,
           // приём удалён). Держать такое в очереди вечно бессмысленно: помечаем
           // ошибкой, чтобы врач увидел причину и решил сам.
-          if (resp.status >= 400 && resp.status < 500) {
+          // «visit not found» — исключение: в офлайн-first приём законно может
+          // ещё не доехать до сервера (создан на планшете, синка не было).
+          // Помечать такое окончательной ошибкой значило бы терять снимок
+          // из-за порядка отправки — оставляем в очереди до следующего цикла,
+          // где вложения идут ПОСЛЕ push приёмов.
+          var visitMissing = /visit not found/i.test(msg);
+          if (resp.status >= 400 && resp.status < 500 && !visitMissing) {
             entry.status = "error";
             entry.last_error = msg.slice(0, 300);
             await window.VetDB.putRaw("attachment_queue", entry);

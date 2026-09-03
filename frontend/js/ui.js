@@ -312,10 +312,20 @@
     // форму асинхронно (позиции приёма, области владельца/животного).
     _modalGuard = !!cfg.onSave;
     _modalSnapshot = null;
+    _modalExtraDirty = false;
+    // onClose зовётся при ЛЮБОМ закрытии — крестиком, «Отменой», «назад» и
+    // после сохранения. Нужен формам, которые заводят что-то за пределами
+    // полей ввода и обязаны за собой убрать (VET-002: файлы, приложенные к
+    // ещё не сохранённому приёму, иначе остались бы в очереди сиротами).
+    _modalOnClose = (typeof cfg.onClose === 'function') ? cfg.onClose : null;
     if (_modalGuard) setTimeout(function(){ _modalSnapshot = _serializeModalForm(); }, 400);
   }
   function hideModal() {
-    _modalGuard = false; _modalSnapshot = null;
+    _modalGuard = false; _modalSnapshot = null; _modalExtraDirty = false;
+    // Снимаем обработчик ДО вызова: закрытие не должно зацикливаться, если
+    // внутри onClose что-то снова тронет модалку.
+    var onClose = _modalOnClose; _modalOnClose = null;
+    if (onClose) { try { onClose(); } catch (e) { console.warn('[VetUI] onClose:', e); } }
     document.getElementById('modal-overlay').classList.remove('open');
     // UX-015: снимаем свою запись из истории при обычном закрытии (крестик,
     // «Отмена», после сохранения). Когда закрытие пришло ИЗ «назад», запись
@@ -329,6 +339,12 @@
   // ── Несохранённые данные в модалке ─────────────────────────────────────
   var _modalGuard = false;    // включён ли контроль для текущей модалки
   var _modalSnapshot = null;  // состояние полей формы сразу после открытия
+  var _modalOnClose = null;   // уборка за формой при закрытии
+  // Сравнение снимка ловит только поля ввода. Приложенный файл — тоже работа
+  // врача, но в полях его нет: без этого признака «Отмена» молча выбрасывала
+  // бы снимок, сделанный на приёме, вообще без вопроса.
+  var _modalExtraDirty = false;
+  function markModalDirty() { _modalExtraDirty = true; }
 
   function _serializeModalForm() {
     var body = document.getElementById('modal-body');
@@ -342,7 +358,9 @@
   }
 
   function _modalIsDirty() {
-    if (!_modalGuard || _modalSnapshot === null) return false;
+    if (!_modalGuard) return false;
+    if (_modalExtraDirty) return true;
+    if (_modalSnapshot === null) return false;
     return _serializeModalForm() !== _modalSnapshot;
   }
 
@@ -1162,8 +1180,10 @@
   </div>
 
   <!-- Вложения: сканы УЗИ, рентгена, анализов.
-       Наполняется VetPages.renderAttachments после открытия формы —
-       у нового приёма ещё нет id, вкладывать не к чему. -->
+       Наполняется VetPages.renderAttachments после открытия формы. У нового
+       приёма настоящего id ещё нет (его выдаёт сервер), поэтому файл ждёт в
+       очереди под временным ключом draft:… и привязывается сразу после
+       создания приёма — см. VET-002 в pages.js. -->
   <div id="visit-attachments" class="attach-box"></div>
 </div>`;
   }
@@ -1618,8 +1638,17 @@
   // предлагает восстановить. Черновик живёт сутки и стирается при сохранении.
   var VISIT_DRAFT_KEY = 'vet_visit_draft';
   var _draftTimer = null;
+  // Черновик сохраняется, только если в форме есть содержательный ввод. Но
+  // приложенный снимок — тоже работа врача, а полей он не заполняет: без
+  // этого флага «сфотографировал и планшет уснул» теряло бы и черновик, и
+  // связь с файлом (в черновике лежит ключ, под которым файл ждёт в очереди).
+  var _visitDraftForce = false;
+  function forceVisitDraft() { _visitDraftForce = true; }
 
-  function startVisitDraftAutosave(key) {
+  // attachKey кладём в черновик, чтобы восстановленная форма нашла свои файлы:
+  // они лежат в очереди под этим ключом, и без него после падения планшета
+  // снимок остался бы в очереди ничей.
+  function startVisitDraftAutosave(key, attachKey) {
     stopVisitDraftAutosave();
     _draftTimer = setInterval(function() {
       if (!document.getElementById('vf-root')) { stopVisitDraftAutosave(); return; }
@@ -1628,10 +1657,11 @@
         var meaningful = vs.anamnesis || vs.diagnosis || vs.treatment || vs.notes ||
           vs.condition || vs.items.length ||
           (vs.ownerNew && vs.ownerNew.fio) || (vs.petNew && vs.petNew.name);
-        if (!meaningful) return;
+        if (!meaningful && !_visitDraftForce) return;
         localStorage.setItem(VISIT_DRAFT_KEY, JSON.stringify({
           key: key, ts: Date.now(),
           state: {
+            attachKey: attachKey || '',
             owner_id: vs.owner ? vs.owner.id : '', pet_id: vs.pet ? vs.pet.id : '',
             ownerNew: vs.ownerNew, petNew: vs.petNew,
             date: vs.date, next_visit_date: vs.next_visit_date,
@@ -1647,7 +1677,10 @@
       } catch(e) {}
     }, 4000);
   }
-  function stopVisitDraftAutosave() { if (_draftTimer) { clearInterval(_draftTimer); _draftTimer = null; } }
+  function stopVisitDraftAutosave() {
+    if (_draftTimer) { clearInterval(_draftTimer); _draftTimer = null; }
+    _visitDraftForce = false;
+  }
   function clearVisitDraft() {
     stopVisitDraftAutosave();
     try { localStorage.removeItem(VISIT_DRAFT_KEY); } catch(e) {}
@@ -1920,6 +1953,8 @@
     collectVisitItems:collectVisitItems,
     getVisitState:getVisitState,
     startVisitDraftAutosave:startVisitDraftAutosave,
+    markModalDirty:markModalDirty,
+    forceVisitDraft:forceVisitDraft,
     clearVisitDraft:clearVisitDraft,
     getVisitDraft:getVisitDraft,
     applyVisitDraftExtras:applyVisitDraftExtras,
