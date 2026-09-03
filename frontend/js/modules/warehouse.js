@@ -54,7 +54,13 @@
 
     // Вкладки
     document.querySelectorAll('#wh-tabs .settings-tab').forEach(function(tab){
-      tab.onclick = function(){ whShowTab(tab.dataset.whtab); };
+      // Через роутер, а не напрямую: вкладка — часть адреса, поэтому «назад»
+      // должен возвращать предыдущую вкладку, а пункт меню — гаснуть и
+      // загораться вместе с ней. navigate сам позовёт whShowTab через openSub.
+      tab.onclick = function(){
+        if (window.navigate) window.navigate('warehouse', false, tab.dataset.whtab);
+        else whShowTab(tab.dataset.whtab);
+      };
     });
     // Склад-фильтр остатков
     var whSel = document.getElementById('wh-stock-warehouse');
@@ -111,17 +117,15 @@
     whShowTab(_whTab);
   }
 
-  // Переключение вкладки склада: панели, кнопки-вкладки и подсветка пунктов
-  // сайдбара — все четыре ведут на #warehouse, различаются только вкладкой.
+  // Переключение вкладки склада: панели и кнопки-вкладки внутри страницы.
+  // Подсветку пунктов меню НЕ трогаем: вкладка — это подмаршрут (#warehouse/…),
+  // и активный пункт расставляет роутер. Раньше склад делал это сам, залезая
+  // в чужую разметку, — из-за чего роутеру приходилось спрашивать у него,
+  // какая вкладка открыта (UX-017).
   function whShowTab(tab) {
     _whTab = tab || 'stock';
     document.querySelectorAll('#wh-tabs .settings-tab').forEach(function(t){ t.classList.toggle('active', t.dataset.whtab===_whTab); });
     document.querySelectorAll('#page-warehouse .settings-panel').forEach(function(p){ p.style.display = (p.dataset.whpanel===_whTab) ? '' : 'none'; });
-    document.querySelectorAll('.nav-item[data-whtab]').forEach(function(a){
-      var on = a.dataset.whtab===_whTab;
-      a.classList.toggle('active', on);
-      a.setAttribute('aria-current', on ? 'page' : 'false');
-    });
     renderWhTab();
   }
   function whCurrentTab() { return _whTab; }
@@ -583,6 +587,17 @@
   }
 
   window.VetWarehouse = { init: initWarehouse, currentTab: whCurrentTab };
+
+  // Подмаршруты страницы: адреса вида #warehouse/report. Роутер берёт отсюда
+  // список допустимых вкладок, вкладку по умолчанию и способ её открыть —
+  // сам он про склад ничего не знает. Реестр создаём, не полагаясь на то,
+  // что bootstrap.js уже загрузился.
+  window.VetSubRoutes = window.VetSubRoutes || {};
+  window.VetSubRoutes.warehouse = {
+    tabs: ['stock', 'moves', 'report', 'stores'],
+    def:  'stock',
+    open: whOpenTab,
+  };
   // Функции, вызываемые из onclick в index.html — навешиваем на VetPages,
   // чтобы разметку не трогать.
   if (window.VetPages) {
@@ -591,7 +606,8 @@
     VetPages.whStoreDelete = whStoreDelete;
     VetPages.whDeleteMove = whDeleteMove;
     VetPages.whItemMoves  = whItemMoves;
-    VetPages.whOpenTab    = whOpenTab;
-    VetPages.whCurrentTab = whCurrentTab;
+    // whOpenTab/whCurrentTab здесь больше нет: их держали только ради роутера,
+    // который спрашивал у склада текущую вкладку. Теперь вкладка — часть
+    // адреса, и роутер берёт всё нужное из VetSubRoutes (см. выше).
   }
 })();

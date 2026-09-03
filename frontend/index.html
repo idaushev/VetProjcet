@@ -118,10 +118,17 @@
       <!-- nav-scroll: скроллируемая область, sync-wrap зафиксирован снизу -->
       <div class="sidebar-nav">
 
-      <!-- Группа: Клиника (сворачиваемая) -->
-      <div class="ss-group" id="ssg-clinic">
-        <div class="sidebar-section-label ss-label" data-act="settings.group" data-group="ssg-clinic">
-          <span class="nav-text">Клиника</span>
+      <!-- UX-016. Раньше это была одна группа «Клиника» на 8 пунктов, где
+           лежало четыре разных по природе вещи: работа текущего дня, картотека,
+           журналы процедур и внешнее приложение. Группировка отражала не мысль
+           сотрудника, а «всё, что не отчёты и не справочник». Теперь группа
+           отвечает на вопрос «какую задачу я сейчас делаю», а внешняя ссылка
+           уехала вниз, к остальным переходам наружу. -->
+
+      <!-- Группа: Работа дня -->
+      <div class="ss-group" id="ssg-daily">
+        <div class="sidebar-section-label ss-label" data-act="settings.group" data-group="ssg-daily">
+          <span class="nav-text">Работа дня</span>
           <span class="ss-arrow">▾</span>
         </div>
         <ul class="nav-list ss-body">
@@ -143,6 +150,16 @@
               <span class="nav-text">Приёмы</span>
             </a>
           </li>
+        </ul>
+      </div>
+
+      <!-- Группа: Картотека -->
+      <div class="ss-group" id="ssg-records">
+        <div class="sidebar-section-label ss-label" data-act="settings.group" data-group="ssg-records">
+          <span class="nav-text">Картотека</span>
+          <span class="ss-arrow">▾</span>
+        </div>
+        <ul class="nav-list ss-body">
           <li>
             <a class="nav-item" data-page="owners" href="#owners" title="Владельцы" aria-label="Владельцы">
               <i data-icon="users" data-icon-size="22" class="nav-icon"></i>
@@ -155,6 +172,21 @@
               <span class="nav-text">Животные</span>
             </a>
           </li>
+        </ul>
+      </div>
+
+      <!-- Группа: Прививки и чипы.
+           Это не картотека и не работа дня, а журналы процедур: отвечают на
+           «кому пора» и «чей это чип». Обобщающего термина не придумываем
+           («медрегистры» в клинике не говорят), а разговорную формулировку
+           берём потому, что «Вакцинация и чипирование» в узком сайдбаре
+           переносилось на две строки и выбивалось из ритма остальных групп. -->
+      <div class="ss-group" id="ssg-med">
+        <div class="sidebar-section-label ss-label" data-act="settings.group" data-group="ssg-med">
+          <span class="nav-text">Прививки и чипы</span>
+          <span class="ss-arrow">▾</span>
+        </div>
+        <ul class="nav-list ss-body">
           <li>
             <a class="nav-item" data-page="vaccinations" href="#vaccinations" title="Вакцинации" aria-label="Вакцинации">
               <i data-icon="syringe" data-icon-size="22" class="nav-icon"></i>
@@ -165,17 +197,6 @@
             <a class="nav-item" data-page="chips" href="#chips" title="Чипирование" aria-label="Чипирование">
               <i data-icon="tag" data-icon-size="22" class="nav-icon"></i>
               <span class="nav-text">Чипирование</span>
-            </a>
-          </li>
-          <!-- Кабинет владельца — ОТДЕЛЬНОЕ приложение (portal.html) со своим
-               входом по телефону, а не страница SPA. Поэтому без data-page:
-               роутер его не трогает, открываем в новой вкладке, чтобы не
-               выбрасывать врача из смены. Роль склада его не видит (auth.js). -->
-          <li>
-            <a class="nav-item needs-mod-portal" id="nav-portal-link" href="/portal" target="_blank" rel="noopener"
-               title="Открыть кабинет владельца в новой вкладке" aria-label="Открыть кабинет владельца в новой вкладке">
-              <i data-icon="user" data-icon-size="22" class="nav-icon"></i>
-              <span class="nav-text">Кабинет владельца ↗</span>
             </a>
           </li>
         </ul>
@@ -212,6 +233,19 @@
               <span class="nav-text">Не пришли</span>
             </a>
           </li>
+          <!-- UX-018. Складской отчёт жил только внутри «Склада», и тот, кому
+               нужен «какой-нибудь отчёт», в «Отчётах» его не находил и решал,
+               что отчёта нет. Это тот же адрес, что и пункт в группе «Склад»
+               (#warehouse/report), а не вторая копия: страница одна. В группе
+               «Склад» пункт остаётся — иначе продавец, который другие группы
+               не видит вовсе, потерял бы свой отчёт. Скрыт, пока модуль выкл. -->
+          <li class="needs-mod-warehouse">
+            <a class="nav-item" data-page="warehouse" data-subroute="report" href="#warehouse/report"
+               title="Отчёт по складу" aria-label="Отчёт по складу">
+              <i data-icon="box" data-icon-size="22" class="nav-icon"></i>
+              <span class="nav-text">Отчёт по складу</span>
+            </a>
+          </li>
         </ul>
       </div>
 
@@ -243,32 +277,34 @@
           <span class="nav-text">Склад</span>
           <span class="ss-arrow">▾</span>
         </div>
-        <!-- Пункты ведут на одну страницу (page-warehouse), но открывают
-             разные вкладки: data-whtab передаётся в VetPages.whOpenTab.
+        <!-- Вкладки склада — подмаршруты страницы: свой адрес #warehouse/…,
+             своя запись в истории, обычная подсветка активного пункта. Раньше
+             это был спецслучай (data-whtab + вызов в обход роутера), из-за
+             которого правило «пункт меню = адрес» не выполнялось (UX-017).
              Отдельный пункт на вкладку нужен потому, что раньше в группе
              «Склад» лежал единственный пункт «Склад» — категория с одним
              дублирующим пунктом, из которой не было видно, что внутри. -->
         <ul class="nav-list ss-body">
           <li>
-            <a class="nav-item" data-page="warehouse" data-whtab="stock" href="#warehouse" title="Остатки на складе" aria-label="Остатки на складе">
+            <a class="nav-item" data-page="warehouse" data-subroute="stock" href="#warehouse/stock" title="Остатки на складе" aria-label="Остатки на складе">
               <i data-icon="box" data-icon-size="22" class="nav-icon"></i>
               <span class="nav-text">Остатки</span>
             </a>
           </li>
           <li>
-            <a class="nav-item" data-page="warehouse" data-whtab="moves" href="#warehouse" title="Движения: поступления, списания, продажи, цены" aria-label="Движения: поступления, списания, продажи, цены">
+            <a class="nav-item" data-page="warehouse" data-subroute="moves" href="#warehouse/moves" title="Движения: поступления, списания, продажи, цены" aria-label="Движения: поступления, списания, продажи, цены">
               <i data-icon="clipboard" data-icon-size="22" class="nav-icon"></i>
               <span class="nav-text">Движения</span>
             </a>
           </li>
           <li>
-            <a class="nav-item" data-page="warehouse" data-whtab="report" href="#warehouse" title="Отчёт по складу" aria-label="Отчёт по складу">
+            <a class="nav-item" data-page="warehouse" data-subroute="report" href="#warehouse/report" title="Отчёт по складу" aria-label="Отчёт по складу">
               <i data-icon="chart" data-icon-size="22" class="nav-icon"></i>
               <span class="nav-text">Отчёт по складу</span>
             </a>
           </li>
           <li>
-            <a class="nav-item" data-page="warehouse" data-whtab="stores" href="#warehouse" title="Список складов" aria-label="Список складов">
+            <a class="nav-item" data-page="warehouse" data-subroute="stores" href="#warehouse/stores" title="Список складов" aria-label="Список складов">
               <i data-icon="hospital" data-icon-size="22" class="nav-icon"></i>
               <span class="nav-text">Склады</span>
             </a>
@@ -286,6 +322,25 @@
           <a class="nav-item" data-page="settings" href="#settings" title="Настройки клиники" aria-label="Настройки клиники">
             <i data-icon="settings" data-icon-size="22" class="nav-icon"></i>
             <span class="nav-text">Настройки</span>
+          </a>
+        </li>
+      </ul>
+
+      <!-- UX-016: переходы НАРУЖУ. Кабинет владельца — отдельное приложение
+           (portal.html) со своим входом по телефону, а не раздел SPA; стоя
+           среди разделов, он читался как соседняя страница, хотя уводит из
+           приложения. Поэтому: без data-page (роутер его не трогает), внизу,
+           за чертой и с пометкой перехода. Открываем в новой вкладке, чтобы
+           не выбрасывать врача из смены. -->
+      <ul class="nav-list nav-list-external" id="nav-external">
+        <li>
+          <a class="nav-item nav-item-external needs-mod-portal" id="nav-portal-link"
+             href="/portal" target="_blank" rel="noopener"
+             title="Кабинет владельца — откроется в новой вкладке"
+             aria-label="Кабинет владельца — откроется в новой вкладке">
+            <i data-icon="user" data-icon-size="22" class="nav-icon"></i>
+            <span class="nav-text">Кабинет владельца</span>
+            <span class="nav-ext-mark nav-text" aria-hidden="true">↗</span>
           </a>
         </li>
       </ul>

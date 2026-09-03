@@ -185,7 +185,14 @@
         var target = a.closest("li") || a;
         target.style.display = keep ? "" : "none";
       });
-      ["ssg-clinic", "ssg-analytics", "ssg-settings"].forEach(function (id) {
+      // Группы целиком: id обновлены после разбивки «Клиники» (UX-016).
+      // «Справочник» не прячем — в нём Каталог, он продавцу нужен; лишний
+      // пункт (Персонал) убирает общий проход по data-page выше.
+      // nav-settings и nav-external — обёртки с разделительной чертой: без
+      // них оставалась бы висеть пустая черта, а кабинет владельца вообще
+      // не скрывался (у ссылки нет data-page, проход выше её не видит).
+      ["ssg-daily", "ssg-records", "ssg-med", "ssg-analytics",
+       "nav-settings", "nav-external"].forEach(function (id) {
         var g = document.getElementById(id); if (g) g.style.display = "none";
       });
       var whg = document.getElementById("ssg-warehouse"); if (whg) whg.style.display = "";

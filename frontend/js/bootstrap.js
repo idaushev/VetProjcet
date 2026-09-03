@@ -39,27 +39,64 @@
   // ── SPA Navigation ─────────────────────────────────────────────────
   var currentPage = 'dashboard';
 
+  // UX-017. Раньше в меню было три разных представления вкладок: склад —
+  // четыре пункта на одну страницу (различались data-whtab), настройки —
+  // один пункт и вкладки только внутри, отчёты — четыре отдельные страницы.
+  // Правило вывести было нельзя: по виду пункта не понять, сменится страница
+  // или переключится вкладка, а роутеру приходилось спрашивать у склада, какая
+  // вкладка открыта, чтобы не подсветить все четыре сразу.
+  //
+  // Теперь правило одно: ПУНКТ МЕНЮ = АДРЕС. Вкладка, на которую можно дать
+  // ссылку, — это подмаршрут «#страница/вкладка»; вкладка-грань одной задачи
+  // (настройки) в адрес и меню не выносится. Роутер про склад ничего не знает:
+  // страница сама объявляет свои подмаршруты в VetSubRoutes.
+  var currentSub = '';
+
+  // page -> { tabs: [...], def: 'tab', open: fn }. Заполняется страницами
+  // (см. modules/warehouse.js). Создаём здесь на случай, если страница
+  // загрузилась раньше — порядок подключения скриптов роли играть не должен.
+  window.VetSubRoutes = window.VetSubRoutes || {};
+
+  function parseRoute(hash) {
+    var raw = (hash || '').replace('#', '').split('?')[0];
+    var i = raw.indexOf('/');
+    return i === -1 ? { page: raw, sub: '' }
+                    : { page: raw.slice(0, i), sub: raw.slice(i + 1) };
+  }
+
+  // Приводит подмаршрут к допустимому: адрес правится руками и приходит из
+  // старых закладок, поэтому мусор молча заменяем вкладкой по умолчанию,
+  // а не показываем пустую страницу.
+  function resolveSub(page, sub) {
+    var d = window.VetSubRoutes[page];
+    if (!d) return '';
+    return d.tabs.indexOf(sub) !== -1 ? sub : d.def;
+  }
+
   // UX-015. Раньше переход писался через replaceState — история не копилась,
   // и «назад» уводил из приложения, а в установленной PWA закрывал его. Теперь
   // переход добавляет запись (pushState), а popstate возвращает раздел.
   // fromHistory=true — мы уже внутри popstate, повторно писать историю нельзя.
-  function navigate(page, fromHistory) {
+  function navigate(page, fromHistory, sub) {
     // Меню закрываем до проверки «та же страница»: клик по логотипу в шапке
     // сайдбара, когда уже открыт «Обзор», иначе оставлял бы меню висеть.
     if (isMobile()) {
       sidebar.classList.remove('open');
       overlay.classList.remove('show');
     }
-    if (currentPage === page) return;
+    sub = resolveSub(page, sub || '');
+    if (currentPage === page && currentSub === sub) return;
+    // Смена одной вкладки не должна перерисовывать страницу заново: init
+    // сбросил бы фильтры и прокрутку раздела.
+    var pageChanged = currentPage !== page;
     currentPage = page;
+    currentSub  = sub;
     document.querySelectorAll('.page').forEach(function (p) { p.classList.remove('active'); });
     document.querySelectorAll('.nav-item').forEach(function (n) {
-      // Пункты склада ведут на одну страницу, но в разные вкладки: подсвечиваем
-      // только ту, что открыта сейчас, иначе загорались бы все четыре.
-      var isCur = n.dataset.page === page;
-      if (isCur && n.dataset.whtab) {
-        isCur = n.dataset.whtab === (window.VetPages && VetPages.whCurrentTab ? VetPages.whCurrentTab() : '');
-      }
+      // Пункт с подмаршрутом активен, только когда открыт именно он: иначе на
+      // складе загорелись бы сразу все вкладки. Правило общее, без имён страниц.
+      var isCur = n.dataset.page === page
+               && (!n.dataset.subroute || n.dataset.subroute === sub);
       n.classList.toggle('active', isCur);
       n.setAttribute('aria-current', isCur ? 'page' : 'false');
     });
@@ -69,15 +106,20 @@
     // чтобы на планшете было видно «вы где-то в меню», а не «нигде».
     var bnMoreBtn = document.getElementById('bn-more');
     if (bnMoreBtn) bnMoreBtn.classList.toggle('active', ['dashboard','schedule','visits'].indexOf(page) === -1);
+    var hash = '#' + page + (sub ? '/' + sub : '');
     if (fromHistory) {
       // Пришли из popstate: адрес уже правильный, запись в истории есть.
-      window.history.replaceState({ vetPage: page }, '', '#' + page);
+      window.history.replaceState({ vetPage: page, vetSub: sub }, '', hash);
     } else {
-      window.history.pushState({ vetPage: page }, '', '#' + page);
+      window.history.pushState({ vetPage: page, vetSub: sub }, '', hash);
     }
 
     // Initialize page
-    if (window.VetPages) VetPages.init(page);
+    if (window.VetPages && pageChanged) VetPages.init(page);
+    // Вкладку открываем всегда: страница могла быть уже отрисована, и тогда
+    // init не звали, а вкладка смениться должна.
+    var sr = window.VetSubRoutes[page];
+    if (sub && sr && sr.open) sr.open(sub);
 
     // Close mobile sidebar
     if (isMobile()) {
@@ -111,11 +153,11 @@
       }
       return;
     }
-    var page = (e.state && e.state.vetPage)
-      || (window.location.hash || '').replace('#', '').split('?')[0]
-      || 'dashboard';
-    if (validPages.indexOf(page) === -1) page = 'dashboard';
-    navigate(page, true);
+    var r = parseRoute(window.location.hash);
+    var page = (e.state && e.state.vetPage) || r.page || 'dashboard';
+    var sub  = (e.state && typeof e.state.vetSub === 'string') ? e.state.vetSub : r.sub;
+    if (validPages.indexOf(page) === -1) { page = 'dashboard'; sub = ''; }
+    navigate(page, true, sub);
   });
 
   document.querySelectorAll('.nav-item').forEach(function (link) {
@@ -125,13 +167,8 @@
       // navigate(undefined), иначе ссылка просто не сработает.
       if (!this.dataset.page) return;
       e.preventDefault();
-      navigate(this.dataset.page);
-      // Пункты склада дополнительно открывают свою вкладку. Зовём ПОСЛЕ
-      // navigate и всегда: если страница уже открыта, navigate выходит рано
-      // (currentPage === page), и вкладка сама бы не переключилась.
-      if (this.dataset.whtab && window.VetPages && VetPages.whOpenTab) {
-        VetPages.whOpenTab(this.dataset.whtab);
-      }
+      // data-subroute — вкладка внутри страницы; navigate откроет её сам.
+      navigate(this.dataset.page, false, this.dataset.subroute || '');
     });
   });
 
@@ -189,30 +226,19 @@
     });
   })();
 
-  // ── Переключение вкладок отчётов ──────────────────────────────────
-  function switchReportTab(tab) {
-    ['daily','upcoming','noshows'].forEach(function(t) {
-      var el = document.getElementById('rtab-' + t);
-      var btn = document.querySelector('[data-rtab="'+t+'"]');
-      if (el) el.style.display = t === tab ? '' : 'none';
-      if (btn) btn.classList.toggle('active', t === tab);
-    });
-    // Скрываем кнопку печати при смене вкладки
-    var pb = document.getElementById('btn-print-report');
-    if (pb) pb.style.display = 'none';
-    // Инициализируем нужный отчёт
-    if (tab === 'upcoming' && window.VetPages) VetPages.generateUpcomingReport();
-    if (tab === 'noshows'  && window.VetPages) VetPages.generateNoShowsReport();
-  }
-  window.switchReportTab = switchReportTab;
-  var initialHash = (window.location.hash || '').replace('#', '').split('?')[0];
+  var initial = parseRoute(window.location.hash);
+  var initialHash = initial.page;
   // Стартовая запись истории помечается разделом — иначе первый popstate
   // придёт с пустым state и не знал бы, куда возвращаться.
-  try { window.history.replaceState({ vetPage: initialHash || currentPage }, '', window.location.hash || '#' + currentPage); } catch (e) {}
+  try {
+    window.history.replaceState(
+      { vetPage: initialHash || currentPage, vetSub: initial.sub },
+      '', window.location.hash || '#' + currentPage);
+  } catch (e) {}
   if (initialHash && validPages.indexOf(initialHash) !== -1) {
     // Delayed: ждём загрузки VetPages. fromHistory=true — это восстановление
     // адреса, а не переход: лишняя запись в истории не нужна.
-    setTimeout(function() { navigate(initialHash, true); }, 0);
+    setTimeout(function() { navigate(initialHash, true, initial.sub); }, 0);
   }
 
   // ── Авто-обновление текущей страницы при изменении данных ──────────

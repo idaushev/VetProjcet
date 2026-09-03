@@ -368,6 +368,21 @@ h4 { font-size: var(--fs-md);   font-weight: 600; }
   border-top: 1px solid var(--border);
 }
 
+/* UX-016: переходы наружу. Отделены чертой и приглушены — ссылка, уводящая
+   из приложения, не должна читаться как ещё один раздел; стрелка ↗ прижата
+   вправо, чтобы намерение было видно до клика, а не после. */
+.nav-list-external {
+  flex: 0 0 auto; padding-top: 6px; margin-top: 2px;
+  border-top: 1px solid var(--border);
+}
+.nav-item-external { color: var(--text-3); }
+/* Стрелка несёт класс .nav-text (чтобы прятаться в свёрнутом «рельсе»),
+   а у .nav-text стоит flex:1 — без сброса она забирала половину строки и
+   подпись обрезалась многоточием: «Кабинет … ↗». */
+.nav-item-external .nav-ext-mark {
+  flex: 0 0 auto; font-size: var(--fs-sm); opacity: .7;
+}
+
 .nav-item {
   display: flex; align-items: center; gap: 10px;
   padding: 0 12px; height: 46px; border-radius: var(--r);
