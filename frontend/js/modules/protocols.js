@@ -359,6 +359,132 @@
     });
   }
 
+  // ── VET-008: динамика показателя ─────────────────────────────────────
+  //
+  // Структура для этого уже была: тип, единица и референсы лежат в шаблоне,
+  // значения — в values_json, отклонения подсвечивались. Не хватало ровно
+  // одного — сравнения результатов между собой. Врач при ХПН открывал анализы
+  // по одному и выписывал креатинин на бумагу, чтобы понять, растёт ли он.
+  //
+  // Ряд собираем по ЖИВОТНОМУ и КЛЮЧУ ПОЛЯ, а не по шаблону: клиника может
+  // завести второй бланк «Биохимия (расширенная)», и креатинин в нём — тот же
+  // показатель. Единицу берём из шаблона своего результата: если она разошлась,
+  // точку в ряд не берём — сравнивать ммоль/л с мг/дл нельзя.
+  async function seriesFor(petId, fieldKey, unit) {
+    var all = await window.VetDB.getAll('visit_results');
+    var tpls = await loadTemplates();
+    var byId = {};
+    tpls.forEach(function (t) { byId[t.id] = t; });
+
+    var pts = [];
+    (all || []).forEach(function (r) {
+      if (r.is_deleted || r.pet_id !== petId) return;
+      if (r.status && r.status === 'pending') return;   // ещё не внесён
+      var tpl = r.template_id ? byId[r.template_id] : null;
+      var f = fieldsOf(tpl).find(function (x) { return x.key === fieldKey; });
+      if (!f) return;
+      if ((f.unit || '') !== (unit || '')) return;      // разные единицы не смешиваем
+      var raw = valuesOf(r)[fieldKey];
+      var v = Number(raw);
+      if (raw == null || raw === '' || isNaN(v)) return;
+      pts.push({ id: r.id, v: v, when: r.filled_at || r.created_at || '', field: f });
+    });
+    pts.sort(function (a, b) { return (a.when || '') > (b.when || '') ? 1 : -1; });
+    return pts;
+  }
+
+  // График ряда с полосой нормы. Полоса важнее самой линии: «6.2» ничего не
+  // говорит, а «6.2 при норме до 5.0 и было 4.8» говорит всё.
+  function seriesChartHTML(pts, f) {
+    if (pts.length < 2) return '';
+    var W = 520, H = 110, padX = 44, padY = 14;
+    var vals = pts.map(function (p) { return p.v; });
+    // Подписи осей — НАСТОЯЩИЕ границы данных и нормы, а не служебные значения
+    // после отступа: иначе врач читает «194.05» там, где в анализе стоит 196.
+    var loLabel = Math.min.apply(null, vals), hiLabel = Math.max.apply(null, vals);
+    if (f.ref_low  != null) loLabel = Math.min(loLabel, Number(f.ref_low));
+    if (f.ref_high != null) hiLabel = Math.max(hiLabel, Number(f.ref_high));
+    var lo = loLabel, hi = hiLabel;
+    var range = (hi - lo) || 1;
+    lo -= range * 0.08; hi += range * 0.08; range = hi - lo;
+    var n = pts.length;
+    function x(i) { return padX + (W - 2 * padX) * (n === 1 ? 0.5 : i / (n - 1)); }
+    function y(v) { return padY + (H - 2 * padY) * (1 - (v - lo) / range); }
+
+    var band = '';
+    if (f.ref_low != null || f.ref_high != null) {
+      var yTop = f.ref_high != null ? y(Number(f.ref_high)) : padY;
+      var yBot = f.ref_low  != null ? y(Number(f.ref_low))  : H - padY;
+      band = '<rect x="' + padX + '" y="' + yTop.toFixed(1) + '" width="' + (W - 2 * padX)
+           + '" height="' + Math.max(1, yBot - yTop).toFixed(1) + '" class="res-band"/>';
+    }
+    var line = pts.map(function (p, i) { return (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(p.v).toFixed(1); }).join(' ');
+    var dots = pts.map(function (p, i) {
+      var flag = outOfRange(f, p.v);
+      var c = flag ? 'var(--danger)' : 'var(--accent)';
+      return '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(p.v).toFixed(1) + '" r="3.5" fill="' + c + '"/>';
+    }).join('');
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="res-chart" preserveAspectRatio="none">'
+      + band
+      + '<text x="2" y="' + (y(hiLabel) + 4).toFixed(1) + '" class="ws-axis">' + round2(hiLabel) + '</text>'
+      + '<text x="2" y="' + (y(loLabel) + 4).toFixed(1) + '" class="ws-axis">' + round2(loLabel) + '</text>'
+      + '<path d="' + line + '" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>'
+      + dots + '</svg>';
+  }
+
+  function round2(v) { return Math.round(Number(v) * 100) / 100; }
+
+  function fmtWhen(s) {
+    if (!s) return '—';
+    try { return new Date(s).toLocaleDateString('ru-RU'); } catch (e) { return String(s).slice(0, 10); }
+  }
+
+  // Разворачивается прямо под строкой показателя: результат остаётся на экране,
+  // и врач видит цифру и её историю одновременно. Отдельным окном это потребовало
+  // бы стека модалок, которого пока нет (F2/UX-022).
+  async function toggleSeries(resultId, fieldKey) {
+    var row = document.getElementById('res-series-' + fieldKey);
+    if (!row) return;
+    if (row.dataset.open === '1') {
+      row.dataset.open = '0';
+      row.innerHTML = '';
+      row.style.display = 'none';
+      return;
+    }
+    var all = await window.VetDB.getAll('visit_results');
+    var res = (all || []).find(function (r) { return r.id === resultId; });
+    if (!res) return;
+    var tpls = await loadTemplates();
+    var tpl = res.template_id ? tpls.find(function (t) { return t.id === res.template_id; }) : null;
+    var f = fieldsOf(tpl).find(function (x) { return x.key === fieldKey; });
+    if (!f) return;
+
+    var pts = await seriesFor(res.pet_id, fieldKey, f.unit);
+    var cell = row.querySelector('td');
+    var html;
+    if (pts.length < 2) {
+      html = '<div class="res-series-empty">Это первое измерение показателя — сравнивать пока не с чем.</div>';
+    } else {
+      html = seriesChartHTML(pts, f)
+        + '<table class="res-series-table"><tbody>'
+        + pts.slice().reverse().map(function (p, i, arr) {
+            var prev = arr[i + 1];
+            var d = prev ? round2(p.v - prev.v) : null;
+            var flag = outOfRange(f, p.v);
+            var cls = flag > 0 ? 'res-high' : (flag < 0 ? 'res-low' : '');
+            var delta = d === null ? '' : (d > 0 ? '+' + d : (d < 0 ? String(d) : '='));
+            return '<tr' + (p.id === resultId ? ' class="res-series-cur"' : '') + '>'
+              + '<td>' + esc(fmtWhen(p.when)) + '</td>'
+              + '<td class="' + cls + '">' + round2(p.v) + (f.unit ? ' ' + esc(f.unit) : '') + '</td>'
+              + '<td class="text-muted">' + esc(delta) + '</td></tr>';
+          }).join('')
+        + '</tbody></table>';
+    }
+    cell.innerHTML = html;
+    row.dataset.open = '1';
+    row.style.display = '';
+  }
+
   async function resultBodyHTML(res) {
     var tpls = await loadTemplates();
     var tpl = res.template_id ? tpls.find(function (t) { return t.id === res.template_id; }) : null;
@@ -367,16 +493,51 @@
     var html = '';
 
     if (fields.length) {
-      html += '<table class="res-table"><thead><tr><th>Показатель</th><th>Значение</th><th>Норма</th></tr></thead><tbody>';
+      // VET-008: предыдущее значение считаем заранее — по одному ряду на поле.
+      var prevByKey = {};
+      for (var fi = 0; fi < fields.length; fi++) {
+        var ff = fields[fi];
+        if (ff.type && ff.type !== 'number') continue;
+        var series = await seriesFor(res.pet_id, ff.key, ff.unit);
+        // Предыдущая точка — последняя, что РАНЬШЕ текущего результата.
+        var curWhen = res.filled_at || res.created_at || '';
+        var earlier = series.filter(function (p) { return p.id !== res.id && (p.when || '') < curWhen; });
+        prevByKey[ff.key] = { prev: earlier.length ? earlier[earlier.length - 1] : null, count: series.length };
+      }
+
+      html += '<table class="res-table"><thead><tr><th>Показатель</th><th>Значение</th>'
+            + '<th>Было</th><th>Норма</th></tr></thead><tbody>';
       html += fields.map(function (f) {
         var v = values[f.key];
         var flag = outOfRange(f, v);
         var cls = flag > 0 ? 'res-high' : (flag < 0 ? 'res-low' : '');
         var mark = flag > 0 ? ' ↑' : (flag < 0 ? ' ↓' : '');
-        return '<tr><td>' + esc(f.label) + '</td>'
+        var info = prevByKey[f.key] || {};
+        // «Было» — не просто прошлая цифра, а НАПРАВЛЕНИЕ: врачу важно, растёт
+        // ли креатинин, а не какое именно число было в марте.
+        var wasCell = '—';
+        if (info.prev) {
+          var d = round2(Number(v) - info.prev.v);
+          var arrow = isNaN(d) ? '' : (d > 0 ? ' ▲' : (d < 0 ? ' ▼' : ' ='));
+          var dCls = isNaN(d) || d === 0 ? '' : (d > 0 ? 'res-up' : 'res-down');
+          wasCell = '<span class="' + dCls + '">' + round2(info.prev.v) + arrow
+                  + (isNaN(d) || d === 0 ? '' : ' <span class="res-delta">' + (d > 0 ? '+' : '') + d + '</span>')
+                  + '</span>'
+                  + '<div class="res-was-when">' + esc(fmtWhen(info.prev.when)) + '</div>';
+        }
+        var canSeries = (info.count || 0) >= 2;
+        var label = canSeries
+          ? '<button type="button" class="res-series-btn" data-act="result.series"'
+            + ' data-id="' + esc(res.id) + '" data-key="' + esc(f.key) + '"'
+            + ' title="Показать динамику показателя">' + esc(f.label) + ' 📈</button>'
+          : esc(f.label);
+        return '<tr><td>' + label + '</td>'
           + '<td class="' + cls + '">' + esc(v != null && v !== '' ? v : '—')
           + (f.unit ? ' ' + esc(f.unit) : '') + mark + '</td>'
-          + '<td class="text-muted">' + esc(refText(f) || '—') + '</td></tr>';
+          + '<td class="res-was">' + wasCell + '</td>'
+          + '<td class="text-muted">' + esc(refText(f) || '—') + '</td></tr>'
+          + '<tr class="res-series-row" id="res-series-' + esc(f.key) + '" style="display:none;" data-open="0">'
+          + '<td colspan="4"></td></tr>';
       }).join('');
       html += '</tbody></table>';
     }
@@ -403,7 +564,8 @@
       'protocol.fieldAdd':    function () { fieldAdd(); },
       'protocol.fieldRemove': function (el) { fieldRemove(Number(el.dataset.idx)); },
       'result.fill':          function (el) { fillResult(el.dataset.id); },
-      'result.view':          function (el) { viewResult(el.dataset.id); }
+      'result.view':          function (el) { viewResult(el.dataset.id); },
+      'result.series':        function (el) { toggleSeries(el.dataset.id, el.dataset.key); }
     });
   }
 
@@ -415,6 +577,7 @@
     outOfRange: outOfRange,
     refText: refText,
     resultBodyHTML: resultBodyHTML,
+    seriesFor: seriesFor,
     kindLabel: kindLabel
   };
 })();
