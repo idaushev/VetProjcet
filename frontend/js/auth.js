@@ -218,6 +218,27 @@
       var target = a.closest("li") || a;
       target.style.display = can(t, "view") ? "" : "none";
     });
+    // UX-019: третий слот нижней панели — по фактической частоте роли
+    // (ответ клиники на вопрос 10), а не по умолчанию для всех. Врач ходит в
+    // «Приёмы», регистратор и администратор — в картотеку. Скрытый пункт всё
+    // равно остаётся доступен через «Ещё»: панель меняет ПОРЯДОК доступа,
+    // а не права.
+    // «Животные», а не «Владельцы»: слот один, а в строке животного виден и
+    // владелец, тогда как в строке владельца животных не видно. Поиск по
+    // телефону закрывает отдельная кнопка «Поиск».
+    var cardIndexRole = u && (u.role === 'reception' || u.role === 'admin');
+    var bnVisits = document.getElementById('bn-visits');
+    var bnPets   = document.getElementById('bn-pets');
+    if (bnVisits && bnPets) {
+      // Показ уважает права: если раздел роли недоступен, общий проход выше
+      // уже скрыл его, и навязывать обратно нельзя.
+      var petsAllowed   = can('pets', 'view');
+      var visitsAllowed = can('visits', 'view');
+      var showPets = cardIndexRole && petsAllowed;
+      bnPets.style.display   = showPets ? '' : 'none';
+      bnVisits.style.display = (!showPets && visitsAllowed) ? '' : 'none';
+    }
+
     // Кнопки добавления — по праву create.
     var addBtns = {
       "btn-add-owner": "owners", "btn-add-pet": "pets", "btn-add-visit": "visits",

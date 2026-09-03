@@ -1191,8 +1191,18 @@
     <a class="bn-item nav-item" data-page="schedule" href="#schedule">
       <i data-icon="calendar" data-icon-size="22"></i><span>Расписание</span>
     </a>
-    <a class="bn-item nav-item" data-page="visits" href="#visits">
+    <!-- UX-019. Слотов под разделы три (плюс «Поиск» и «Ещё»), и занимать их
+         надо тем, чем пользуются КАЖДЫЙ ДЕНЬ. Клиника ответила (вопрос 10):
+         картотеку регистратор и администратор открывают ежедневно, врач —
+         изредка. Поэтому третий слот меняется по роли: врачу «Приёмы»,
+         регистратору и администратору «Животные». Оба пункта лежат в разметке,
+         показ выбирает auth.js — состав панели не должен зависеть от того,
+         что удобнее сверстать. -->
+    <a class="bn-item nav-item" data-page="visits" href="#visits" id="bn-visits">
       <i data-icon="clipboard" data-icon-size="22"></i><span>Приёмы</span>
+    </a>
+    <a class="bn-item nav-item" data-page="pets" href="#pets" id="bn-pets" style="display:none;">
+      <i data-icon="paw" data-icon-size="22"></i><span>Животные</span>
     </a>
     <button class="bn-item" type="button" id="bn-search" aria-label="Поиск">
       <i data-icon="search" data-icon-size="22"></i><span>Поиск</span>

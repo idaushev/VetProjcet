@@ -104,8 +104,17 @@
     if (target) target.classList.add('active');
     // Нижняя панель: если открыт раздел не из трёх быстрых — подсветить «Ещё»,
     // чтобы на планшете было видно «вы где-то в меню», а не «нигде».
+    // UX-019: состав панели зависит от роли, поэтому список «быстрых» разделов
+    // берём из самой панели, а не из зашитого перечня — иначе у регистратора
+    // «Ещё» горело бы на открытых «Животных».
     var bnMoreBtn = document.getElementById('bn-more');
-    if (bnMoreBtn) bnMoreBtn.classList.toggle('active', ['dashboard','schedule','visits'].indexOf(page) === -1);
+    if (bnMoreBtn) {
+      var quick = [];
+      document.querySelectorAll('#bottom-nav .bn-item[data-page]').forEach(function (a) {
+        if (a.style.display !== 'none') quick.push(a.dataset.page);
+      });
+      bnMoreBtn.classList.toggle('active', quick.indexOf(page) === -1);
+    }
     var hash = '#' + page + (sub ? '/' + sub : '');
     if (fromHistory) {
       // Пришли из popstate: адрес уже правильный, запись в истории есть.
