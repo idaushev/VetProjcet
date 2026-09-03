@@ -1429,38 +1429,28 @@
     var catById = {};
     catalog.forEach(function (c) { catById[c.id] = c; });
 
-    var wanted = {};
-    (items || []).forEach(function (it) {
-      if (!it.item_id) return;
-      var cat = catById[it.item_id];
-      var mode = cat && cat.result_mode;
-      if (!mode || mode === 'none') return;
-      wanted[it.item_id] = {
-        title: it.name || (cat && cat.name) || 'Результат',
-        // file — только документ; protocol и both начинают с протокола,
-        // файл к нему можно прицепить отдельно.
-        kind: mode === 'file' ? 'file' : 'protocol',
-        template_id: (cat && cat.protocol_id) || ''
-      };
-    });
+    // Одна запись на КАЖДУЮ строку исследования, а не на услугу: два УЗИ в
+    // приёме — два протокола. Раньше здесь стоял словарь по item_id, и второе
+    // такое же исследование просто исчезало.
+    var wanted = seqOfItems(items, catById);
+    var wantedKeys = {};
+    wanted.forEach(function (w) { wantedKeys[resKey(w.item_id, w.seq)] = w; });
 
     var all = [];
     try { all = await window.VetDB.getAll('visit_results'); } catch (e) { return; }
     var existing = (all || []).filter(function (r) {
       return r.visit_id === visitId && !r.is_deleted;
     });
-    var byItem = {};
-    existing.forEach(function (r) { if (r.item_id) byItem[r.item_id] = r; });
+    var have = {};
+    existing.forEach(function (r) { if (r.item_id) have[resKey(r.item_id, r.seq)] = r; });
 
-    for (var itemId in wanted) {
-      if (byItem[itemId]) continue;
+    for (var k = 0; k < wanted.length; k++) {
+      var w = wanted[k];
+      if (have[resKey(w.item_id, w.seq)]) continue;
       try {
         await api('POST', '/results', {
-          visit_id: visitId, pet_id: petId, item_id: itemId,
-          title: wanted[itemId].title,
-          template_id: wanted[itemId].template_id,
-          kind: wanted[itemId].kind,
-          status: 'pending'
+          visit_id: visitId, pet_id: petId, item_id: w.item_id, seq: w.seq,
+          title: w.title, template_id: w.template_id, kind: w.kind, status: 'pending'
         });
       } catch (e) {
         if (window.VetLog) window.VetLog.warn('results:create', e);
@@ -1471,7 +1461,7 @@
     // внесённый результат не должен исчезнуть из-за правки строки приёма.
     for (var i = 0; i < existing.length; i++) {
       var r = existing[i];
-      if (r.item_id && !wanted[r.item_id] && r.status !== 'done') {
+      if (r.item_id && !wantedKeys[resKey(r.item_id, r.seq)] && r.status !== 'done') {
         try { await api('DELETE', '/results/' + r.id); } catch (e) {}
       }
     }
@@ -2328,32 +2318,71 @@
   // У НЕсохранённого приёма результатов ещё нет (их заводит ensureVisitResults
   // после создания), поэтому показываем, что появится, — иначе блок выглядел
   // бы пустым ровно тогда, когда врач о нём думает.
-  // Заполненные протоколы услуг, добавленных в форму: item_id -> {values,
+  // Заполненные протоколы строк, добавленных в форму: row_id -> {values,
   // conclusion, lab_name}. Держим в памяти до сохранения приёма — записи
   // visit_results до этого не существует. После создания приёма значения
   // переносятся в созданные строки (applyDraftResults).
+  //
+  // Ключ — СТРОКА счёта, а не услуга: два УЗИ в одном приёме это два разных
+  // исследования с разными заключениями. Пока ключом была услуга, второе УЗИ
+  // молча попадало в первое, и заполнить его было нельзя.
   var _resultDrafts = {};
 
-  // Услуги ТЕКУЩЕЙ формы, которым положен результат.
+  // Строки ТЕКУЩЕЙ формы, которым положен результат, в порядке отображения.
+  // seq — номер исследования по этой услуге внутри приёма: он переживает
+  // сохранение, тогда как id строки счёта — нет (при правке приёма позиции
+  // удаляются и создаются заново).
   async function resultBearingItems() {
     var out = [];
     try {
-      var vs = UI.getVisitState ? UI.getVisitState() : null;
-      if (!vs || !vs.items) return out;
+      var rows = UI.getVisitItemRows ? UI.getVisitItemRows() : null;
+      // Формы нет (перерисовка после закрытия) — работать не с чем.
+      if (!rows || !rows.length) return out;
       var catalog = await window.VetDB.getAll('items');
       var byId = {}; catalog.forEach(function (c) { byId[c.id] = c; });
-      var seen = {};
-      vs.items.forEach(function (it) {
-        if (!it.item_id || seen[it.item_id]) return;
-        var cat = byId[it.item_id];
+      var n = {};
+      rows.forEach(function (r) {
+        if (!r.item_id) return;
+        var cat = byId[r.item_id];
         if (!cat || !cat.result_mode || cat.result_mode === 'none') return;
-        seen[it.item_id] = 1;
-        out.push({ item_id: it.item_id, name: it.name || cat.name,
+        var seq = n[r.item_id] || 0;
+        n[r.item_id] = seq + 1;
+        out.push({ row_id: r.row_id, item_id: r.item_id, seq: seq,
+                   name: r.name || cat.name, label: resultLabel(r.name || cat.name, seq),
                    mode: cat.result_mode, protocol_id: cat.protocol_id || '' });
       });
     } catch (e) {}
     return out;
   }
+
+  // Второе и последующие исследования по одной услуге нумеруем в названии:
+  // в списке результатов и в распечатке «УЗИ» и «УЗИ» неразличимы, а «УЗИ №2»
+  // сразу говорит, что исследований было два.
+  function resultLabel(name, seq) {
+    return seq > 0 ? (name + ' №' + (seq + 1)) : name;
+  }
+
+  // Те же строки, но по составу позиций (без DOM): нужен на сохранении, когда
+  // считаем, сколько результатов положено завести.
+  function seqOfItems(items, catById) {
+    var out = [], n = {};
+    (items || []).forEach(function (it) {
+      if (!it.item_id) return;
+      var cat = catById[it.item_id];
+      var mode = cat && cat.result_mode;
+      if (!mode || mode === 'none') return;
+      var seq = n[it.item_id] || 0;
+      n[it.item_id] = seq + 1;
+      out.push({ item_id: it.item_id, seq: seq,
+                 title: resultLabel(it.name || cat.name || 'Результат', seq),
+                 kind: mode === 'file' ? 'file' : 'protocol',
+                 template_id: cat.protocol_id || '' });
+    });
+    return out;
+  }
+
+  // Ключ результата: услуга + номер исследования.
+  function resKey(itemId, seq) { return String(itemId) + '#' + Number(seq || 0); }
 
   async function renderVisitResults(visitId, petId) {
     var box = document.getElementById('visit-results');
@@ -2367,8 +2396,8 @@
       } catch (e) {}
     }
     var wanted = await resultBearingItems();
-    var wantedIds = {};
-    wanted.forEach(function (w) { wantedIds[w.item_id] = w; });
+    var wantedKeys = {};
+    wanted.forEach(function (w) { wantedKeys[resKey(w.item_id, w.seq)] = w; });
 
     // Строку счёта удалили — незаполненный результат по ней показывать нельзя:
     // кнопка «Заполнить» вела бы к услуге, которой в приёме уже нет.
@@ -2376,26 +2405,28 @@
     // стирать медицинскую запись вслед за строкой счёта нельзя.
     var shown = saved.filter(function (r) {
       if (r.status === 'done') return true;
-      return !r.item_id || !!wantedIds[r.item_id];
+      return !r.item_id || !!wantedKeys[resKey(r.item_id, r.seq)];
     });
 
-    // Услуги без созданной строки: приём ещё не сохранён.
+    // Строки без созданной записи: приём ещё не сохранён.
     var drafts = wanted.filter(function (w) {
-      return !saved.some(function (r) { return r.item_id === w.item_id; });
+      return !saved.some(function (r) {
+        return r.item_id === w.item_id && Number(r.seq || 0) === w.seq;
+      });
     });
 
-    if (!shown.length && !drafts.length) { box.innerHTML = ''; return; }
+    if (!shown.length && !drafts.length) { setBoxHTML(box, ''); return; }
 
     var html = '<div class="attach-head">' + I('microscope') + ' Результаты'
       + '<span class="attach-count">' + (shown.length + drafts.length) + '</span></div>'
       + '<div class="attach-list">';
 
     drafts.forEach(function (w) {
-      var d = _resultDrafts[w.item_id];
+      var d = _resultDrafts[w.row_id];
       var filled = !!d;
       html += '<div class="attach-row' + (filled ? '' : ' attach-pending') + '">'
         + I(filled ? 'check' : 'clock')
-        + '<div class="attach-body"><div class="attach-name">' + esc(w.name) + '</div>'
+        + '<div class="attach-body"><div class="attach-name">' + esc(w.label) + '</div>'
         + '<div class="attach-meta">'
         + (filled ? 'заполнен · запишется вместе с приёмом'
                   : (w.mode === 'file' ? 'ждёт файл' : 'ждёт заполнения протокола'))
@@ -2404,8 +2435,8 @@
         + '</div>'
         + (w.mode === 'file' ? ''
             : '<button type="button" class="btn btn-ghost btn-sm" data-act="result.draftFill"'
-              + ' data-item="' + esc(w.item_id) + '" data-tpl="' + esc(w.protocol_id) + '"'
-              + ' data-name="' + esc(w.name) + '">' + (filled ? 'Изменить' : 'Заполнить') + '</button>')
+              + ' data-row="' + esc(w.row_id) + '" data-tpl="' + esc(w.protocol_id) + '"'
+              + ' data-name="' + esc(w.label) + '">' + (filled ? 'Изменить' : 'Заполнить') + '</button>')
         + '</div>';
     });
 
@@ -2420,26 +2451,42 @@
         + (done ? 'Открыть' : 'Заполнить') + '</button>'
         + '</div>';
     });
-    box.innerHTML = html + '</div>';
+    setBoxHTML(box, html + '</div>');
+  }
+
+  // Перерисовка без мигания: если разметка та же, DOM не трогаем. Блок
+  // пересчитывается при любой правке позиций, и подстановка одинакового
+  // innerHTML заново создавала бы узлы — экран моргал на ровном месте.
+  function setBoxHTML(box, html) {
+    if (box.innerHTML === html) return;
+    box.innerHTML = html;
   }
 
   // Решение «открывать ли протокол сразу» принимаем ЗДЕСЬ: только тут известен
   // текущий приём, а значит — существует ли уже строка результата. У
   // сохранённого приёма её надо править как запись, а не заводить черновик
   // в памяти, иначе повторное открытие услуги затёрло бы заполненное.
-  async function autoOpenProtocol(itemId) {
+  async function autoOpenProtocol(itemId, rowId) {
     if (!itemId) return;
     var list = await resultBearingItems();
-    var w = list.find(function (x) { return x.item_id === itemId; });
+    // Именно ТА строка, в которой выбрали услугу. По item_id находилась бы
+    // первая — и второе УЗИ открывало бы протокол первого.
+    // Через String: номер строки приходит из формы числом, а из dataset —
+    // строкой. Строгое сравнение молча не находило строку, и окно протокола
+    // просто не открывалось — без единой ошибки в консоли.
+    var key = rowId == null ? '' : String(rowId);
+    var w = key ? list.find(function (x) { return String(x.row_id) === key; })
+                : list.filter(function (x) { return x.item_id === itemId; }).pop();
     if (!w || w.mode === 'file') return;   // файл прикладывают отдельно
-    if (_resultDrafts[itemId]) return;     // уже заполняли в этой сессии
+    if (_resultDrafts[w.row_id]) return;   // уже заполняли в этой сессии
 
     if (!isDraftVisitKey(_curVisitId) && _curVisitId) {
       try {
         var row = (await window.VetDB.getAll('visit_results')).find(function (r) {
-          return r.visit_id === _curVisitId && r.item_id === itemId && !r.is_deleted;
+          return r.visit_id === _curVisitId && r.item_id === itemId
+              && Number(r.seq || 0) === w.seq && !r.is_deleted;
         });
-        // Строка есть — открываем её обычным заполнением; заполненную не
+        // Запись есть — открываем её обычным заполнением; заполненную не
         // трогаем, чтобы повторный выбор услуги не стёр заключение.
         if (row) {
           if (row.status !== 'done' && window.VetProtocols) VetPages.fillResultById(row.id);
@@ -2447,14 +2494,14 @@
         }
       } catch (e) {}
     }
-    fillResultDraft(w.item_id, w.protocol_id, w.name);
+    fillResultDraft(w.row_id, w.protocol_id, w.label);
   }
 
-  // Заполнение протокола по услуге, у которой строки результата ещё нет.
-  function fillResultDraft(itemId, tplId, name) {
+  // Заполнение протокола по строке счёта, у которой записи результата ещё нет.
+  function fillResultDraft(rowId, tplId, name) {
     if (!window.VetProtocols || !VetProtocols.fillProtocolDraft) return;
-    VetProtocols.fillProtocolDraft(tplId, name, _resultDrafts[itemId], function (data) {
-      _resultDrafts[itemId] = data;
+    VetProtocols.fillProtocolDraft(tplId, name, _resultDrafts[rowId], function (data) {
+      _resultDrafts[rowId] = data;
       // Заполненный протокол — работа врача: без пометки «Отмена» выбросила
       // бы её молча, как это было со снимками до VET-002.
       if (UI.markModalDirty) UI.markModalDirty();
@@ -2471,10 +2518,18 @@
     if (!keys.length) return 0;
     var done = 0;
     try {
+      // Черновик привязан к СТРОКЕ формы; запись — к паре «услуга + номер».
+      // Мостик между ними строим по текущему составу формы, пока она открыта.
+      var map = {};
+      (await resultBearingItems()).forEach(function (w) { map[w.row_id] = w; });
       var rows = (await window.VetDB.getAll('visit_results'))
         .filter(function (r) { return r.visit_id === visitId && !r.is_deleted; });
       for (var i = 0; i < keys.length; i++) {
-        var row = rows.find(function (r) { return r.item_id === keys[i]; });
+        var w = map[keys[i]];
+        if (!w) continue;   // строку убрали из счёта до сохранения
+        var row = rows.find(function (r) {
+          return r.item_id === w.item_id && Number(r.seq || 0) === w.seq;
+        });
         if (!row) continue;
         var d = _resultDrafts[keys[i]];
         await api('PUT', '/results/' + row.id, {
@@ -2495,10 +2550,11 @@
   async function pruneOrphanResults(visitId) {
     try {
       var wanted = {};
-      (await resultBearingItems()).forEach(function (w) { wanted[w.item_id] = 1; });
+      (await resultBearingItems()).forEach(function (w) { wanted[resKey(w.item_id, w.seq)] = 1; });
       var rows = (await window.VetDB.getAll('visit_results'))
         .filter(function (r) { return r.visit_id === visitId && !r.is_deleted
-                                    && r.status !== 'done' && r.item_id && !wanted[r.item_id]; });
+                                    && r.status !== 'done' && r.item_id
+                                    && !wanted[resKey(r.item_id, r.seq)]; });
       for (var i = 0; i < rows.length; i++) {
         await api('DELETE', '/results/' + rows[i].id);
       }
@@ -7564,7 +7620,7 @@
       'presc.dropPending':     function (el) { dropPendingPresc(el.dataset.visit, el.dataset.idx, el.dataset.pet); },
       'presc.stop':            function (el) { stopPresc(el.dataset.id, el.dataset.visit, el.dataset.pet); },
       'pet.allergyEdit':       function (el) { editPetAllergies(el.dataset.id); },
-      'result.draftFill':      function (el) { fillResultDraft(el.dataset.item, el.dataset.tpl, el.dataset.name); },
+      'result.draftFill':      function (el) { fillResultDraft(el.dataset.row, el.dataset.tpl, el.dataset.name); },
       'pet.timeline':          function (el) { showPetTimeline(el.dataset.id); },
       'tl.filter':             function (el) { setTimelineFilter(el.dataset.kind, el); },
       'task.forPet':           function (el) {

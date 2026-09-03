@@ -257,12 +257,28 @@
   // ── Авто-обновление текущей страницы при изменении данных ──────────
   // Срабатывает после: pull с сервера, bootstrap, любой локальной мутации
   var _refreshTimer = null;
+  var _refreshPending = false;
+
+  // Форму закрыли — показываем то, что пришло, пока она была открыта.
+  window.addEventListener('vetui:modalclosed', function () {
+    if (!_refreshPending) return;
+    _refreshPending = false;
+    window.dispatchEvent(new Event('vetdata:changed'));
+  });
+
   window.addEventListener('vetdata:changed', function () {
     fillOwnerFilter();
     // Дебаунс 150ms чтобы не перерисовывать при rapid mutations
     clearTimeout(_refreshTimer);
     _refreshTimer = setTimeout(function() {
       if (!window.VetPages || !currentPage) return;
+      // Под открытой формой не перестраиваем НИЧЕГО. Врач в этот момент
+      // заполняет приём: перерисовка списка за спиной модалки не приносит
+      // ему пользы, но сбивает прокрутку и подёргивает экран. Отложим до
+      // закрытия — тогда он и увидит свежие данные.
+      var ov = document.getElementById('modal-overlay');
+      if (ov && ov.classList.contains('open')) { _refreshPending = true; return; }
+      _refreshPending = false;
       // Перерисовка заменяет innerHTML, и прокрутка сбрасывается в начало.
       // Когда данные пришли с другого планшета, врач не должен терять место,
       // на котором читал. Возвращаем позицию после отрисовки.

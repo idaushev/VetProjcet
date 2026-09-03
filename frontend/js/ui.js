@@ -457,6 +457,9 @@
     }
 
     document.getElementById('modal-overlay').classList.remove('open');
+    // Пока форма была открыта, перерисовку страницы откладывали (её незачем
+    // делать за спиной у врача). Сообщаем, что можно.
+    window.dispatchEvent(new Event('vetui:modalclosed'));
     // UX-015: снимаем свою запись из истории при обычном закрытии (крестик,
     // «Отмена», после сохранения). Когда закрытие пришло ИЗ «назад», запись
     // уже снята браузером — состояние тут не vetModal, и мы ничего не делаем:
@@ -1793,7 +1796,7 @@
           // Услуга с протоколом — открываем заполнение СРАЗУ: врач делает УЗИ
           // на приёме и пишет заключение тут же, а не после сохранения и
           // переоткрытия. Открывается поверх формы, приём не разрушается.
-          _maybeOpenProtocol(el.dataset.id);
+          _maybeOpenProtocol(el.dataset.id, id);
         };
       });
     });
@@ -1825,18 +1828,43 @@
   function updateVitRow(id){var q=parseFloat(document.getElementById('vit-q-'+id).value)||0;var p=parseFloat(document.getElementById('vit-p-'+id).value)||0;var t=Math.round(q*p*100)/100;document.getElementById('vit-tot-'+id).textContent=t.toFixed(0)+' ₸';updateVitTotal();}
   // Решение принимает pages.js: только там известен текущий приём и есть ли
   // у услуги уже заведённая строка результата.
-  function _maybeOpenProtocol(itemId) {
+  function _maybeOpenProtocol(itemId, rowId) {
     if (window.VetPages && VetPages.autoOpenProtocol) {
-      try { VetPages.autoOpenProtocol(itemId); } catch (e) {}
+      try { VetPages.autoOpenProtocol(itemId, rowId); } catch (e) {}
     }
+  }
+
+  // Строки счёта в порядке отображения. Отдельно от collectVisitItems: там
+  // формируется тело запроса, и лишнее поле сервер отвергнет (он не принимает
+  // неизвестные ключи). А номер строки нужен, чтобы отличить ВТОРОЕ УЗИ от
+  // первого: по одной услуге в приёме бывает несколько исследований.
+  function getVisitItemRows() {
+    var out = [];
+    document.querySelectorAll('#vitem-rows .vitem-row').forEach(function (row) {
+      var nameEl = document.getElementById('vit-n-' + row.dataset.rowId);
+      out.push({
+        row_id:  row.dataset.rowId,
+        item_id: row.dataset.itemId || '',
+        name:    nameEl ? nameEl.value.trim() : ''
+      });
+    });
+    return out;
   }
 
   function updateVitTotal(){var tot=0;document.querySelectorAll('[id^="vit-tot-"]').forEach(function(el){tot+=parseFloat(el.textContent)||0;});var el=document.getElementById('vitem-total');if(el)el.textContent=tot.toFixed(0)+' ₸'; _updatePaymentSummary();
     // Позиции изменились — блок результатов мог измениться вместе с ними:
     // услуга с протоколом заводит ожидающую строку. Без этого врач добавлял
     // анализ и не видел, что по нему что-то потребуется заполнить.
-    if (window.VetPages && VetPages.refreshVisitResults) VetPages.refreshVisitResults();
+    // ЧЕРЕЗ ЗАДЕРЖКУ. updateVitTotal зовётся на каждое нажатие в количестве и
+    // цене, а перерисовка блока читает каталог и результаты из IndexedDB.
+    // Пересчитывать его на каждый символ — значит мигать блоком, пока врач
+    // набирает цену. Сумма пересчитывается сразу, блок — когда ввод затих.
+    clearTimeout(_resultsTimer);
+    _resultsTimer = setTimeout(function () {
+      if (window.VetPages && VetPages.refreshVisitResults) VetPages.refreshVisitResults();
+    }, 250);
   }
+  var _resultsTimer = null;
   function collectVisitItems(){var items=[];document.querySelectorAll('.vitem-row').forEach(function(row){var id=row.dataset.rowId;var name=document.getElementById('vit-n-'+id).value.trim();var type=document.getElementById('vit-t-'+id).value;var qty=parseFloat(document.getElementById('vit-q-'+id).value)||1;var price=parseFloat(document.getElementById('vit-p-'+id).value)||0;var costEl=document.getElementById('vit-c-'+id);var costPrice=costEl?parseFloat(costEl.value)||0:Math.round(price*0.5*100)/100;if(!name)return;items.push({item_id:row.dataset.itemId||null,name:name,type:type,quantity:qty,price:price,cost_price:costPrice,total:Math.round(qty*price*100)/100});});return items;}
 
   // ── Черновики формы приёма ─────────────────────────────────────────────
@@ -2173,6 +2201,7 @@
     initVisitForm:initVisitForm,
     addVisitItemRow:addVisitItemRow,
     collectVisitItems:collectVisitItems,
+    getVisitItemRows:getVisitItemRows,
     getVisitState:getVisitState,
     startVisitDraftAutosave:startVisitDraftAutosave,
     markModalDirty:markModalDirty,

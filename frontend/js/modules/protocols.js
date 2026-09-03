@@ -109,6 +109,8 @@
       + '<input class="form-input pf-low" type="number" step="any" value="' + esc(f.ref_low != null ? f.ref_low : '') + '" placeholder="от">'
       + '<input class="form-input pf-high" type="number" step="any" value="' + esc(f.ref_high != null ? f.ref_high : '') + '" placeholder="до">'
       + '</div></div>'
+      + '<div class="form-group"><label class="form-label">Раздел</label>'
+      + '<input class="form-input pf-group" value="' + esc(f.group || '') + '" placeholder="Мочевой пузырь"></div>'
       + '<div class="form-group form-span-2"><label class="form-label">Варианты (через запятую, для списка)</label>'
       + '<input class="form-input pf-options" value="' + esc((f.options || []).join(', ')) + '" placeholder="норма, снижено, повышено"></div>'
       + '</div>'
@@ -151,6 +153,12 @@
         key: (row.getAttribute('data-key') || keyFromLabel(label, out)),
         label: label,
         type: val('.pf-type') || 'text',
+        // Раздел: одно поле — один тип, иначе значения нечем разобрать (норму
+        // не сравнить, динамику не построить). Но орган описывают сразу
+        // несколькими: у мочевого пузыря это толщина стенки числом, содержимое
+        // текстом и «взвесь» галочкой. Раздел собирает их под общий заголовок,
+        // и в форме это читается как один блок.
+        group: val('.pf-group'),
         unit: val('.pf-unit'),
         ref_low: num('.pf-low'),
         ref_high: num('.pf-high'),
@@ -302,9 +310,18 @@
     var fields = fieldsOf(tpl);
     var body = '';
     if (fields.length) {
-      body += '<div class="form-grid">' + fields.map(function (f) {
-        return fillFieldHTML(f, (values || {})[f.key]);
-      }).join('') + '</div>';
+      var cur = null, open = false;
+      fields.forEach(function (f) {
+        var g = (f.group || '').trim();
+        if (g !== cur) {
+          if (open) { body += '</div>'; open = false; }
+          cur = g;
+          if (g) body += '<div class="form-section-title">' + esc(g) + '</div>';
+          body += '<div class="form-grid">'; open = true;
+        }
+        body += fillFieldHTML(f, (values || {})[f.key]);
+      });
+      if (open) body += '</div>';
     } else {
       body += '<div class="text-sm text-muted">У этой услуги нет шаблона протокола — впишите заключение свободным текстом.</div>';
     }

@@ -193,6 +193,12 @@ CREATE TABLE IF NOT EXISTS visit_results (
     pet_id        TEXT NOT NULL,          -- дублируем ради выборки «все результаты животного»
     visit_item_id TEXT,                   -- какая строка приёма породила результат
     item_id       TEXT,                   -- услуга из каталога
+    -- Номер исследования по этой услуге внутри приёма (0,1,2…). Одно УЗИ за
+    -- приём — не правило: смотрят брюшную полость и сердце, берут кровь до и
+    -- после нагрузки. Без номера вторая такая же услуга сливалась с первой, и
+    -- второй протокол негде было заполнить. Строку счёта как ключ взять
+    -- нельзя: при каждом сохранении позиции удаляются и создаются заново.
+    seq           INTEGER NOT NULL DEFAULT 0,
     title         TEXT NOT NULL,          -- название услуги на момент приёма
     template_id   TEXT,                   -- шаблон протокола, если заполняется вручную
     kind          TEXT NOT NULL DEFAULT 'protocol',  -- protocol | file
@@ -620,6 +626,7 @@ var migrations = []string{
 	// что спрашивают. Поле свободное: список лабораторий у клиники не
 	// фиксирован, а справочник ради двух-трёх названий — лишняя сущность.
 	`ALTER TABLE visit_results ADD COLUMN lab_name TEXT`,
+	`ALTER TABLE visit_results ADD COLUMN seq INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE visit_items ADD COLUMN created_by TEXT`,
 	`ALTER TABLE visit_items ADD COLUMN updated_by TEXT`,
 	`ALTER TABLE vaccinations ADD COLUMN created_by TEXT`,
@@ -904,6 +911,7 @@ func openDB(dbPath string) (*sql.DB, error) {
 
 	migrateUsersRoleCheck(ctx, db)
 	seedDefaultWarehouse(ctx, db)
+	seedProtocolTemplates(ctx, db)
 
 	return db, nil
 }

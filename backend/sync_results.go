@@ -85,6 +85,7 @@ type resultSyncRecord struct {
 	PetID        string  `json:"pet_id"`
 	VisitItemID  string  `json:"visit_item_id"`
 	ItemID       string  `json:"item_id"`
+	Seq          int     `json:"seq"`
 	Title        string  `json:"title"`
 	TemplateID   string  `json:"template_id"`
 	Kind         string  `json:"kind"`
@@ -123,12 +124,12 @@ func pushVisitResult(ctx context.Context, db *sql.DB, rec resultSyncRecord) (boo
 		filledAt = serverNow
 	}
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO visit_results (id, visit_id, pet_id, visit_item_id, item_id, title,
+		INSERT INTO visit_results (id, visit_id, pet_id, visit_item_id, item_id, seq, title,
 		        template_id, kind, values_json, attachment_id, conclusion, lab_name, status, filled_at,
 		        created_at, updated_at, deleted_at, is_deleted, device_id, version, client_updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
-		  visit_item_id=excluded.visit_item_id, item_id=excluded.item_id,
+		  visit_item_id=excluded.visit_item_id, item_id=excluded.item_id, seq=excluded.seq,
 		  title=excluded.title, template_id=excluded.template_id, kind=excluded.kind,
 		  values_json=excluded.values_json,
 		  -- Файл прикрепляется отдельным механизмом (очередь вложений) и может
@@ -141,7 +142,7 @@ func pushVisitResult(ctx context.Context, db *sql.DB, rec resultSyncRecord) (boo
 		  is_deleted=excluded.is_deleted, device_id=excluded.device_id,
 		  version=excluded.version, client_updated_at=excluded.client_updated_at`,
 		rec.ID, rec.VisitID, rec.PetID, nullableString(rec.VisitItemID), nullableString(rec.ItemID),
-		rec.Title, nullableString(rec.TemplateID), normalizeResultKind(rec.Kind),
+		rec.Seq, rec.Title, nullableString(rec.TemplateID), normalizeResultKind(rec.Kind),
 		defaultJSON(rec.Values, "{}"), nullableString(rec.AttachmentID),
 		nullableString(rec.Conclusion), nullableString(rec.LabName), status, filledAt,
 		serverNow, serverNow, Tp(parseSyncTimePtr(rec.DeletedAt)), rec.IsDeleted,

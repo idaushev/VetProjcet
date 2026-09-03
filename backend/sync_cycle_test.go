@@ -322,14 +322,21 @@ func TestSyncCycleResultsSurviveRoundTrip(t *testing.T) {
 	}
 
 	data := doPull(t, a, "")
-	tpls := data["protocol_templates"]
-	if len(tpls) != 1 {
-		t.Fatalf("шаблон не вернулся (получили %d)", len(tpls))
+	// Ищем СВОЙ шаблон, а не единственный: на новой базе заводятся стартовые
+	// бланки, и «ровно один шаблон» — уже неверное допущение.
+	var mine map[string]any
+	for _, tpl := range data["protocol_templates"] {
+		if id, _ := tpl["id"].(string); id == "t-30" {
+			mine = tpl
+		}
 	}
-	if got, _ := tpls[0]["name"].(string); got != "ОАК" {
+	if mine == nil {
+		t.Fatalf("шаблон не вернулся (всего пришло %d)", len(data["protocol_templates"]))
+	}
+	if got, _ := mine["name"].(string); got != "ОАК" {
 		t.Errorf("name шаблона = %q", got)
 	}
-	if f, _ := tpls[0]["fields"].(string); !strings.Contains(f, "hgb") {
+	if f, _ := mine["fields"].(string); !strings.Contains(f, "hgb") {
 		t.Errorf("поля шаблона потерялись: %q", f)
 	}
 
@@ -695,5 +702,61 @@ func TestVisitResultLifecycle(t *testing.T) {
 	}
 	if !foundDone {
 		t.Error("заполненный результат не вернулся инкрементальным pull")
+	}
+}
+
+// Два УЗИ в одном приёме — это два разных исследования с разными заключениями
+// (брюшная полость и сердце, кровь до и после нагрузки). Пока результат
+// опознавался по услуге, второе такое же исследование сливалось с первым, и
+// заполнить его было негде. Различает их seq — номер исследования в приёме.
+//
+// Строку счёта как ключ взять нельзя: при каждом сохранении приёма позиции
+// удаляются и создаются заново с новыми id, а результат должен пережить правку.
+func TestTwoStudiesOfSameServiceCoexist(t *testing.T) {
+	a := testApp(t)
+
+	doPush(t, a, `{"device_id":"dev-1",
+		"owners":[{"id":"o-2","fio":"Хозяин","phone":"+7 700 222 0000","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"pets":[{"id":"p-2","owner_id":"o-2","name":"Барс","type":"cat","gender":"m","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"visits":[{"id":"v-2","pet_id":"p-2","date":"2026-09-01T10:00:00Z","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"visit_results":[
+		  {"id":"r-uzi-1","visit_id":"v-2","pet_id":"p-2","item_id":"i-uzi","seq":0,"title":"УЗИ брюшной полости",
+		   "kind":"protocol","status":"done","values":"{\"liver_echo\":\"норма\"}","conclusion":"без патологии",
+		   "version":1,"updated_at":"2026-09-01T10:00:00Z"},
+		  {"id":"r-uzi-2","visit_id":"v-2","pet_id":"p-2","item_id":"i-uzi","seq":1,"title":"УЗИ брюшной полости №2",
+		   "kind":"protocol","status":"done","values":"{\"liver_echo\":\"повышена\"}","conclusion":"контроль через месяц",
+		   "version":1,"updated_at":"2026-09-01T10:00:00Z"}]}`)
+
+	var n int
+	if err := a.db.QueryRow(`SELECT COUNT(*) FROM visit_results
+	                         WHERE visit_id='v-2' AND item_id='i-uzi' AND is_deleted=0`).Scan(&n); err != nil {
+		t.Fatalf("подсчёт результатов: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("по одной услуге должно быть 2 исследования, в базе %d", n)
+	}
+
+	// Заключения не перемешались: второе исследование — это НЕ копия первого.
+	var c1, c2 string
+	var s1, s2 int
+	a.db.QueryRow(`SELECT COALESCE(conclusion,''), COALESCE(seq,0) FROM visit_results WHERE id='r-uzi-1'`).Scan(&c1, &s1)
+	a.db.QueryRow(`SELECT COALESCE(conclusion,''), COALESCE(seq,0) FROM visit_results WHERE id='r-uzi-2'`).Scan(&c2, &s2)
+	if c1 != "без патологии" || c2 != "контроль через месяц" {
+		t.Errorf("заключения перепутаны: первое %q, второе %q", c1, c2)
+	}
+	if s1 != 0 || s2 != 1 {
+		t.Errorf("номера исследований не сохранились: %d и %d", s1, s2)
+	}
+
+	// И оба приезжают обратно на планшет.
+	snap := doPull(t, a, "")
+	var got int
+	for _, r := range snap["visit_results"] {
+		if r["visit_id"] == "v-2" {
+			got++
+		}
+	}
+	if got != 2 {
+		t.Errorf("с сервера вернулось %d исследований вместо 2", got)
 	}
 }

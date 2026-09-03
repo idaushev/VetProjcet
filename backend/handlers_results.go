@@ -236,6 +236,8 @@ type VisitResult struct {
 	PetID        string     `json:"pet_id"`
 	VisitItemID  string     `json:"visit_item_id,omitempty"`
 	ItemID       string     `json:"item_id,omitempty"`
+	// Номер исследования по этой услуге в приёме: второе УЗИ — seq=1.
+	Seq          int        `json:"seq"`
 	Title        string     `json:"title"`
 	TemplateID   string     `json:"template_id,omitempty"`
 	Kind         string     `json:"kind"`
@@ -253,7 +255,7 @@ func (v VisitResult) recordID() string { return v.ID }
 
 const resultSelectAll = `
 SELECT id, visit_id, pet_id, COALESCE(visit_item_id,''), COALESCE(item_id,''),
-       title, COALESCE(template_id,''), COALESCE(kind,'protocol'),
+       COALESCE(seq,0), title, COALESCE(template_id,''), COALESCE(kind,'protocol'),
        COALESCE(values_json,'{}'), COALESCE(attachment_id,''),
        COALESCE(conclusion,''), COALESCE(lab_name,''), COALESCE(status,'pending'), filled_at,
        created_at, updated_at, deleted_at, is_deleted,
@@ -264,7 +266,7 @@ func scanResult(rows *sql.Rows) (VisitResult, error) {
 	var v VisitResult
 	var filled, created, updated, deleted timeScanner
 	err := rows.Scan(&v.ID, &v.VisitID, &v.PetID, &v.VisitItemID, &v.ItemID,
-		&v.Title, &v.TemplateID, &v.Kind, &v.Values, &v.AttachmentID,
+		&v.Seq, &v.Title, &v.TemplateID, &v.Kind, &v.Values, &v.AttachmentID,
 		&v.Conclusion, &v.LabName, &v.Status, &filled,
 		&created, &updated, &deleted, &v.IsDeleted, &v.DeviceID, &v.Version)
 	if err != nil {
@@ -350,6 +352,7 @@ func (a *app) handleResults(w http.ResponseWriter, r *http.Request) {
 			PetID        string `json:"pet_id"`
 			VisitItemID  string `json:"visit_item_id"`
 			ItemID       string `json:"item_id"`
+			Seq          int    `json:"seq"`
 			Title        string `json:"title"`
 			TemplateID   string `json:"template_id"`
 			Kind         string `json:"kind"`
@@ -382,12 +385,12 @@ func (a *app) handleResults(w http.ResponseWriter, r *http.Request) {
 			filled = now
 		}
 		if _, err := a.db.ExecContext(ctx, `
-			INSERT INTO visit_results (id, visit_id, pet_id, visit_item_id, item_id, title,
+			INSERT INTO visit_results (id, visit_id, pet_id, visit_item_id, item_id, seq, title,
 			        template_id, kind, values_json, attachment_id, conclusion, lab_name, status, filled_at,
 			        created_at, updated_at, client_updated_at, is_deleted, version)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`,
 			id, p.VisitID, p.PetID, nullableString(p.VisitItemID), nullableString(p.ItemID),
-			strings.TrimSpace(p.Title), nullableString(p.TemplateID), normalizeResultKind(p.Kind),
+			p.Seq, strings.TrimSpace(p.Title), nullableString(p.TemplateID), normalizeResultKind(p.Kind),
 			defaultJSON(p.Values, "{}"), nullableString(p.AttachmentID),
 			nullableString(p.Conclusion), nullableString(p.LabName), status, filled, now, now, now); err != nil {
 			a.logger.Printf("createResult: %v", err)
