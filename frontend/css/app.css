@@ -1615,6 +1615,14 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 
 /* ── Stat cards: цветовое разнообразие ──────────────────────────── */
 /* Каждая карточка получает свой акцентный оттенок */
+/* UX-010: плитка с нулём. За нулём нет действия — крупный цветной «0»
+   перетягивал внимание с блока «Требуют внимания». Гасим цифру и подпись,
+   не трогая раскладку: значимые счётчики теперь читаются первыми. */
+.stat-card.stat-zero .stat-value { color: var(--text-3) !important; }
+.stat-card.stat-zero .stat-label { color: var(--text-3); }
+.stat-card.stat-zero { background: var(--bg); }
+.stat-card.stat-zero::after { opacity: .35; }
+
 .stats-grid .stat-card:nth-child(1) .stat-value { color: var(--accent); }
 .stats-grid .stat-card:nth-child(2) .stat-value { color: #2563eb; }
 .stats-grid .stat-card:nth-child(3) .stat-value { color: #0891b2; }

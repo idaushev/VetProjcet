@@ -190,9 +190,9 @@
       });
       var onTreatmentPets = Object.keys(onTreatmentIds);
 
-      setText('stat-visits-today',     todayVisits.length);
-      setText('stat-on-treatment',     onTreatmentPets.length);
-      setText('stat-vaccinations-due', dueVacc.length);
+      setStat('stat-visits-today',     todayVisits.length);
+      setStat('stat-on-treatment',     onTreatmentPets.length);
+      setStat('stat-vaccinations-due', dueVacc.length);
 
       // Записи нужны и четвёртой карточке, и виджету ниже — грузим один раз.
       var allAppts = [];
@@ -207,7 +207,7 @@
         var u = window.VetAuth ? VetAuth.user() : null;
         if (u && u.staff_id) {
           var mine = todayVisits.filter(function(v){ return v.staff_id === u.staff_id; });
-          setText('stat-role-value', mine.length);
+          setStat('stat-role-value', mine.length);
           setText('stat-role-label', 'Мои приёмы сегодня ↗');
           roleCard.onclick = function(){ goVisitsToday(); };
           roleCard.style.display = '';
@@ -217,7 +217,7 @@
             return !a.is_deleted && a.status === 'scheduled'
               && (a.starts_at||'').slice(0,10) === tomorrow;
           });
-          setText('stat-role-value', tomorrowAppts.length);
+          setStat('stat-role-value', tomorrowAppts.length);
           setText('stat-role-label', 'Записей на завтра ↗');
           roleCard.onclick = function(){ navigate('schedule'); };
           roleCard.style.display = '';
@@ -469,6 +469,17 @@
   }
 
   function setText(id, val) { var el=document.getElementById(id); if(el) el.textContent=String(val); }
+  // UX-010. Счётчик дашборда: за нулём НЕТ действия, а крупный цветной ноль
+  // перетягивал внимание с блока «Требуют внимания» — ровно то, на что
+  // жаловался аудит («первым в глаза попадает не то, что требует действия»).
+  // Нулевые плитки гасим, значимые оставляем цветными.
+  function setStat(id, val) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = String(val);
+    var card = el.closest('.stat-card');
+    if (card) card.classList.toggle('stat-zero', !Number(val));
+  }
   function buildMap(arr) { var m={}; (arr||[]).forEach(function(x){ m[x.id]=x; }); return m; }
 
   // Скелетон загрузки: несколько «пустых» строк с шиммером вместо голого
