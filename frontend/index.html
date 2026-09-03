@@ -787,11 +787,17 @@
       <section class="page" id="page-warehouse">
         <div class="page-header">
           <h1 class="page-title">Склад</h1>
+          <!-- UX-027. Было четыре кнопки: «+ Поступление» primary и три ghost —
+               иерархия не отражала ничего, и продавец каждый раз перечитывал
+               все четыре. Клиника назвала фактические частоты (вопрос 11):
+               ПРОДАЖА ежедневная, поступления раз в месяц, переоценка раз в
+               два месяца. Отсюда: продажа — единственное главное действие,
+               остальные в меню операций. Списание отделено чертой и помечено
+               как опасное: перепутать его с продажей — списать товар,
+               которого не продавали. -->
           <div class="page-actions">
-            <button class="btn btn-primary" id="wh-btn-receipt">+ Поступление</button>
-            <button class="btn btn-ghost" id="wh-btn-writeoff">Списание</button>
-            <button class="btn btn-ghost" id="wh-btn-sale">Продажа</button>
-            <button class="btn btn-ghost" id="wh-btn-price">Изменение цен</button>
+            <button class="btn btn-primary" id="wh-btn-sale">+ Продажа</button>
+            <span class="wh-ops" id="wh-ops"></span>
           </div>
         </div>
         <div class="settings-tabs" id="wh-tabs">

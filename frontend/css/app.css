@@ -907,6 +907,12 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 .res-series-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 .res-series-table td { padding: 3px var(--sp-2); border-bottom: 1px solid var(--border); }
 .res-series-cur { font-weight: 700; }
+/* VET-008: лаборатория-исполнитель в просмотре результата. */
+.res-lab {
+  display: flex; align-items: center; gap: var(--sp-2);
+  margin-top: var(--sp-3); font-size: var(--fs-sm); color: var(--text-2);
+}
+.res-lab .icon { width: 15px; height: 15px; opacity: .6; }
 
 /* ── F2/UX-022: стек модалок ──────────────────────────────────────────────
    Нижняя модалка не разрушается, а «паркуется»: остаётся в DOM со всеми

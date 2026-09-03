@@ -311,7 +311,14 @@
     } else {
       body += '<div class="text-sm text-muted">У этой услуги нет шаблона протокола — впишите заключение свободным текстом.</div>';
     }
-    body += '<div class="form-section"><div class="form-group">'
+    body += '<div class="form-section">'
+      // VET-008 (вопрос 14): кто делал исследование. Раньше это читалось
+      // только из названия услуги, то есть никак, если она называется
+      // «Биохимия крови». При разборе спорного результата спрашивают первым.
+      + '<div class="form-group"><label class="form-label">Лаборатория-исполнитель</label>'
+      + '<input id="rv-lab" class="form-input" maxlength="120" value="' + esc(res.lab_name || '')
+      + '" placeholder="Своя лаборатория / Vet Union / …"></div>'
+      + '<div class="form-group">'
       + '<label class="form-label">Заключение</label>'
       + '<textarea id="rv-conclusion" class="form-textarea" rows="3">' + esc(res.conclusion || '') + '</textarea>'
       + '</div></div>';
@@ -332,6 +339,7 @@
           await api('PUT', '/results/' + resultId, {
             values_json: JSON.stringify(vals),
             conclusion: (document.getElementById('rv-conclusion') || {}).value || '',
+            lab_name: ((document.getElementById('rv-lab') || {}).value || '').trim(),
             status: 'done'
           });
           UI.hideModal();
@@ -544,6 +552,9 @@
           + '<td colspan="4"></td></tr>';
       }).join('');
       html += '</tbody></table>';
+    }
+    if (res.lab_name) {
+      html += '<div class="res-lab">' + I('hospital') + ' Исполнитель: ' + esc(res.lab_name) + '</div>';
     }
     if (res.conclusion) {
       html += '<div class="form-section"><div class="form-section-title">Заключение</div>'

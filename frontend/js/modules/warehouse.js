@@ -80,10 +80,19 @@
       };
     });
     // Кнопки операций
-    var r=document.getElementById('wh-btn-receipt'); if(r) r.onclick=function(){ whMovementForm('receipt'); };
-    var wo=document.getElementById('wh-btn-writeoff'); if(wo) wo.onclick=function(){ whMovementForm('writeoff'); };
     var sa=document.getElementById('wh-btn-sale'); if(sa) sa.onclick=function(){ whMovementForm('sale'); };
-    var pc=document.getElementById('wh-btn-price'); if(pc) pc.onclick=function(){ whPriceForm(null); };
+    // UX-027: редкие операции — в меню «⋯», тем же механизмом, что действия
+    // строк. Списание за чертой и помечено danger: перепутать его с продажей
+    // значит списать товар, который никто не покупал.
+    var ops=document.getElementById('wh-ops');
+    if (ops && window.VetUI && VetUI.rowMenu) {
+      ops.innerHTML = VetUI.rowMenu([
+        { label: 'Поступление',    icon: 'box',       act: 'wh.op', data: { kind: 'receipt' } },
+        { label: 'Изменение цен',  icon: 'cash',      act: 'wh.op', data: { kind: 'price' } },
+        { sep: true },
+        { label: 'Списание',       icon: 'trash', danger: true, act: 'wh.op', data: { kind: 'writeoff' } }
+      ]);
+    }
     var as=document.getElementById('wh-btn-add-store'); if(as) as.onclick=function(){ whStoreForm(null); };
 
     // Отчёт: период (по умолчанию текущий месяц) + пресеты + склад
@@ -217,7 +226,7 @@
     // Сортировка: сначала с остатком, потом по имени
     rows.sort(function(a,b){ return (b.qty>0)-(a.qty>0) || a.it.name.localeCompare(b.it.name,'ru'); });
 
-    if (!rows.length) { el.innerHTML = q ? searchEmpty('wh-stock-search') : emptyState('Остатков нет — оформите поступление', '+ Поступление', "document.getElementById('wh-btn-receipt').click()", 'box'); return; }
+    if (!rows.length) { el.innerHTML = q ? searchEmpty('wh-stock-search') : emptyState('Остатков нет — оформите поступление', '+ Поступление', { act: 'wh.op', data: { kind: 'receipt' } }, 'box'); return; }
 
     // Предупреждение о сроках: просроченное нельзя применять, а узнать об
     // этом надо заранее, а не в момент укола. Смотрим поступления с
@@ -578,6 +587,10 @@
   // Точка входа страницы (VetPages.init делегирует сюда).
   if (window.VetActions) {
     window.VetActions.register({
+      'wh.op':          function (el) {
+        if (el.dataset.kind === 'price') { whPriceForm(null); return; }
+        whMovementForm(el.dataset.kind);
+      },
       'wh.itemMoves':   function (el) { whItemMoves(el.dataset.id); },
       'wh.priceForm':   function (el) { whPriceForm(el.dataset.id); },
       'wh.deleteMove':  function (el) { whDeleteMove(el.dataset.id); },

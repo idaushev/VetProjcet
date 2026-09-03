@@ -91,6 +91,7 @@ type resultSyncRecord struct {
 	Values       string  `json:"values_json"`
 	AttachmentID string  `json:"attachment_id"`
 	Conclusion   string  `json:"conclusion"`
+	LabName      string  `json:"lab_name"`
 	Status       string  `json:"status"`
 	FilledAt     *string `json:"filled_at"`
 	UpdatedAt    string  `json:"updated_at"`
@@ -123,9 +124,9 @@ func pushVisitResult(ctx context.Context, db *sql.DB, rec resultSyncRecord) (boo
 	}
 	_, err = db.ExecContext(ctx, `
 		INSERT INTO visit_results (id, visit_id, pet_id, visit_item_id, item_id, title,
-		        template_id, kind, values_json, attachment_id, conclusion, status, filled_at,
+		        template_id, kind, values_json, attachment_id, conclusion, lab_name, status, filled_at,
 		        created_at, updated_at, deleted_at, is_deleted, device_id, version, client_updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		  visit_item_id=excluded.visit_item_id, item_id=excluded.item_id,
 		  title=excluded.title, template_id=excluded.template_id, kind=excluded.kind,
@@ -134,7 +135,7 @@ func pushVisitResult(ctx context.Context, db *sql.DB, rec resultSyncRecord) (boo
 		  -- доехать раньше, чем планшет пришлёт запись результата. Пустая
 		  -- ссылка от клиента не должна стирать уже привязанный файл.
 		  attachment_id=COALESCE(excluded.attachment_id, visit_results.attachment_id),
-		  conclusion=excluded.conclusion, status=excluded.status,
+		  conclusion=excluded.conclusion, lab_name=excluded.lab_name, status=excluded.status,
 		  filled_at=COALESCE(excluded.filled_at, visit_results.filled_at),
 		  updated_at=excluded.updated_at, deleted_at=excluded.deleted_at,
 		  is_deleted=excluded.is_deleted, device_id=excluded.device_id,
@@ -142,7 +143,7 @@ func pushVisitResult(ctx context.Context, db *sql.DB, rec resultSyncRecord) (boo
 		rec.ID, rec.VisitID, rec.PetID, nullableString(rec.VisitItemID), nullableString(rec.ItemID),
 		rec.Title, nullableString(rec.TemplateID), normalizeResultKind(rec.Kind),
 		defaultJSON(rec.Values, "{}"), nullableString(rec.AttachmentID),
-		nullableString(rec.Conclusion), status, filledAt,
+		nullableString(rec.Conclusion), nullableString(rec.LabName), status, filledAt,
 		serverNow, serverNow, Tp(parseSyncTimePtr(rec.DeletedAt)), rec.IsDeleted,
 		nullableString(rec.DeviceID), rec.Version, clientAt)
 	return err == nil, err

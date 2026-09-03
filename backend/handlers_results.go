@@ -242,6 +242,8 @@ type VisitResult struct {
 	Values       string     `json:"values_json"`
 	AttachmentID string     `json:"attachment_id,omitempty"`
 	Conclusion   string     `json:"conclusion,omitempty"`
+	// Лаборатория-исполнитель: свободный текст (VET-008, вопрос 14).
+	LabName      string     `json:"lab_name,omitempty"`
 	Status       string     `json:"status"`
 	FilledAt     *time.Time `json:"filled_at,omitempty"`
 	SyncMeta
@@ -253,7 +255,7 @@ const resultSelectAll = `
 SELECT id, visit_id, pet_id, COALESCE(visit_item_id,''), COALESCE(item_id,''),
        title, COALESCE(template_id,''), COALESCE(kind,'protocol'),
        COALESCE(values_json,'{}'), COALESCE(attachment_id,''),
-       COALESCE(conclusion,''), COALESCE(status,'pending'), filled_at,
+       COALESCE(conclusion,''), COALESCE(lab_name,''), COALESCE(status,'pending'), filled_at,
        created_at, updated_at, deleted_at, is_deleted,
        COALESCE(device_id,''), COALESCE(version,1)
 FROM visit_results`
@@ -263,7 +265,7 @@ func scanResult(rows *sql.Rows) (VisitResult, error) {
 	var filled, created, updated, deleted timeScanner
 	err := rows.Scan(&v.ID, &v.VisitID, &v.PetID, &v.VisitItemID, &v.ItemID,
 		&v.Title, &v.TemplateID, &v.Kind, &v.Values, &v.AttachmentID,
-		&v.Conclusion, &v.Status, &filled,
+		&v.Conclusion, &v.LabName, &v.Status, &filled,
 		&created, &updated, &deleted, &v.IsDeleted, &v.DeviceID, &v.Version)
 	if err != nil {
 		return v, err
@@ -354,6 +356,7 @@ func (a *app) handleResults(w http.ResponseWriter, r *http.Request) {
 			Values       string `json:"values_json"`
 			AttachmentID string `json:"attachment_id"`
 			Conclusion   string `json:"conclusion"`
+			LabName      string `json:"lab_name"`
 			Status       string `json:"status"`
 		}
 		if err := decodeJSON(r, &p); err != nil {
@@ -380,13 +383,13 @@ func (a *app) handleResults(w http.ResponseWriter, r *http.Request) {
 		}
 		if _, err := a.db.ExecContext(ctx, `
 			INSERT INTO visit_results (id, visit_id, pet_id, visit_item_id, item_id, title,
-			        template_id, kind, values_json, attachment_id, conclusion, status, filled_at,
+			        template_id, kind, values_json, attachment_id, conclusion, lab_name, status, filled_at,
 			        created_at, updated_at, client_updated_at, is_deleted, version)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`,
 			id, p.VisitID, p.PetID, nullableString(p.VisitItemID), nullableString(p.ItemID),
 			strings.TrimSpace(p.Title), nullableString(p.TemplateID), normalizeResultKind(p.Kind),
 			defaultJSON(p.Values, "{}"), nullableString(p.AttachmentID),
-			nullableString(p.Conclusion), status, filled, now, now, now); err != nil {
+			nullableString(p.Conclusion), nullableString(p.LabName), status, filled, now, now, now); err != nil {
 			a.logger.Printf("createResult: %v", err)
 			writeError(w, http.StatusInternalServerError, "Не удалось сохранить результат")
 			return
@@ -413,6 +416,7 @@ func (a *app) handleResultByID(w http.ResponseWriter, r *http.Request) {
 		var p struct {
 			Values       *string `json:"values_json"`
 			Conclusion   *string `json:"conclusion"`
+			LabName      *string `json:"lab_name"`
 			Status       *string `json:"status"`
 			AttachmentID *string `json:"attachment_id"`
 			Kind         *string `json:"kind"`
@@ -431,6 +435,10 @@ func (a *app) handleResultByID(w http.ResponseWriter, r *http.Request) {
 		if p.Conclusion != nil {
 			sets = append(sets, "conclusion=?")
 			args = append(args, nullableString(*p.Conclusion))
+		}
+		if p.LabName != nil {
+			sets = append(sets, "lab_name=?")
+			args = append(args, nullableString(*p.LabName))
 		}
 		if p.AttachmentID != nil {
 			sets = append(sets, "attachment_id=?")

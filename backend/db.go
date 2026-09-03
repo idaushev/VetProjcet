@@ -614,6 +614,12 @@ var migrations = []string{
 	// парами «название: значение» в vitals.
 	`ALTER TABLE visits ADD COLUMN temperature REAL`,
 	`ALTER TABLE visits ADD COLUMN vitals TEXT`,
+	// VET-008 (ответ клиники на вопрос 14: «нужна»). Кто делал исследование,
+	// раньше читалось только из названия услуги — то есть никак, если услуга
+	// называется «Биохимия крови». При разборе спорного результата это первое,
+	// что спрашивают. Поле свободное: список лабораторий у клиники не
+	// фиксирован, а справочник ради двух-трёх названий — лишняя сущность.
+	`ALTER TABLE visit_results ADD COLUMN lab_name TEXT`,
 	`ALTER TABLE visit_items ADD COLUMN created_by TEXT`,
 	`ALTER TABLE visit_items ADD COLUMN updated_by TEXT`,
 	`ALTER TABLE vaccinations ADD COLUMN created_by TEXT`,
