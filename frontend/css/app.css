@@ -939,6 +939,10 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 .vctx-chip[role=button]:hover { border-color: var(--accent); color: var(--accent); }
 .vctx-chip .icon { width: 14px; height: 14px; opacity: .6; }
 .vctx-note { white-space: normal; background: var(--warn-dim, var(--bg-input)); }
+/* Показатель вне рабочего диапазона: подсвечен, но ничего не блокирует —
+   решение остаётся за врачом (VET-009). */
+.vctx-chip.vctx-alert { border-color: var(--danger); color: var(--danger); }
+.vctx-chip.vctx-alert .icon { opacity: 1; }
 .vctx-list { display: flex; flex-direction: column; }
 /* Строка прошлого приёма: дата · диагноз · назначение — ровно то, что врач
    и пытался вспомнить, уходя из формы. */
@@ -968,6 +972,25 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 }
 .vctx-task .icon { width: 14px; height: 14px; opacity: .6; flex-shrink: 0; }
 .vctx-task > span:first-of-type { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* VET-013: аллергии и непереносимости. Полоса поверх формы приёма, а не поле
+   в карточке: врач должен увидеть её ДО выбора препарата, а не когда пошёл
+   смотреть карточку. Когда аллергий нет — та же полоса, но тихая: напоминание
+   заполнить не должно кричать как предупреждение. */
+.allergy-bar {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-5);
+  border: 1.5px solid var(--danger-border, #f5c6cb);
+  background: var(--danger-dim, #fdf3f4);
+  border-radius: var(--r-lg);
+}
+.allergy-bar .icon { color: var(--danger); flex-shrink: 0; }
+.allergy-text { flex: 1; min-width: 0; font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.allergy-empty {
+  border-color: var(--border); background: var(--bg-s);
+}
+.allergy-empty .icon { color: var(--text-3); }
+.allergy-empty .allergy-text { color: var(--text-3); }
 
 /* ── VET-014: единая хронология животного ─────────────────────────────────
    Приём, анализ, снимок, прививка и курс лечения стоят рядом по датам —

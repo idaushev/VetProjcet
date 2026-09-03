@@ -1052,6 +1052,7 @@
         renderAttachments(attachKey);
         renderVisitVaccinations(attachKey, prefillPet ? prefillPet.id : '');
         renderVisitContext(prefillPet ? prefillPet.id : '', false);
+        renderPetAllergies(prefillPet ? prefillPet.id : '');
         // Животное в новом приёме выбирают уже после открытия формы, а прививке
         // нужен pet_id — перерисовываем блок, когда выбор сделан.
         var petHook = setInterval(function () {
@@ -1062,6 +1063,7 @@
             _vaccPetId = pid;
             renderVisitVaccinations(attachKey, pid);
             renderVisitContext(pid, false);   // VET-001: контекст выбранного пациента
+            renderPetAllergies(pid);          // VET-013: предупреждение об аллергиях
           }
         }, 1200);
       },
@@ -1129,6 +1131,7 @@
             staff_id: vs.staff_id || '',
             treatment_days: vs.treatment_days || 0,
             visit_type: vs.visit_type, animal_weight: vs.animal_weight,
+            temperature: vs.temperature, vitals: vs.vitals,
             patient_condition: vs.condition,
             anamnesis: vs.anamnesis, diagnosis: vs.diagnosis,
             treatment: vs.treatment, notes: vs.notes,
@@ -1216,6 +1219,7 @@
         // новая прививка пишется сразу, без промежуточного накопления.
         renderVisitVaccinations(id, visit.pet_id);
         renderVisitContext(visit.pet_id, false);
+        renderPetAllergies(visit.pet_id);
 
         // Обновляем заголовок: добавляем имя питомца и кнопку печати
         var modalTitle = document.getElementById('modal-title');
@@ -1334,6 +1338,7 @@
             date: vs.date, patient_condition: vs.condition,
             visit_type: vs.visit_type,
             animal_weight: vs.animal_weight,
+            temperature: vs.temperature, vitals: vs.vitals,
             next_visit_date: vs.next_visit_date||'',
             treatment_days: vs.treatment_days || 0,
             anamnesis: vs.anamnesis, diagnosis: vs.diagnosis,
@@ -1512,6 +1517,7 @@
             staff_id: vs.staff_id || '',
             treatment_days: vs.treatment_days || 0,
             visit_type: vs.visit_type, animal_weight: vs.animal_weight,
+            temperature: vs.temperature, vitals: vs.vitals,
             patient_condition: vs.condition,
             anamnesis: vs.anamnesis, diagnosis: vs.diagnosis,
             treatment: vs.treatment, notes: vs.notes,
@@ -2042,6 +2048,68 @@
     return list.length;
   }
 
+  // ── VET-013: аллергии и непереносимости ──────────────────────────────
+  //
+  // Ответ клиники на вопрос 7: «нужно добавить, это у питомца каждого должно
+  // быть». До сих пор таких полей не было нигде — сведение о безопасности жило
+  // (если жило) в общих заметках, которые в форме приёма не показываются.
+  // Врач назначал препарат, не видя, что на него была реакция.
+  //
+  // Поэтому это НЕ поле в карточке, а полоса ПОВЕРХ формы приёма: увидеть её
+  // надо до назначения, а не когда специально пошёл смотреть. Когда аллергий
+  // нет — тихая строка с предложением заполнить, без крика.
+  async function renderPetAllergies(petId) {
+    var box = document.getElementById('visit-allergy');
+    if (!box) return;
+    if (!petId) { box.innerHTML = ''; return; }
+    var pet = null;
+    try {
+      pet = (await window.VetDB.getAll('pets')).find(function (p) { return p.id === petId; });
+    } catch (e) {}
+    if (!pet) { box.innerHTML = ''; return; }
+
+    var a = (pet.allergies || '').trim();
+    box.innerHTML = a
+      ? '<div class="allergy-bar" role="alert">' + I('alert')
+        + '<div class="allergy-text"><b>Аллергии и непереносимости:</b> ' + esc(a) + '</div>'
+        + '<button type="button" class="btn btn-ghost btn-sm" data-act="pet.allergyEdit" data-id="'
+          + esc(petId) + '">Изменить</button></div>'
+      : '<div class="allergy-bar allergy-empty">' + I('alert')
+        + '<div class="allergy-text">Аллергии не указаны</div>'
+        + '<button type="button" class="btn btn-ghost btn-sm" data-act="pet.allergyEdit" data-id="'
+          + esc(petId) + '">Указать</button></div>';
+  }
+
+  // Правка прямо из приёма (критерий приёмки): идти в карточку животного
+  // посреди осмотра врач не станет.
+  async function editPetAllergies(petId) {
+    var pets = await window.VetDB.getAll('pets');
+    var pet = pets.find(function (p) { return p.id === petId; });
+    if (!pet) return;
+    UI.showModal({
+      stacked: true,
+      title: 'Аллергии и непереносимости · ' + (pet.name || ''),
+      size: 'lg',
+      saveLabel: 'Сохранить',
+      bodyHTML: '<div class="form-stack">'
+        + '<div class="form-group"><label class="form-label">Реакции, непереносимости, особенности</label>'
+        + '<textarea id="pet-allergies" class="form-textarea" rows="4" maxlength="600"'
+        + ' placeholder="Например: реакция на амоксициллин — отёк морды; не переносит ксилазин">'
+        + esc(pet.allergies || '') + '</textarea></div>'
+        + '<div class="text-sm text-muted">Показывается в каждом приёме этого животного,'
+        + ' до выбора препаратов.</div></div>',
+      onSave: async function () {
+        var val = (document.getElementById('pet-allergies') || {}).value || '';
+        try {
+          await api('PUT', '/pets/' + petId, Object.assign({}, pet, { allergies: val.trim() }));
+          UI.hideModal();
+          await renderPetAllergies(petId);
+          UI.toast('Сохранено', 'ok');
+        } catch (e) { UI.toast(e.message, 'err'); }
+      }
+    });
+  }
+
   // ── VET-001: контекст пациента внутри приёма ─────────────────────────
   //
   // Врач на повторном приёме вспоминает: «какой антибиотик я назначал две
@@ -2092,6 +2160,21 @@
       chips.push('<span class="vctx-chip">' + I('scale') + ' ' + wNow + ' кг'
         + (wDelta ? ' <b class="' + (wDelta > 0 ? 'res-up' : 'res-down') + '">'
                     + (wDelta > 0 ? '+' : '') + wDelta + '</b>' : '') + '</span>');
+    }
+    // VET-009: температура в динамике — там же, где вес, и по тем же правилам.
+    // Пустое поле означает «не мерили», такие приёмы в ряд не попадают, иначе
+    // «0 °C» выглядело бы как измерение.
+    var withT = visits.filter(function (v) { return Number(v.temperature) > 0; });
+    if (withT.length) {
+      var tNow = Number(withT[0].temperature);
+      var tPrev = withT.length > 1 ? Number(withT[1].temperature) : null;
+      var tDelta = tPrev != null ? Math.round((tNow - tPrev) * 10) / 10 : null;
+      // 37.5–39.2 — рабочий ориентир для собак и кошек; выход за него подсвечен,
+      // но ничего не блокирует: решение остаётся за врачом.
+      var feverCls = (tNow > 39.2 || tNow < 37.5) ? ' vctx-alert' : '';
+      chips.push('<span class="vctx-chip' + feverCls + '">' + I('alert') + ' ' + tNow + ' °C'
+        + (tDelta ? ' <b class="' + (tDelta > 0 ? 'res-up' : 'res-down') + '">'
+                    + (tDelta > 0 ? '+' : '') + tDelta + '</b>' : '') + '</span>');
     }
     if (results.length) {
       chips.push('<span class="vctx-chip" data-act="result.view" data-id="' + esc(results[0].id) + '" role="button" tabindex="0">'
@@ -6943,6 +7026,7 @@
       'attach.dropPending':    function (el) { dropPendingAttachment(el.dataset.visit, el.dataset.idx); },
       'attach.preview':        function (el) { previewAttachment(el.dataset.id, el.dataset.name); },
       'visit.peek':            function (el) { peekVisit(el.dataset.id); },
+      'pet.allergyEdit':       function (el) { editPetAllergies(el.dataset.id); },
       'pet.timeline':          function (el) { showPetTimeline(el.dataset.id); },
       'tl.filter':             function (el) { setTimelineFilter(el.dataset.kind, el); },
       'task.forPet':           function (el) {

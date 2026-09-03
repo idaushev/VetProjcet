@@ -599,6 +599,21 @@ var migrations = []string{
 	// самостоятельной сущностью (её заводят и вне приёма, и задним числом).
 	`ALTER TABLE vaccinations ADD COLUMN visit_id TEXT`,
 	`CREATE INDEX IF NOT EXISTS idx_vacc_visit ON vaccinations(visit_id)`,
+	// VET-013 (ответ клиники на вопрос 7: «нужно добавить, это у питомца
+	// каждого должно быть»). Аллергии и непереносимости — сведение о
+	// БЕЗОПАСНОСТИ, и хранить его в общих заметках нельзя: заметки в форме
+	// приёма не показываются, а решение о препарате принимается именно там.
+	// Поле у ЖИВОТНОГО, а не у приёма: особенность принадлежит пациенту.
+	// Переносить нечего — до сих пор таких данных в системе не было.
+	`ALTER TABLE pets ADD COLUMN allergies TEXT`,
+	// VET-009 (ответ на вопрос 9: «всегда разные, чаще всего вес и
+	// температура»). Вес уже есть отдельной колонкой. Температура —
+	// вторая по частоте, поэтому отдельным числом: по ней нужна динамика.
+	// Остальные показатели у клиники непостоянны, и навязывать им фиксированный
+	// список полей значило бы заставлять заполнять ненужное — они пишутся
+	// парами «название: значение» в vitals.
+	`ALTER TABLE visits ADD COLUMN temperature REAL`,
+	`ALTER TABLE visits ADD COLUMN vitals TEXT`,
 	`ALTER TABLE visit_items ADD COLUMN created_by TEXT`,
 	`ALTER TABLE visit_items ADD COLUMN updated_by TEXT`,
 	`ALTER TABLE vaccinations ADD COLUMN created_by TEXT`,

@@ -155,12 +155,13 @@ func (a *app) createVisit(w http.ResponseWriter, r *http.Request) {
 	}
 	days, until := resolveTreatment(intOrZero(p.TreatmentDays), v.Date)
 	if _, err := a.db.ExecContext(ctx,
-		`INSERT INTO visits (id, pet_id, staff_id, visit_type, animal_weight, date, next_visit_date,
+		`INSERT INTO visits (id, pet_id, staff_id, visit_type, animal_weight, temperature, vitals, date, next_visit_date,
 		                     treatment_days, treatment_until,
 		                     patient_condition, anamnesis, diagnosis, treatment, notes,
 		                     total_amount, discount, discount_reason, payment_card, change_log, status, created_at, updated_at, version)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-		v.ID, v.PetID, nullableString(v.StaffID), visitType, v.AnimalWeight, T(v.Date), Tp(v.NextVisitDate),
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+		v.ID, v.PetID, nullableString(v.StaffID), visitType, v.AnimalWeight,
+		v.Temperature, nullableString(v.Vitals), T(v.Date), Tp(v.NextVisitDate),
 		days, Tp(until),
 		nullableString(v.PatientCondition), nullableString(v.Anamnesis),
 		nullableString(v.Diagnosis), nullableString(v.Treatment),
@@ -213,11 +214,13 @@ func (a *app) updateVisit(w http.ResponseWriter, r *http.Request, id string) {
 	days, until := resolveTreatment(intOrZero(treatDays), v.Date)
 	res, err := a.db.ExecContext(ctx,
 		`UPDATE visits SET pet_id=?, staff_id=?, visit_type=?, animal_weight=?,
+		                   temperature=?, vitals=?,
 		                   date=?, next_visit_date=?, treatment_days=?, treatment_until=?,
 		                   patient_condition=?, anamnesis=?, diagnosis=?, treatment=?,
 		                   notes=?, total_amount=?, discount=?, discount_reason=?, payment_card=?, change_log=?, status=?, updated_at=?, version=version+1
 		 WHERE id=? AND is_deleted=0`,
 		v.PetID, nullableString(v.StaffID), visitType, v.AnimalWeight,
+		v.Temperature, nullableString(v.Vitals),
 		T(v.Date), Tp(v.NextVisitDate), days, Tp(until),
 		nullableString(v.PatientCondition), nullableString(v.Anamnesis),
 		nullableString(v.Diagnosis), nullableString(v.Treatment),
@@ -374,6 +377,8 @@ func (a *app) handleCreateFullVisit(w http.ResponseWriter, r *http.Request) {
 		StaffID:          strings.TrimSpace(p.Visit.StaffID),
 		VisitType:        visitType,
 		AnimalWeight:     p.Visit.AnimalWeight,
+		Temperature:      p.Visit.Temperature,
+		Vitals:           strings.TrimSpace(p.Visit.Vitals),
 		Date:             visitDate,
 		NextVisitDate:    nextVisitDate,
 		PatientCondition: patCond,
@@ -391,12 +396,13 @@ func (a *app) handleCreateFullVisit(w http.ResponseWriter, r *http.Request) {
 	// ("2026-07-17 12:00:00 +0000 UTC"), который не разбирает SQLite.
 	days, until := resolveTreatment(p.Visit.TreatmentDays, visit.Date)
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO visits (id, pet_id, staff_id, visit_type, animal_weight, date, next_visit_date,
+		`INSERT INTO visits (id, pet_id, staff_id, visit_type, animal_weight, temperature, vitals, date, next_visit_date,
 		                     treatment_days, treatment_until, discount, discount_reason, payment_card,
 		                     patient_condition, anamnesis, diagnosis, treatment, notes,
 		                     total_amount, status, created_at, updated_at, version)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-		visit.ID, visit.PetID, nullableString(visit.StaffID), visitType, visit.AnimalWeight, T(visit.Date), Tp(nextVisitDate),
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+		visit.ID, visit.PetID, nullableString(visit.StaffID), visitType, visit.AnimalWeight,
+		visit.Temperature, nullableString(visit.Vitals), T(visit.Date), Tp(nextVisitDate),
 		days, Tp(until), visit.Discount, nullableString(visit.DiscountReason), p.Visit.PaymentCard,
 		nullableString(visit.PatientCondition), nullableString(visit.Anamnesis),
 		nullableString(visit.Diagnosis), nullableString(visit.Treatment),
@@ -596,6 +602,7 @@ const maxTreatmentDays = 365
 
 const visitSelectAll = `
 SELECT v.id, v.pet_id, COALESCE(v.staff_id,''), COALESCE(v.visit_type,'первичный'), v.animal_weight,
+       v.temperature, COALESCE(v.vitals,''),
        v.date, v.next_visit_date, COALESCE(v.treatment_days,0), v.treatment_until,
        COALESCE(v.patient_condition,''), COALESCE(v.anamnesis,''),
        COALESCE(v.diagnosis,''), COALESCE(v.treatment,''), COALESCE(v.notes,''),
@@ -626,9 +633,10 @@ func scanVisit(s interface{ Scan(...interface{}) error }) (Visit, error) {
 	var v Visit
 	var createdAt, updatedAt, deletedAt timeScanner
 	var visitDate, nextVisitDate, treatmentUntil timeScanner
-	var animalWeight sql.NullFloat64
+	var animalWeight, temperature sql.NullFloat64
 	err := s.Scan(
 		&v.ID, &v.PetID, &v.StaffID, &v.VisitType, &animalWeight,
+		&temperature, &v.Vitals,
 		&visitDate, &nextVisitDate, &v.TreatmentDays, &treatmentUntil,
 		&v.PatientCondition, &v.Anamnesis, &v.Diagnosis, &v.Treatment, &v.Notes,
 		&v.TotalAmount, &v.Discount, &v.DiscountReason, &v.PaymentCard, &v.ChangeLog, &createdAt, &updatedAt, &deletedAt,
@@ -637,6 +645,7 @@ func scanVisit(s interface{ Scan(...interface{}) error }) (Visit, error) {
 	if err != nil {
 		return Visit{}, err
 	}
+	if temperature.Valid { v.Temperature = &temperature.Float64 }
 	if visitDate.t != nil     { v.Date = *visitDate.t }
 	if nextVisitDate.t != nil { v.NextVisitDate = nextVisitDate.t }
 	v.TreatmentUntil = treatmentUntil.ptr()
@@ -702,6 +711,8 @@ func visitFromPayload(p createVisitPayload) (Visit, error) {
 		StaffID:          strings.TrimSpace(p.StaffID),
 		VisitType:        visitType,
 		AnimalWeight:     p.AnimalWeight,
+		Temperature:      p.Temperature,
+		Vitals:           strings.TrimSpace(p.Vitals),
 		Date:             d,
 		PatientCondition: cond,
 		Anamnesis:        strings.TrimSpace(p.Anamnesis),

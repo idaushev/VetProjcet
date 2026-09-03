@@ -1155,6 +1155,12 @@
     <div class="visit-section-body" id="vf-pet-area"><div class="text-sm text-muted">Сначала укажите владельца</div></div>
   </div>
 
+  <!-- VET-013: аллергии и непереносимости. Отдельной полосой ПОВЕРХ формы, а
+       не полем в карточке животного: это предупреждение, и увидеть его надо
+       до того, как назначен препарат, а не когда специально пошёл смотреть.
+       Наполняется VetPages.renderPetAllergies. -->
+  <div id="visit-allergy"></div>
+
   <!-- VET-001: контекст пациента. Свёрнут по умолчанию — форма приёма и без
        того длинная (UX-009), а нужен он не всегда. Наполняется
        VetPages.renderVisitContext, когда животное выбрано. -->
@@ -1204,6 +1210,22 @@
         <div class="form-group" style="flex:0 0 140px;">
           <label class="form-label">Вес животного (кг)</label>
           <input id="f-animal-weight" class="form-input" type="number" step="0.1" min="0" value="${esc(weight)}" placeholder="0.0">
+        </div>
+        <!-- VET-009 (ответ клиники на вопрос 9: «всегда разные, чаще всего вес
+             и температура»). Температура — отдельным числом: по ней нужна
+             динамика, как по весу. Остальные показатели у клиники непостоянны,
+             поэтому НЕ навязываем список полей: свободная строка «показатель:
+             значение», которую заполняют, только когда мерили. -->
+        <div class="form-group" style="flex:0 0 150px;">
+          <label class="form-label">Температура (°C)</label>
+          <input id="f-temperature" class="form-input" type="number" step="0.1" min="30" max="45"
+                 value="${esc(prefill.temperature != null ? prefill.temperature : '')}" placeholder="38.5">
+        </div>
+        <div class="form-group" style="flex:1 1 240px;">
+          <label class="form-label">Другие показатели</label>
+          <input id="f-vitals" class="form-input" maxlength="300"
+                 value="${esc(prefill.vitals || '')}"
+                 placeholder="пульс 120, ЧДД 28, СНК 2с">
         </div>
         <!-- VET-003. Отметка «дописан ли приём». По умолчанию включена: приём,
              который врач сохраняет, обычно закончен, и поведение остаётся
@@ -1808,7 +1830,8 @@
             ownerNew: vs.ownerNew, petNew: vs.petNew,
             date: vs.date, next_visit_date: vs.next_visit_date,
             treatment_days: vs.treatment_days, visit_type: vs.visit_type,
-            animal_weight: vs.animal_weight, patient_condition: vs.condition,
+            animal_weight: vs.animal_weight, temperature: vs.temperature, vitals: vs.vitals,
+      patient_condition: vs.condition,
             anamnesis: vs.anamnesis, diagnosis: vs.diagnosis,
             treatment: vs.treatment, notes: vs.notes,
             staff_id: vs.staff_id, discount: vs.discount,
@@ -1896,6 +1919,11 @@
       status:(document.getElementById('f-visit-done')||{checked:true}).checked?'completed':'draft',
       visit_type:document.getElementById('f-visit-type')?document.getElementById('f-visit-type').value:'первичный',
       animal_weight:aw,
+      // VET-009: пустое поле — это «не мерили», а не «ноль градусов»,
+      // поэтому null, а не 0. Иначе в динамике появилась бы ложная точка.
+      temperature:(function(){ var t=document.getElementById('f-temperature');
+        var v=t?parseFloat(t.value):NaN; return isNaN(v)?null:v; })(),
+      vitals:document.getElementById('f-vitals')?document.getElementById('f-vitals').value.trim():'',
       condition:document.getElementById('f-condition')?document.getElementById('f-condition').value:'',
       anamnesis:document.getElementById('f-anamnesis')?document.getElementById('f-anamnesis').value.trim():'',
       diagnosis:document.getElementById('f-diagnosis')?document.getElementById('f-diagnosis').value.trim():'',

@@ -71,6 +71,8 @@ type Pet struct {
 	DeathReason string     `json:"death_reason,omitempty"`
 	Notes       string     `json:"notes,omitempty"`
 	Photo       string     `json:"photo,omitempty"` // base64 data URL
+	// Аллергии и непереносимости — предупреждение, а не заметка (VET-013).
+	Allergies      string     `json:"allergies,omitempty"`
 	SyncMeta
 }
 
@@ -100,6 +102,10 @@ type Visit struct {
 	// не закончена (ждём анализ, диагноз под вопросом). Информационный: на
 	// выручку, отчёты и права не влияет.
 	Status           string     `json:"status,omitempty"`
+	// VET-009: температура отдельным числом (нужна динамика), прочие
+	// показатели — свободными парами «название: значение».
+	Temperature    *float64   `json:"temperature,omitempty"`
+	Vitals         string     `json:"vitals,omitempty"`
 	SyncMeta
 }
 
@@ -267,6 +273,8 @@ type createVisitPayload struct {
 	StaffID          string   `json:"staff_id,omitempty"`
 	VisitType        string   `json:"visit_type,omitempty"`
 	AnimalWeight     *float64 `json:"animal_weight,omitempty"`
+	Temperature      *float64 `json:"temperature,omitempty"`
+	Vitals           string   `json:"vitals,omitempty"`
 	Date             string   `json:"date"`
 	NextVisitDate    string   `json:"next_visit_date,omitempty"`
 	// nil = поле не прислали (старый клиент) → курс не трогаем.
@@ -335,6 +343,8 @@ type visitPayloadShort struct {
 	StaffID          string   `json:"staff_id,omitempty"`
 	VisitType        string   `json:"visit_type,omitempty"`
 	AnimalWeight     *float64 `json:"animal_weight,omitempty"`
+	Temperature      *float64 `json:"temperature,omitempty"`
+	Vitals           string   `json:"vitals,omitempty"`
 	NextVisitDate    string   `json:"next_visit_date,omitempty"`
 	TreatmentDays    int      `json:"treatment_days,omitempty"`
 	Discount         float64  `json:"discount,omitempty"`
@@ -419,6 +429,7 @@ type petSyncRecord struct {
 	Status      string   `json:"status"`
 	DeathDate   *string  `json:"death_date"`  // "" или null → nil
 	DeathReason string   `json:"death_reason"`
+	Allergies      string  `json:"allergies"`
 	Notes       string   `json:"notes"`
 	Photo       string   `json:"photo"`
 	UpdatedAt   string   `json:"updated_at"`
@@ -515,6 +526,8 @@ type visitSyncRecord struct {
 	StaffID          string   `json:"staff_id"`
 	VisitType        string   `json:"visit_type"`
 	AnimalWeight     *float64 `json:"animal_weight"`
+	Temperature      *float64 `json:"temperature"`
+	Vitals           string   `json:"vitals"`
 	Date             string   `json:"date"`
 	NextVisitDate    *string  `json:"next_visit_date"`
 	// Указатель, а не int, намеренно: nil = поле не прислали (планшет со старой

@@ -202,14 +202,14 @@ func (a *app) createPet(w http.ResponseWriter, r *http.Request) {
 	if _, err := a.db.ExecContext(ctx,
 		`INSERT INTO pets (id, owner_id, name, type, gender, birth_date, age, breed, color, chip_number, chip_date,
 		                   id_method, tanba_number, tanba_at, keep_address, sterilized, sterilized_at, photo, weight,
-		                   status, notes, created_at, updated_at, version)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, 1)`,
+		                   status, notes, allergies, created_at, updated_at, version)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, 1)`,
 		pet.ID, pet.OwnerID, pet.Name, pet.Type, pet.Gender,
 		nullableTime(pet.BirthDate), pet.Age, nullableString(pet.Breed),
 		nullableString(pet.Color), nullableString(pet.ChipNumber), nullableTime(pet.ChipDate),
 		nullableString(pet.IDMethod), nullableString(pet.TanbaNumber), nullableTime(pet.TanbaAt),
 		nullableString(pet.KeepAddress), pet.Sterilized, nullableTime(pet.SterilizedAt), pet.Photo,
-		pet.Weight, nullableString(pet.Notes),
+		pet.Weight, nullableString(pet.Notes), nullableString(pet.Allergies),
 		now, now,
 	); err != nil {
 		if other, dup := a.petByChip(ctx, pet.ChipNumber, pet.ID); dup {
@@ -265,7 +265,9 @@ func (a *app) updatePet(w http.ResponseWriter, r *http.Request, id string) {
 		                 chip_date=CASE WHEN ?='' THEN NULL ELSE COALESCE(?, chip_date, ?) END,
 		                 id_method=?, tanba_number=?, tanba_at=?, keep_address=?,
 		                 sterilized=?, sterilized_at=?,
-		                 photo=?, weight=?, notes=?, updated_at=?, version=version+1
+		                 photo=?, weight=?, notes=?,
+		                 allergies=COALESCE(?, allergies),
+		                 updated_at=?, version=version+1
 		 WHERE id=? AND is_deleted=0`,
 		pet.OwnerID, pet.Name, pet.Type, pet.Gender,
 		nullableTime(pet.BirthDate), pet.Age,
@@ -274,7 +276,8 @@ func (a *app) updatePet(w http.ResponseWriter, r *http.Request, id string) {
 		nullableString(pet.IDMethod), nullableString(pet.TanbaNumber), nullableTime(pet.TanbaAt),
 		nullableString(pet.KeepAddress), pet.Sterilized, nullableTime(pet.SterilizedAt),
 		pet.Photo,
-		pet.Weight, nullableString(pet.Notes), T(nowUTC()), id,
+		pet.Weight, nullableString(pet.Notes), nullableString(pet.Allergies),
+		T(nowUTC()), id,
 	)
 	if err != nil {
 		if other, dup := a.petByChip(ctx, pet.ChipNumber, id); dup {
@@ -441,7 +444,7 @@ func scanPetRow(s interface{ Scan(...interface{}) error }) (Pet, error) {
 		&birthDate, &age, &p.Breed, &p.Color, &p.ChipNumber, &chipDate,
 		&p.IDMethod, &p.TanbaNumber, &tanbaAt, &p.KeepAddress, &p.Sterilized, &sterilizedAt,
 		&p.Photo, &weight,
-		&p.Status, &deathDate, &p.DeathReason, &p.Notes,
+		&p.Status, &deathDate, &p.DeathReason, &p.Notes, &p.Allergies,
 		&createdAt, &updatedAt, &deletedAt,
 		&p.IsDeleted, &p.DeviceID, &p.Version,
 	)
