@@ -277,7 +277,17 @@
   function _parkCurrentModal(cfg) {
     var cur = document.getElementById('modal-overlay');
     var depth = _modalStack.length;
-    var title = (cur.querySelector('.modal-title') || {}).textContent || '';
+    // Заголовок собираем по кускам с пробелом: в приёме он состоит из
+    // нескольких span, разделённых ОТСТУПОМ, а не пробелом — textContent
+    // склеивал бы их в «ПриёмДжек».
+    var titleEl = cur.querySelector('.modal-title');
+    var title = '';
+    if (titleEl) {
+      title = (titleEl.children.length
+        ? Array.prototype.map.call(titleEl.childNodes, function (n) { return (n.textContent || '').trim(); })
+              .filter(Boolean).join(' ')
+        : (titleEl.textContent || '')).replace(/\s+/g, ' ').trim();
+    }
 
     _renameChrome(cur, true, depth);
     cur.id = 'parked' + depth + '-modal-overlay';

@@ -952,6 +952,14 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 .vpeek-label { color: var(--text-3); font-size: var(--fs-sm); }
 .vpeek-val { white-space: pre-wrap; }
 @media (max-width: 767px) { .vpeek-row { grid-template-columns: 1fr; gap: 2px; } }
+/* VET-015: незакрытые задачи по этому пациенту — прямо в контексте приёма. */
+.vctx-tasks { display: flex; flex-direction: column; gap: var(--sp-1); margin-bottom: var(--sp-3); }
+.vctx-task {
+  display: flex; align-items: center; gap: var(--sp-2);
+  font-size: var(--fs-sm); color: var(--text-2);
+}
+.vctx-task .icon { width: 14px; height: 14px; opacity: .6; flex-shrink: 0; }
+.vctx-task > span:first-of-type { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 767px) { .vacc-inline-grid { grid-template-columns: 1fr; } }
 /* Узкий экран: в одну строку четыре элемента не помещаются — раскладываем. */
 @media (max-width: 767px) {

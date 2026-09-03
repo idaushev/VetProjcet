@@ -748,6 +748,17 @@ var migrations = []string{
 	    version    INTEGER NOT NULL DEFAULT 1
 	)`,
 
+	// VET-015: задача «позвонить через три дня, спросить про переносимость»
+	// заводилась на владельца — без животного и без приёма, и исполнитель не
+	// понимал, о каком случае речь. Ссылки необязательные: организационные
+	// задачи («заказать корм») к пациенту не относятся.
+	// Идут СРАЗУ ПОСЛЕ создания tasks: сама таблица тоже заводится миграцией,
+	// и ALTER выше по списку падал бы с «no such table».
+	`ALTER TABLE tasks ADD COLUMN pet_id TEXT`,
+	`ALTER TABLE tasks ADD COLUMN visit_id TEXT`,
+	`CREATE INDEX IF NOT EXISTS idx_tasks_pet ON tasks(pet_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_tasks_visit ON tasks(visit_id)`,
+
 	// Справочник диагнозов с готовым текстом лечения и рекомендаций.
 	// Врач выбирает диагноз — система подставляет заготовку, врач правит.
 	// Это же даёт статистику «частые диагнозы»: сейчас diagnosis — свободная

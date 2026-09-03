@@ -23,6 +23,9 @@ type Task struct {
 	Done     int     `json:"done"`
 	OwnerRef string  `json:"owner_ref"`
 	StaffID  string  `json:"staff_id"`
+	// Ссылки на случай: пусто у организационных задач.
+	PetID    string  `json:"pet_id,omitempty"`
+	VisitID  string  `json:"visit_id,omitempty"`
 	SyncMeta
 }
 
@@ -31,6 +34,7 @@ func (t Task) recordID() string { return t.ID }
 const taskSelectAll = `
 SELECT id, title, COALESCE(note,''), due_date, COALESCE(done,0),
        COALESCE(owner_ref,''), COALESCE(staff_id,''),
+       COALESCE(pet_id,''), COALESCE(visit_id,''),
        created_at, updated_at, deleted_at, is_deleted,
        COALESCE(device_id,''), COALESCE(version,1)
 FROM tasks`
@@ -39,6 +43,7 @@ func scanTask(rows *sql.Rows) (Task, error) {
 	var t Task
 	var due, created, updated, deleted timeScanner
 	err := rows.Scan(&t.ID, &t.Title, &t.Note, &due, &t.Done, &t.OwnerRef, &t.StaffID,
+		&t.PetID, &t.VisitID,
 		&created, &updated, &deleted, &t.IsDeleted, &t.DeviceID, &t.Version)
 	if err != nil {
 		return t, err
@@ -88,6 +93,8 @@ func (a *app) handleTasks(w http.ResponseWriter, r *http.Request) {
 			DueDate  string `json:"due_date"`
 			OwnerRef string `json:"owner_ref"`
 			StaffID  string `json:"staff_id"`
+			PetID    string `json:"pet_id"`
+			VisitID  string `json:"visit_id"`
 		}
 		if err := decodeJSON(r, &p); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -107,11 +114,13 @@ func (a *app) handleTasks(w http.ResponseWriter, r *http.Request) {
 		now := T(nowUTC())
 		_, err = a.db.ExecContext(ctx, `
 			INSERT INTO tasks (id, title, note, due_date, done, owner_ref, staff_id,
+			        pet_id, visit_id,
 			        created_at, updated_at, client_updated_at, is_deleted, version)
-			VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 0, 1)`,
+			VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 0, 1)`,
 			id, strings.TrimSpace(p.Title), strings.TrimSpace(p.Note),
 			Tp(parseSyncTimePtr(&p.DueDate)),
-			nullableString(p.OwnerRef), nullableString(p.StaffID), now, now, now)
+			nullableString(p.OwnerRef), nullableString(p.StaffID),
+			nullableString(p.PetID), nullableString(p.VisitID), now, now, now)
 		if err != nil {
 			a.logger.Printf("createTask: %v", err)
 			writeError(w, http.StatusInternalServerError, "Не удалось сохранить задачу")
@@ -211,6 +220,8 @@ type taskSyncRecord struct {
 	Done      int     `json:"done"`
 	OwnerRef  string  `json:"owner_ref"`
 	StaffID   string  `json:"staff_id"`
+	PetID     string  `json:"pet_id"`
+	VisitID   string  `json:"visit_id"`
 	UpdatedAt string  `json:"updated_at"`
 	DeletedAt *string `json:"deleted_at"`
 	IsDeleted int     `json:"is_deleted"`
@@ -232,16 +243,19 @@ func pushTask(ctx context.Context, db *sql.DB, rec taskSyncRecord) (bool, error)
 	clientAt := Tp(parseSyncTimePtr(&rec.UpdatedAt))
 	_, err = db.ExecContext(ctx, `
 		INSERT INTO tasks (id, title, note, due_date, done, owner_ref, staff_id,
+		        pet_id, visit_id,
 		        created_at, updated_at, deleted_at, is_deleted, device_id, version, client_updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		  title=excluded.title, note=excluded.note, due_date=excluded.due_date,
 		  done=excluded.done, owner_ref=excluded.owner_ref, staff_id=excluded.staff_id,
+		  pet_id=excluded.pet_id, visit_id=excluded.visit_id,
 		  updated_at=excluded.updated_at, deleted_at=excluded.deleted_at,
 		  is_deleted=excluded.is_deleted, device_id=excluded.device_id,
 		  version=excluded.version, client_updated_at=excluded.client_updated_at`,
 		rec.ID, rec.Title, rec.Note, Tp(parseSyncTimePtr(rec.DueDate)), rec.Done,
 		nullableString(rec.OwnerRef), nullableString(rec.StaffID),
+		nullableString(rec.PetID), nullableString(rec.VisitID),
 		serverNow, serverNow, Tp(parseSyncTimePtr(rec.DeletedAt)), rec.IsDeleted,
 		nullableString(rec.DeviceID), rec.Version, clientAt)
 	return err == nil, err

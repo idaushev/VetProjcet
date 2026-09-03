@@ -2083,15 +2083,37 @@
         }).join('')
       : '<div class="attach-empty">Это первый приём — прошлых записей нет</div>';
 
+    // VET-015: связанные задачи по этому пациенту — и возможность завести новую
+    // прямо отсюда, с привязкой к животному и приёму.
+    var tasks = [];
+    try {
+      tasks = (await window.VetDB.getAll('tasks'))
+        .filter(function (t) { return !t.is_deleted && !t.done && t.pet_id === petId; })
+        .sort(function (a, b) { return (a.due_date || '') > (b.due_date || '') ? 1 : -1; });
+    } catch (e) {}
+    var tasksHTML = tasks.length
+      ? '<div class="vctx-tasks">' + tasks.map(function (t) {
+          return '<div class="vctx-task">' + I('check')
+            + '<span>' + esc(t.title) + '</span>'
+            + (t.due_date ? '<span class="vctx-date">до ' + esc(fmtDate(t.due_date)) + '</span>' : '')
+            + '</div>';
+        }).join('') + '</div>'
+      : '';
+
     box.innerHTML = '<div class="visit-section' + (expanded ? '' : ' collapsed') + '" id="vs-context">'
       + '<div class="visit-section-header" data-act="ui.section" data-section="vs-context">'
       +   '<span class="visit-section-num">i</span><span>Контекст пациента</span>'
-      +   '<span class="vs-summary">' + (past.length ? 'приёмов: ' + visits.length : 'первый приём') + '</span>'
+      +   '<span class="vs-summary">' + (past.length ? 'приёмов: ' + visits.length : 'первый приём')
+      +     (tasks.length ? ' · задач: ' + tasks.length : '') + '</span>'
       +   '<span class="vs-toggle">▾</span>'
       + '</div>'
       + '<div class="visit-section-body">'
       +   (chips.length ? '<div class="vctx-chips">' + chips.join('') + '</div>' : '')
+      +   tasksHTML
       +   '<div class="vctx-list">' + listHTML + '</div>'
+      +   '<button type="button" class="btn btn-ghost btn-sm" data-act="task.forPet"'
+      +     ' data-pet="' + esc(petId) + '" data-owner="' + esc(pet.owner_id || '') + '"'
+      +     ' data-name="' + esc(pet.name || '') + '">' + I('plus') + ' Задача по пациенту</button>'
       + '</div></div>';
   }
 
@@ -2142,12 +2164,16 @@
   // вложения, только очередь тут не нужна: запись маленькая и уходит обычным
   // POST, который и сам умеет работать офлайн.
   var _vaccPending = null;   // { visitId, list: [payload], form: bool }
+  // Приём, форма которого открыта: нужен, чтобы задача из контекста
+  // привязалась не только к животному, но и к конкретному приёму.
+  var _curVisitId = '';
 
   function pendingVaccList(visitId) {
     return (_vaccPending && _vaccPending.visitId === visitId) ? _vaccPending.list : [];
   }
 
   async function renderVisitVaccinations(visitId, petId) {
+    _curVisitId = visitId || '';
     var box = document.getElementById('visit-vaccinations');
     if (!box) return;
     var saved = [];
@@ -4608,10 +4634,16 @@
     }
   }
 
-  function taskDialog(ownerId, prefillTitle) {
+  // VET-015. ctx — необязательный контекст случая {petId, visitId, petName}.
+  // Задача «позвонить через три дня, спросить про переносимость» без него
+  // висела на владельце, и исполнитель не понимал, о каком животном речь.
+  // stacked: диалог открывается ПОВЕРХ приёма, а не вместо него (F2).
+  function taskDialog(ownerId, prefillTitle, ctx) {
+    ctx = ctx || {};
     UI.showModal({
       title: 'Новая задача',
       size: 'lg',
+      stacked: true,
       bodyHTML:
         '<div class="form-stack">'
         + '<div class="form-group"><label class="form-label">Что сделать<span class="form-req">*</span></label>'
@@ -4620,6 +4652,10 @@
         + '<input id="task-due" class="form-input" type="date"></div>'
         + '<div class="form-group"><label class="form-label">Заметка</label>'
         + '<textarea id="task-note" class="form-textarea" rows="3"></textarea></div>'
+        + (ctx.petName
+            ? '<div class="text-sm text-muted">Задача по пациенту: <b>' + esc(ctx.petName) + '</b>'
+              + (ctx.visitId ? ' · привязана к этому приёму' : '') + '</div>'
+            : '')
         + '</div>',
       saveLabel: 'Создать',
       onSave: async function () {
@@ -4630,11 +4666,14 @@
             title: title.trim(),
             note: (document.getElementById('task-note') || {}).value.trim(),
             due_date: (document.getElementById('task-due') || {}).value || '',
-            owner_ref: ownerId || ''
+            owner_ref: ownerId || '',
+            pet_id: ctx.petId || '',
+            visit_id: ctx.visitId || ''
           });
           UI.hideModal();
           UI.toast('Задача создана', 'ok');
-          if (window.VetSync && VetSync.pullFull) { try { await VetSync.pullFull(); } catch (e) {} }
+          // Инкрементально: тянуть всю базу ради одной задачи незачем (TECH-001).
+          if (window.VetSync && VetSync.pullSync) { try { await VetSync.pullSync(); } catch (e) {} }
           window.dispatchEvent(new Event('vetdata:changed'));
           if ((document.querySelector('.page.active') || {}).id === 'page-dashboard') initDashboard();
         } catch (e) {
@@ -6733,6 +6772,11 @@
       'attach.dropPending':    function (el) { dropPendingAttachment(el.dataset.visit, el.dataset.idx); },
       'attach.preview':        function (el) { previewAttachment(el.dataset.id, el.dataset.name); },
       'visit.peek':            function (el) { peekVisit(el.dataset.id); },
+      'task.forPet':           function (el) {
+        // visitId проставляем только у сохранённого приёма: у нового id ещё нет.
+        var vid = (_curVisitId && !isDraftVisitKey(_curVisitId)) ? _curVisitId : '';
+        taskDialog(el.dataset.owner, '', { petId: el.dataset.pet, visitId: vid, petName: el.dataset.name });
+      },
       'vacc.inlineOpen':       function (el) { openVaccInline(el.dataset.visit, el.dataset.pet); },
       'vacc.inlineCancel':     function (el) { cancelVaccInline(el.dataset.visit, el.dataset.pet); },
       'vacc.inlineAdd':        function (el) { addVaccInline(el.dataset.visit, el.dataset.pet); },
