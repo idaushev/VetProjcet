@@ -124,6 +124,18 @@
   // ── setupSearch — подключает live-поиск к полю ввода ─────────────────
   // inputId: id элемента <input type="search">
   // renderFn: функция рендера списка, принимает строку запроса
+  // UX-021. Фильтры и строка поиска раздела намеренно переживают переход:
+  // вернувшись из карточки владельца, регистратор должен увидеть тот же
+  // отобранный список, а не отбирать заново. Но АДРЕСНЫЙ переход — плитка
+  // «Приёмов сегодня», «На лечении», «Вакцинаций на неделе» — это обещание
+  // показать конкретный срез. Оставшийся с прошлого раза поиск молча сужал
+  // его: плитка показывает 3, а список — «Ничего не найдено». Поэтому такие
+  // переходы строку поиска очищают, обычная навигация — нет.
+  function clearSectionSearch(inputId) {
+    var el = document.getElementById(inputId);
+    if (el) el.value = '';
+  }
+
   function setupSearch(inputId, renderFn) {
     var el = document.getElementById(inputId);
     if (!el) return;
@@ -483,7 +495,11 @@
     _owners = owners || [];
     _petsMap = buildMap(pets || []);
     _ownersLimit = 60;
-    renderOwnerList(_owners, '');
+    // Без второго аргумента renderOwnerList берёт запрос из самого поля.
+    // Раньше здесь стояла явная пустая строка, и при возврате в раздел список
+    // рисовался НЕотфильтрованным, хотя в поле поиска запрос оставался:
+    // управление говорило «отобрано», содержимое показывало всё.
+    renderOwnerList(_owners);
     setupSearch('search-owners', function(q){ _ownersLimit = 60; renderOwnerList(_owners, q); });
     document.getElementById('btn-add-owner').onclick = addOwner;
   }
@@ -629,12 +645,18 @@
     _pets = pets || [];
     _ownersMap = buildMap(owners || []);
     _coursesByPet = buildCourses(visits);
-    renderPetList();
     _petsLimit = 60;
     setupSearch('search-pets', function(q){ _petsLimit = 60; renderPetList(); });
 
-    document.getElementById('filter-pet-status').onchange = function() { _petStatusFilter = this.value; _petsLimit = 60; renderPetList(); };
+    // Список рисуется по _petStatusFilter, а человек видит селект: сводим их
+    // при каждом входе в раздел. Иначе они могли разойтись — ровно тот же
+    // разлад «управление говорит одно, содержимое показывает другое», что был
+    // у владельцев.
+    var statusSel = document.getElementById('filter-pet-status');
+    statusSel.value = _petStatusFilter;
+    statusSel.onchange = function() { _petStatusFilter = this.value; _petsLimit = 60; renderPetList(); };
     document.getElementById('btn-add-pet').onclick = addPet;
+    renderPetList();
 
     // Owner filter
     var ownerFilter = document.getElementById('filter-owner-id');
@@ -822,14 +844,12 @@
 
     var dateFilter = document.getElementById('visit-date-filter');
     if (dateFilter) {
-      // Активируем нужную кнопку фильтра
+      syncVisitPeriodButtons();
       dateFilter.querySelectorAll('.filter-btn').forEach(function(btn) {
-        btn.classList.toggle('active', btn.dataset.period === _visitDateFilter);
         btn.onclick = function() {
-          dateFilter.querySelectorAll('.filter-btn').forEach(function(b){ b.classList.remove('active'); });
-          btn.classList.add('active');
           _visitDateFilter = btn.dataset.period;
           _visitRenderLimit = 60;
+          syncVisitPeriodButtons();
           renderVisitList();
         };
       });
@@ -850,6 +870,16 @@
     }
 
     document.getElementById('btn-add-visit').onclick = newVisit;
+  }
+
+  // Подсветка кнопок периода по текущему _visitDateFilter. Отдельной функцией,
+  // потому что период задаёт не только клик по кнопке, но и переход с дашборда.
+  function syncVisitPeriodButtons() {
+    var box = document.getElementById('visit-date-filter');
+    if (!box) return;
+    box.querySelectorAll('.filter-btn').forEach(function(b){
+      b.classList.toggle('active', b.dataset.period === _visitDateFilter);
+    });
   }
 
   function renderVisitList() {
@@ -1468,12 +1498,11 @@
     _vacPetsMap   = buildMap(pets || []);
     var vdateFilter = document.getElementById('vacc-date-filter');
     if (vdateFilter) {
+      syncVaccDateButtons();
       vdateFilter.querySelectorAll('.filter-btn').forEach(function(btn) {
-        btn.classList.toggle('active', btn.dataset.vdate === _vaccDateFilter);
         btn.onclick = function() {
-          vdateFilter.querySelectorAll('.filter-btn').forEach(function(b){ b.classList.remove('active'); });
-          btn.classList.add('active');
           _vaccDateFilter = btn.dataset.vdate;
+          syncVaccDateButtons();
           renderVaccinationList();
         };
       });
@@ -1481,6 +1510,14 @@
     renderVaccinationList();
     setupSearch('search-vaccinations', function(q){ renderVaccinationList(); });
     document.getElementById('btn-add-vaccination').onclick = addVaccination;
+  }
+
+  function syncVaccDateButtons() {
+    var box = document.getElementById('vacc-date-filter');
+    if (!box) return;
+    box.querySelectorAll('.filter-btn').forEach(function(b){
+      b.classList.toggle('active', b.dataset.vdate === _vaccDateFilter);
+    });
   }
 
   function renderVaccinationList() {
@@ -5444,25 +5481,55 @@
     inp.click();
   }
 
+  // Переходы с плиток дашборда. Каждый обещает конкретный срез, поэтому
+  // задаёт СВОЙ фильтр и снимает всё, что срез сузило бы вопреки обещанию
+  // (см. clearSectionSearch). Раздел может быть уже открыт — тогда navigate
+  // выходит рано и init не зовётся, поэтому применяем и сами: иначе плитка
+  // на своей же странице не делала бы ничего.
   function goVisitsToday() {
-    var btn = document.querySelector('[data-period="today"]');
-    if (btn) btn.click();
+    var already = document.getElementById('page-visits').classList.contains('active');
+    _pendingVisitFilter  = 'today';
+    _visitDoctorFilter   = '';   // плитка считает всех врачей, а не выбранного
+    _visitRenderLimit    = 60;
+    clearSectionSearch('search-visits');
+    var docSel = document.getElementById('visit-doctor-filter');
+    if (docSel) docSel.value = '';
     navigate('visits');
+    if (already) {
+      _visitDateFilter = _pendingVisitFilter; _pendingVisitFilter = null;
+      syncVisitPeriodButtons();
+      renderVisitList();
+    }
   }
 
   function goVaccThisWeek() {
+    var already = document.getElementById('page-vaccinations').classList.contains('active');
     // Ставим фильтр до перехода: initVaccinations заберёт его при инициализации.
     _pendingVaccFilter = 'week';
+    clearSectionSearch('search-vaccinations');
     navigate('vaccinations');
+    if (already) {
+      _vaccDateFilter = _pendingVaccFilter; _pendingVaccFilter = null;
+      syncVaccDateButtons();
+      renderVaccinationList();
+    }
   }
 
   // Переход к списку животных с активным курсом лечения — фильтр «На лечении».
+  // Раньше значение выставлялось через setTimeout(250): гонка с initPets,
+  // который ждёт три запроса и мог отрисовать список уже после. Теперь состояние
+  // задаётся синхронно, а рисует его init (или мы сами, если раздел уже открыт).
   function goOnTreatment() {
+    var already = document.getElementById('page-pets').classList.contains('active');
+    _petStatusFilter = 'on-treatment';
+    _petsLimit = 60;
+    clearSectionSearch('search-pets');
+    var f = document.getElementById('filter-pet-status');
+    if (f) f.value = 'on-treatment';
+    var owf = document.getElementById('filter-owner-id');
+    if (owf) owf.value = '';
     navigate('pets');
-    setTimeout(function(){
-      var f = document.getElementById('filter-pet-status');
-      if (f) { f.value = 'on-treatment'; f.dispatchEvent(new Event('change')); }
-    }, 250);
+    if (already) renderPetList();
   }
 
   function generateDailyReport(dateStr) {
