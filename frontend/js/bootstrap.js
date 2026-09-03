@@ -139,6 +139,10 @@
   // Если форма грязная, requestHideModal спросит; при отказе возвращаем запись
   // модалки в историю, чтобы следующий «назад» снова вёл к ней, а не мимо.
   window.addEventListener('popstate', function (e) {
+    // F2: закрытие верхней модалки стека само снимает свою запись истории.
+    // Пришедший от этого popstate — не действие пользователя, и обрабатывать
+    // его нельзя: иначе один возврат закрыл бы и нижнюю модалку тоже.
+    if (window.VetUI && VetUI.consumeSelfBack && VetUI.consumeSelfBack()) return;
     var ov = document.getElementById('modal-overlay');
     if (ov && ov.classList.contains('open')) {
       if (window.VetUI && VetUI.requestHideModal) {

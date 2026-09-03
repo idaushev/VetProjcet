@@ -242,9 +242,96 @@
   }
 
   // ── Modal ──────────────────────────────────────────────────────────────
+  // ── F2/UX-022: стек модалок ──────────────────────────────────────────
+  //
+  // Раньше showModal переписывал содержимое ЕДИНСТВЕННОЙ модалки, и любая
+  // попытка заглянуть в связанную сущность из открытой формы уничтожала форму.
+  // Обходной путь был такой: закрыть, посмотреть, открыть заново и восстановить
+  // черновик.
+  //
+  // Ключевое решение — НЕ пытаться сохранить и восстановить содержимое.
+  // Введённое пользователем живёт в DOM (value полей, а не в разметке), и
+  // «сохранить innerHTML» потеряло бы ровно то, ради чего всё затевается.
+  // Поэтому нижняя модалка НЕ трогается вообще: она остаётся в DOM как есть,
+  // а поверх появляется новая. Возврат — просто удаление верхней.
+  //
+  // Служебные id (modal, modal-title, modal-body, modal-footer, кнопки) на
+  // время парковки переименовываются: getElementById обязан находить ВЕРХНЮЮ
+  // модалку, иначе снимок формы и подсветка кнопок уедут в нижнюю.
+  var _modalStack = [];
+  // Взведён на время нашего собственного history.back() — см. hideModal.
+  var _selfBack = false;
+  function consumeSelfBack() { var v = _selfBack; _selfBack = false; return v; }
+  var CHROME_IDS = ['modal', 'modal-title', 'modal-body', 'modal-footer',
+                    'modal-close-btn', 'modal-save-btn'];
+
+  function _renameChrome(root, toParked, depth) {
+    CHROME_IDS.forEach(function (id) {
+      var from = toParked ? id : ('parked' + depth + '-' + id);
+      var to   = toParked ? ('parked' + depth + '-' + id) : id;
+      var el = root.querySelector('[id="' + from + '"]');
+      if (el) el.id = to;
+    });
+  }
+
+  function _parkCurrentModal(cfg) {
+    var cur = document.getElementById('modal-overlay');
+    var depth = _modalStack.length;
+    var title = (cur.querySelector('.modal-title') || {}).textContent || '';
+
+    _renameChrome(cur, true, depth);
+    cur.id = 'parked' + depth + '-modal-overlay';
+    cur.classList.add('modal-parked');
+    _modalStack.push({
+      el: cur, depth: depth, title: title,
+      guard: _modalGuard, snapshot: _modalSnapshot,
+      extraDirty: _modalExtraDirty, onClose: _modalOnClose
+    });
+
+    var next = document.createElement('div');
+    next.className = 'modal-overlay';
+    next.id = 'modal-overlay';
+    next.innerHTML =
+        '<div class="modal" id="modal">'
+      +   '<div class="modal-header">'
+      +     '<h2 class="modal-title" id="modal-title"></h2>'
+      +     '<button class="modal-close" id="modal-close-btn" aria-label="Закрыть">&times;</button>'
+      +   '</div>'
+      +   '<div class="modal-body" id="modal-body"></div>'
+      +   '<div class="modal-footer" id="modal-footer"></div>'
+      + '</div>';
+    document.body.appendChild(next);
+    // Крестик у базовой модалки слушают из bootstrap.js, у новой обработчика
+    // ещё нет — вешаем здесь, иначе закрыть её было бы нечем.
+    next.querySelector('#modal-close-btn').onclick = function () { requestHideModal(); };
+    return next;
+  }
+
+  // Возврат: удаляем верхнюю, нижняя оживает нетронутой — со всеми введёнными
+  // значениями, потому что её DOM никто не перестраивал.
+  function _popModal() {
+    var top = document.getElementById('modal-overlay');
+    var st = _modalStack.pop();
+    if (top && top !== st.el) top.remove();
+    st.el.id = 'modal-overlay';
+    st.el.classList.remove('modal-parked');
+    _renameChrome(st.el, false, st.depth);
+    _modalGuard = st.guard; _modalSnapshot = st.snapshot;
+    _modalExtraDirty = st.extraDirty; _modalOnClose = st.onClose;
+  }
+
+  function modalDepth() { return _modalStack.length; }
+
   function showModal(cfg) {
-    var overlay = document.getElementById('modal-overlay');
+    // stacked: показать поверх, не разрушая открытую форму. Осмысленно только
+    // когда что-то уже открыто — иначе это обычная модалка.
+    var base = document.getElementById('modal-overlay');
+    if (cfg.stacked && base && base.classList.contains('open')) {
+      base = _parkCurrentModal(cfg);
+    }
+    var overlay = base;
     var modal   = overlay.querySelector('.modal');
+    overlay.classList.toggle('modal-stacked', _modalStack.length > 0);
 
     // Сбрасываем inline-стили от предыдущей модалки
     // (showOwnerCard/showPetCard скрывают header/footer через style.display)
@@ -259,11 +346,28 @@
     // Печать приёма), — сносим при открытии ЛЮБОЙ новой модалки. Иначе они
     // «протекают»: открыв приём, а потом карточку препарата, видишь чужую
     // «Историю изменений», зовущую showVisitHistory старого приёма.
+    // Ищем ТОЛЬКО в текущей модалке: document.getElementById нашёл бы и
+    // припаркованную нижнюю, и открытие карточки поверх приёма стирало бы у
+    // приёма его «Историю/Копировать/Печать» — на возврате их бы не стало.
     ['modal-visit-hist-btn','modal-visit-copy-btn','modal-visit-print-btn'].forEach(function(bid){
-      var b; while ((b = document.getElementById(bid)) && b.parentNode) b.parentNode.removeChild(b);
+      var b; while ((b = overlay.querySelector('[id="'+bid+'"]')) && b.parentNode) b.parentNode.removeChild(b);
     });
 
     overlay.querySelector('#modal-title').textContent = cfg.title||'';
+    // Виден путь возврата: человек должен понимать, КУДА вернётся, а не просто
+    // что окно закроется. Заголовок нижней модалки — самое честное описание.
+    var backTo = _modalStack.length ? _modalStack[_modalStack.length - 1].title : '';
+    var oldBack = overlay.querySelector('.modal-back');
+    if (oldBack) oldBack.remove();
+    if (backTo) {
+      var back = document.createElement('button');
+      back.type = 'button';
+      back.className = 'modal-back';
+      back.innerHTML = '\u2190 ' + esc(backTo);
+      back.title = 'Вернуться: ' + backTo;
+      back.onclick = function () { requestHideModal(); };
+      overlay.querySelector('.modal-header').insertBefore(back, overlay.querySelector('#modal-title'));
+    }
     modal.className = 'modal'+(cfg.size?' modal-'+cfg.size:'');
     modalBody.innerHTML = cfg.bodyHTML||'';
     footer.innerHTML = '';
@@ -279,7 +383,8 @@
     // UX-015: своя запись в истории — чтобы «назад» (в т.ч. жест на планшете)
     // закрывал форму, а не уносил весь раздел. Адрес не меняем: модалка живёт
     // на той же странице.
-    if (!(window.history.state && window.history.state.vetModal)) {
+    // У КАЖДОГО уровня своя запись, иначе один «назад» снёс бы весь стек.
+    if (_modalStack.length || !(window.history.state && window.history.state.vetModal)) {
       try { window.history.pushState({ vetModal: true }, '', window.location.hash); } catch (e) {}
     }
 
@@ -326,6 +431,21 @@
     // внутри onClose что-то снова тронет модалку.
     var onClose = _modalOnClose; _modalOnClose = null;
     if (onClose) { try { onClose(); } catch (e) { console.warn('[VetUI] onClose:', e); } }
+
+    // Есть нижняя модалка — закрываем только верхнюю и возвращаемся к ней.
+    // Запись истории снимаем ниже общим кодом: у каждого уровня своя.
+    if (_modalStack.length) {
+      _popModal();
+      if (window.history.state && window.history.state.vetModal) {
+        // Свою запись истории снимаем сами. Обработчик popstate обязан этот
+        // шаг пропустить: иначе он увидит, что модалка (уже нижняя!) открыта,
+        // и закроет её следом — один возврат уносил бы сразу два уровня.
+        _selfBack = true;
+        try { window.history.back(); } catch (e) { _selfBack = false; }
+      }
+      return;
+    }
+
     document.getElementById('modal-overlay').classList.remove('open');
     // UX-015: снимаем свою запись из истории при обычном закрытии (крестик,
     // «Отмена», после сохранения). Когда закрытие пришло ИЗ «назад», запись
@@ -1024,6 +1144,11 @@
     </div>
     <div class="visit-section-body" id="vf-pet-area"><div class="text-sm text-muted">Сначала укажите владельца</div></div>
   </div>
+
+  <!-- VET-001: контекст пациента. Свёрнут по умолчанию — форма приёма и без
+       того длинная (UX-009), а нужен он не всегда. Наполняется
+       VetPages.renderVisitContext, когда животное выбрано. -->
+  <div id="visit-context"></div>
 
   <div class="visit-section" id="vs-data">
     <div class="visit-section-header" data-act="ui.section" data-section="vs-data">
@@ -1960,6 +2085,8 @@
     getVisitState:getVisitState,
     startVisitDraftAutosave:startVisitDraftAutosave,
     markModalDirty:markModalDirty,
+    modalDepth:modalDepth,
+    consumeSelfBack:consumeSelfBack,
     forceVisitDraft:forceVisitDraft,
     clearVisitDraft:clearVisitDraft,
     getVisitDraft:getVisitDraft,

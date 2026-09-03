@@ -899,6 +899,59 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 .res-series-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 .res-series-table td { padding: 3px var(--sp-2); border-bottom: 1px solid var(--border); }
 .res-series-cur { font-weight: 700; }
+
+/* ── F2/UX-022: стек модалок ──────────────────────────────────────────────
+   Нижняя модалка не разрушается, а «паркуется»: остаётся в DOM со всеми
+   введёнными значениями и просто уходит под верхнюю. Гасим её, чтобы фокус
+   внимания был наверху, и запрещаем клики — иначе можно было бы править
+   форму, которой сейчас не управляешь. */
+.modal-overlay.modal-parked {
+  filter: saturate(.6) brightness(.92);
+  pointer-events: none;
+}
+/* Путь возврата в шапке: видно, КУДА вернёшься, а не только что закроешь. */
+.modal-back {
+  background: none; border: none; cursor: pointer;
+  color: var(--accent); font: inherit; font-size: var(--fs-sm); font-weight: 600;
+  padding: var(--sp-1) var(--sp-2) var(--sp-1) 0;
+  max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex-shrink: 0;
+}
+.modal-back:hover { text-decoration: underline; }
+
+/* ── VET-001: контекст пациента в приёме ──────────────────────────────── */
+.vctx-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.vctx-chip {
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-3); border-radius: var(--r-full);
+  background: var(--bg-input); border: 1px solid var(--border);
+  font-size: var(--fs-sm); white-space: nowrap;
+}
+.vctx-chip[role=button] { cursor: pointer; }
+.vctx-chip[role=button]:hover { border-color: var(--accent); color: var(--accent); }
+.vctx-chip .icon { width: 14px; height: 14px; opacity: .6; }
+.vctx-note { white-space: normal; background: var(--warn-dim, var(--bg-input)); }
+.vctx-list { display: flex; flex-direction: column; }
+/* Строка прошлого приёма: дата · диагноз · назначение — ровно то, что врач
+   и пытался вспомнить, уходя из формы. */
+.vctx-visit {
+  display: grid; grid-template-columns: 92px minmax(0,1fr) minmax(0,1.2fr);
+  gap: var(--sp-3); align-items: baseline; cursor: pointer;
+  padding: var(--sp-2) var(--sp-1); border-bottom: 1px solid var(--border);
+  font-size: var(--fs-sm);
+}
+.vctx-visit:hover { background: var(--bg-hover); }
+.vctx-date { color: var(--text-3); white-space: nowrap; }
+.vctx-dx { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vctx-tx { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 767px) {
+  .vctx-visit { grid-template-columns: 1fr; gap: 2px; }
+}
+/* Просмотр прошлого приёма поверх формы — только чтение. */
+.vpeek-row { display: grid; grid-template-columns: 130px 1fr; gap: var(--sp-3); padding: var(--sp-2) 0; border-bottom: 1px solid var(--border); }
+.vpeek-label { color: var(--text-3); font-size: var(--fs-sm); }
+.vpeek-val { white-space: pre-wrap; }
+@media (max-width: 767px) { .vpeek-row { grid-template-columns: 1fr; gap: 2px; } }
 @media (max-width: 767px) { .vacc-inline-grid { grid-template-columns: 1fr; } }
 /* Узкий экран: в одну строку четыре элемента не помещаются — раскладываем. */
 @media (max-width: 767px) {

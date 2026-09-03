@@ -1021,13 +1021,18 @@
         UI.startVisitDraftAutosave('new', attachKey);
         renderAttachments(attachKey);
         renderVisitVaccinations(attachKey, prefillPet ? prefillPet.id : '');
+        renderVisitContext(prefillPet ? prefillPet.id : '', false);
         // Животное в новом приёме выбирают уже после открытия формы, а прививке
         // нужен pet_id — перерисовываем блок, когда выбор сделан.
         var petHook = setInterval(function () {
           if (!document.getElementById('vf-root')) { clearInterval(petHook); return; }
           var vs = UI.getVisitState();
           var pid = (vs.pet && vs.pet.id) || '';
-          if (pid !== _vaccPetId) { _vaccPetId = pid; renderVisitVaccinations(attachKey, pid); }
+          if (pid !== _vaccPetId) {
+            _vaccPetId = pid;
+            renderVisitVaccinations(attachKey, pid);
+            renderVisitContext(pid, false);   // VET-001: контекст выбранного пациента
+          }
         }, 1200);
       },
       // Уборка за формой: приём не создан — файлы к нему не привяжутся.
@@ -1180,6 +1185,7 @@
         // VET-007: прививки этого приёма. У сохранённого приёма id есть, поэтому
         // новая прививка пишется сразу, без промежуточного накопления.
         renderVisitVaccinations(id, visit.pet_id);
+        renderVisitContext(visit.pet_id, false);
 
         // Обновляем заголовок: добавляем имя питомца и кнопку печати
         var modalTitle = document.getElementById('modal-title');
@@ -2003,6 +2009,125 @@
       await window.VetDB.deleteRaw('attachment_queue', list[i].id);
     }
     return list.length;
+  }
+
+  // ── VET-001: контекст пациента внутри приёма ─────────────────────────
+  //
+  // Врач на повторном приёме вспоминает: «какой антибиотик я назначал две
+  // недели назад и какой был вес?» Раньше, чтобы ответить, он ЗАКРЫВАЛ форму,
+  // шёл в карточку животного, читал, возвращался и восстанавливал черновик.
+  // Чаще — не шёл вовсе и решал по памяти.
+  //
+  // Блок свёрнут: форма приёма и без того длинная (UX-009), и добавлять
+  // контекст простыней означало бы чинить одно, ломая другое. Развернул —
+  // увидел последние приёмы, вес, анализ и прививку; ткнул в приём — он
+  // открылся ПОВЕРХ формы (F2), не разрушив её.
+  async function renderVisitContext(petId, expanded) {
+    var box = document.getElementById('visit-context');
+    if (!box) return;
+    if (!petId) { box.innerHTML = ''; return; }
+
+    var all = await loadAll();
+    var pet = (all.pets || []).find(function (p) { return p.id === petId; });
+    if (!pet) { box.innerHTML = ''; return; }
+
+    var visits = (all.visits || [])
+      .filter(function (v) { return !v.is_deleted && v.pet_id === petId; })
+      .sort(function (a, b) { return (b.date || '') > (a.date || '') ? 1 : -1; });
+    var vaccs = (all.vaccinations || [])
+      .filter(function (v) { return !v.is_deleted && v.pet_id === petId; })
+      .sort(function (a, b) { return (b.administered_at || '') > (a.administered_at || '') ? 1 : -1; });
+    var results = [];
+    try {
+      results = (await window.VetDB.getAll('visit_results'))
+        .filter(function (r) { return !r.is_deleted && r.pet_id === petId && r.status === 'done'; })
+        .sort(function (a, b) {
+          var ax = a.filled_at || a.created_at || '', bx = b.filled_at || b.created_at || '';
+          return bx > ax ? 1 : -1;
+        });
+    } catch (e) {}
+
+    // Вес: последний известный и куда движется.
+    var weighed = visits.filter(function (v) { return Number(v.animal_weight) > 0; });
+    var wNow = weighed.length ? Number(weighed[0].animal_weight) : null;
+    var wPrev = weighed.length > 1 ? Number(weighed[1].animal_weight) : null;
+    var wDelta = (wNow != null && wPrev != null) ? Math.round((wNow - wPrev) * 100) / 100 : null;
+
+    var nextVacc = vaccs.filter(function (v) { return v.next_due_at; })
+                        .sort(function (a, b) { return (a.next_due_at || '') > (b.next_due_at || '') ? 1 : -1; })[0];
+
+    var chips = [];
+    if (wNow != null) {
+      chips.push('<span class="vctx-chip">' + I('scale') + ' ' + wNow + ' кг'
+        + (wDelta ? ' <b class="' + (wDelta > 0 ? 'res-up' : 'res-down') + '">'
+                    + (wDelta > 0 ? '+' : '') + wDelta + '</b>' : '') + '</span>');
+    }
+    if (results.length) {
+      chips.push('<span class="vctx-chip" data-act="result.view" data-id="' + esc(results[0].id) + '" role="button" tabindex="0">'
+        + I('clipboard') + ' ' + esc(results[0].title || 'Результат') + ' · ' + esc(fmtDate(results[0].filled_at || results[0].created_at)) + '</span>');
+    }
+    if (nextVacc) {
+      chips.push('<span class="vctx-chip">' + I('syringe') + ' ' + esc(nextVacc.vaccine_name)
+        + ' до ' + esc(fmtDate(nextVacc.next_due_at)) + '</span>');
+    }
+    if (pet.notes) chips.push('<span class="vctx-chip vctx-note">' + I('alert') + ' ' + esc(pet.notes.slice(0, 90)) + '</span>');
+
+    var past = visits.slice(0, 5);
+    var listHTML = past.length
+      ? past.map(function (v) {
+          return '<div class="vctx-visit" data-act="visit.peek" data-id="' + esc(v.id) + '" role="button" tabindex="0">'
+            + '<span class="vctx-date">' + esc(fmtDate(v.date)) + '</span>'
+            + '<span class="vctx-dx">' + esc(v.diagnosis || 'без диагноза') + '</span>'
+            + '<span class="vctx-tx">' + esc((v.treatment || '').slice(0, 70) || '—') + '</span>'
+            + '</div>';
+        }).join('')
+      : '<div class="attach-empty">Это первый приём — прошлых записей нет</div>';
+
+    box.innerHTML = '<div class="visit-section' + (expanded ? '' : ' collapsed') + '" id="vs-context">'
+      + '<div class="visit-section-header" data-act="ui.section" data-section="vs-context">'
+      +   '<span class="visit-section-num">i</span><span>Контекст пациента</span>'
+      +   '<span class="vs-summary">' + (past.length ? 'приёмов: ' + visits.length : 'первый приём') + '</span>'
+      +   '<span class="vs-toggle">▾</span>'
+      + '</div>'
+      + '<div class="visit-section-body">'
+      +   (chips.length ? '<div class="vctx-chips">' + chips.join('') + '</div>' : '')
+      +   '<div class="vctx-list">' + listHTML + '</div>'
+      + '</div></div>';
+  }
+
+  // Прошлый приём ПОВЕРХ формы: заполняемая форма остаётся нетронутой,
+  // возврат — по пути в шапке. Только чтение: править прошлый приём, стоя
+  // в новом, значит почти наверняка ошибиться окном.
+  async function peekVisit(id) {
+    var all = await loadAll();
+    var v = (all.visits || []).find(function (x) { return x.id === id; });
+    if (!v) { UI.toast('Приём не найден', 'err'); return; }
+    var pet = (all.pets || []).find(function (p) { return p.id === v.pet_id; }) || {};
+    var items = [];
+    try { items = await api('GET', '/visit-items?visit_id=' + id); } catch (e) {}
+    function row(label, val) {
+      return val ? '<div class="vpeek-row"><div class="vpeek-label">' + esc(label) + '</div>'
+                 + '<div class="vpeek-val">' + esc(val) + '</div></div>' : '';
+    }
+    var body = '<div class="vpeek">'
+      + row('Дата', fmtDate(v.date))
+      + row('Вес', v.animal_weight ? v.animal_weight + ' кг' : '')
+      + row('Состояние', v.patient_condition)
+      + row('Анамнез', v.anamnesis)
+      + row('Диагноз', v.diagnosis)
+      + row('Назначение', v.treatment)
+      + row('Примечания', v.notes)
+      + ((items || []).length
+          ? '<div class="vpeek-row"><div class="vpeek-label">Позиции</div><div class="vpeek-val">'
+            + items.map(function (it) { return esc(it.name) + ' × ' + it.quantity; }).join('<br>')
+            + '</div></div>'
+          : '')
+      + '</div>';
+    UI.showModal({
+      stacked: true,
+      title: 'Приём ' + fmtDate(v.date) + ' · ' + (pet.name || ''),
+      bodyHTML: body, size: 'lg', onSave: false, cancelLabel: 'Назад'
+    });
   }
 
   // ── VET-007: вакцинации, выполненные на приёме ───────────────────────
@@ -6607,6 +6732,7 @@
       'attach.cancelPending':  function (el) { cancelPendingAttachments(el.dataset.visit); },
       'attach.dropPending':    function (el) { dropPendingAttachment(el.dataset.visit, el.dataset.idx); },
       'attach.preview':        function (el) { previewAttachment(el.dataset.id, el.dataset.name); },
+      'visit.peek':            function (el) { peekVisit(el.dataset.id); },
       'vacc.inlineOpen':       function (el) { openVaccInline(el.dataset.visit, el.dataset.pet); },
       'vacc.inlineCancel':     function (el) { cancelVaccInline(el.dataset.visit, el.dataset.pet); },
       'vacc.inlineAdd':        function (el) { addVaccInline(el.dataset.visit, el.dataset.pet); },
