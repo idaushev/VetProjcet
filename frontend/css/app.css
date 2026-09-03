@@ -998,6 +998,28 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 .allergy-empty .icon { color: var(--text-3); }
 .allergy-empty .allergy-text { color: var(--text-3); }
 
+/* ── F4/VET-004: назначения ───────────────────────────────────────────────
+   Поля разложены в сетку: препарат и инструкция во всю ширину, остальное
+   парами. Кратности отдельным полем нет — она пишется в инструкции, так
+   ответила клиника. */
+.presc-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-2);
+}
+.presc-wide { grid-column: 1 / -1; }
+@media (max-width: 767px) { .presc-grid { grid-template-columns: 1fr; } }
+.presc-badge {
+  font-size: var(--fs-xs); font-weight: 600; padding: 1px var(--sp-2);
+  border-radius: var(--r-full); margin-left: var(--sp-2);
+}
+.presc-active { background: var(--accent-dim); color: var(--accent); }
+.presc-off    { background: var(--bg-input); color: var(--text-3); }
+.vctx-sub {
+  font-size: var(--fs-xs); font-weight: 700; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: .04em; margin-bottom: var(--sp-1);
+}
+.vctx-presc .vctx-date { color: var(--text-3); white-space: nowrap; }
+
 /* ── VET-014: единая хронология животного ─────────────────────────────────
    Приём, анализ, снимок, прививка и курс лечения стоят рядом по датам —
    именно так читается ход хронического случая. */

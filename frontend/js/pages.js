@@ -1051,6 +1051,7 @@
         UI.startVisitDraftAutosave('new', attachKey);
         renderAttachments(attachKey);
         renderVisitVaccinations(attachKey, prefillPet ? prefillPet.id : '');
+        renderVisitPrescriptions(attachKey, prefillPet ? prefillPet.id : '');
         renderVisitContext(prefillPet ? prefillPet.id : '', false);
         renderPetAllergies(prefillPet ? prefillPet.id : '');
         // Животное в новом приёме выбирают уже после открытия формы, а прививке
@@ -1062,6 +1063,7 @@
           if (pid !== _vaccPetId) {
             _vaccPetId = pid;
             renderVisitVaccinations(attachKey, pid);
+            renderVisitPrescriptions(attachKey, pid);   // F4/VET-004
             renderVisitContext(pid, false);   // VET-001: контекст выбранного пациента
             renderPetAllergies(pid);          // VET-013: предупреждение об аллергиях
           }
@@ -1073,6 +1075,7 @@
       onClose: function() {
         if (!attachCommitted) discardDraftAttachments(attachKey);
         _vaccPending = null;   // приём не создан — привязывать прививки не к чему
+        _prescPending = null;  // и назначения тоже
       },
       onSave: async function() {
         var vs = UI.getVisitState();
@@ -1142,7 +1145,7 @@
         };
         try {
           var created = await api('POST', '/visits/full', body);
-          var attached = 0, vaccAdded = 0;
+          var attached = 0, vaccAdded = 0, prescAdded = 0;
           if (created && created.visit) {
             await ensureVisitResults(created.visit.id, finalPet.id, vs.items);
             // Приём появился — только теперь у файлов есть к чему привязаться.
@@ -1151,11 +1154,13 @@
             attachCommitted = true;
             attached = await commitDraftAttachments(attachKey, created.visit.id);
             vaccAdded = await commitPendingVaccinations(attachKey, created.visit.id, finalPet.id);
+            prescAdded = await commitPendingPrescriptions(attachKey, created.visit.id, finalPet.id, vs.staff_id);
           }
           UI.clearVisitDraft();
           var extra = [];
           if (attached)  extra.push('файлов: ' + attached);
           if (vaccAdded) extra.push('прививок: ' + vaccAdded);
+          if (prescAdded) extra.push('назначений: ' + prescAdded);
           UI.toast(extra.length ? 'Приём сохранён (' + extra.join(', ') + ')' : 'Приём сохранён', 'ok');
           UI.hideModal();
           if (vaccAdded) await initVaccinations();
@@ -1218,6 +1223,7 @@
         // VET-007: прививки этого приёма. У сохранённого приёма id есть, поэтому
         // новая прививка пишется сразу, без промежуточного накопления.
         renderVisitVaccinations(id, visit.pet_id);
+        renderVisitPrescriptions(id, visit.pet_id);
         renderVisitContext(visit.pet_id, false);
         renderPetAllergies(visit.pet_id);
 
@@ -2197,6 +2203,24 @@
         }).join('')
       : '<div class="attach-empty">Это первый приём — прошлых записей нет</div>';
 
+    // Действующая терапия (ответ клиники на вопрос 4: врач должен видеть на
+    // повторном приёме, что курс ещё идёт). Именно ради этого назначение и
+    // стало сущностью: из строки «амоксиклав 2р/д 7 дней» вывести, идёт ли
+    // курс сегодня, нельзя.
+    var running = [];
+    try {
+      running = (await window.VetDB.getAll('prescriptions'))
+        .filter(function (p) { return !p.is_deleted && p.pet_id === petId && prescIsRunning(p); })
+        .sort(function (a, b) { return (b.started_at || '') > (a.started_at || '') ? 1 : -1; });
+    } catch (e) {}
+    var runningHTML = running.length
+      ? '<div class="vctx-tasks">' + running.map(function (p) {
+          return '<div class="vctx-task vctx-presc">' + I('stethoscope')
+            + '<span>' + esc(p.drug_name) + '</span>'
+            + '<span class="vctx-date">' + esc(prescLine(p)) + '</span></div>';
+        }).join('') + '</div>'
+      : '';
+
     // VET-015: связанные задачи по этому пациенту — и возможность завести новую
     // прямо отсюда, с привязкой к животному и приёму.
     var tasks = [];
@@ -2218,11 +2242,13 @@
       + '<div class="visit-section-header" data-act="ui.section" data-section="vs-context">'
       +   '<span class="visit-section-num">i</span><span>Контекст пациента</span>'
       +   '<span class="vs-summary">' + (past.length ? 'приёмов: ' + visits.length : 'первый приём')
+      +     (running.length ? ' · терапия: ' + running.length : '')
       +     (tasks.length ? ' · задач: ' + tasks.length : '') + '</span>'
       +   '<span class="vs-toggle">▾</span>'
       + '</div>'
       + '<div class="visit-section-body">'
       +   (chips.length ? '<div class="vctx-chips">' + chips.join('') + '</div>' : '')
+      +   (runningHTML ? '<div class="vctx-sub">Терапия идёт сейчас</div>' + runningHTML : '')
       +   tasksHTML
       +   '<div class="vctx-list">' + listHTML + '</div>'
       +   '<button type="button" class="btn btn-ghost btn-sm" data-act="task.forPet"'
@@ -2263,6 +2289,266 @@
       stacked: true,
       title: 'Приём ' + fmtDate(v.date) + ' · ' + (pet.name || ''),
       bodyHTML: body, size: 'lg', onSave: false, cancelLabel: 'Назад'
+    });
+  }
+
+  // ── F4 / VET-004: назначения ─────────────────────────────────────────
+  //
+  // Раньше вся терапия была одной строкой в visits.treatment: «амоксиклав
+  // 2р/д 7 дней, диета». Через три недели другой врач не мог восстановить ни
+  // дозу, ни когда кончился курс, и назначал заново вслепую.
+  //
+  // Состав полей — ответ клиники (вопрос 1): препарат, доза, единица, путь
+  // введения, длительность, инструкция. Кратности отдельным полем НЕТ: в
+  // ответе её не было, «2 раза в день» пишется в инструкции.
+  // Доза одним числом (вопрос 2: абсолютная).
+  // Свободный текст в «Назначении и рекомендациях» остаётся (вопрос 5).
+  var PRESC_UNITS  = ['мл', 'мг', 'таб', 'кап', 'г', 'ЕД'];
+  var PRESC_ROUTES = ['внутрь', 'п/к', 'в/м', 'в/в', 'наружно', 'в глаза', 'в уши', 'в нос'];
+  var PRESC_STATUS = {
+    active:    { label: 'идёт',              cls: 'presc-active'  },
+    cancelled: { label: 'отменено',          cls: 'presc-off'     },
+    stopped:   { label: 'прекращено досрочно', cls: 'presc-off'   },
+  };
+
+  var _prescPending = null;   // { visitId, list: [payload], form: bool }
+
+  function prescPendingList(visitId) {
+    return (_prescPending && _prescPending.visitId === visitId) ? _prescPending.list : [];
+  }
+
+  // Курс «идёт» — статус active И дата окончания не прошла. Нормально
+  // доведённый до конца курс отдельным статусом не помечается (ответ на
+  // вопрос 4 перечислял только прерывания), поэтому считаем по датам.
+  function prescIsRunning(p) {
+    if ((p.status || 'active') !== 'active') return false;
+    if (!p.duration_days) return true;         // без длительности — бессрочно
+    var start = p.started_at || p.created_at;
+    if (!start) return true;
+    var end = new Date(start);
+    end.setDate(end.getDate() + Number(p.duration_days));
+    return end >= new Date(new Date().toISOString().slice(0, 10));
+  }
+
+  function prescLine(p) {
+    var bits = [];
+    if (p.dose) bits.push(p.dose + (p.dose_unit ? ' ' + p.dose_unit : ''));
+    if (p.route) bits.push(p.route);
+    if (p.duration_days) bits.push(p.duration_days + ' дн.');
+    return bits.join(' · ');
+  }
+
+  async function renderVisitPrescriptions(visitId, petId) {
+    var box = document.getElementById('visit-prescriptions');
+    if (!box) return;
+    var saved = [];
+    if (!isDraftVisitKey(visitId)) {
+      try {
+        saved = (await window.VetDB.getAll('prescriptions'))
+          .filter(function (p) { return p.visit_id === visitId && !p.is_deleted; });
+      } catch (e) {}
+    }
+    var pend = prescPendingList(visitId);
+    var open = !!(_prescPending && _prescPending.visitId === visitId && _prescPending.form);
+
+    var html = '<div class="attach-head">' + I('stethoscope') + ' Назначения'
+      + '<span class="attach-count">' + (saved.length + pend.length) + '</span>'
+      + (open ? '' : '<button type="button" class="btn btn-ghost btn-sm attach-add"'
+          + ' data-act="presc.open" data-visit="' + esc(visitId) + '" data-pet="' + esc(petId || '') + '">'
+          + I('plus') + ' Препарат</button>')
+      + '</div>';
+
+    if (open) html += prescFormHTML(visitId, petId);
+
+    if (!saved.length && !pend.length) {
+      if (!open) html += '<div class="attach-empty">Назначений нет. Свободный текст можно оставить в поле «Назначение и рекомендации».</div>';
+    } else {
+      html += '<div class="attach-list">';
+      pend.forEach(function (p, i) {
+        html += '<div class="attach-row attach-pending">' + I('clock')
+          + '<div class="attach-body"><div class="attach-name">' + esc(p.drug_name) + '</div>'
+          + '<div class="attach-meta">' + esc(prescLine(p)) + ' · запишется после сохранения приёма</div>'
+          + (p.instruction ? '<div class="attach-note">' + esc(p.instruction) + '</div>' : '')
+          + '</div>'
+          + '<button type="button" class="btn btn-icon" title="Убрать" aria-label="Убрать"'
+          + ' data-act="presc.dropPending" data-visit="' + esc(visitId) + '" data-idx="' + i + '">' + I('trash') + '</button>'
+          + '</div>';
+      });
+      saved.forEach(function (p) {
+        var st = PRESC_STATUS[p.status || 'active'] || PRESC_STATUS.active;
+        var running = prescIsRunning(p);
+        html += '<div class="attach-row">' + I('stethoscope')
+          + '<div class="attach-body"><div class="attach-name">' + esc(p.drug_name)
+          + ' <span class="presc-badge ' + st.cls + '">' + esc(running ? st.label : (p.status === 'active' ? 'курс завершён' : st.label)) + '</span></div>'
+          + '<div class="attach-meta">' + esc(prescLine(p)) + '</div>'
+          + (p.instruction ? '<div class="attach-note">' + esc(p.instruction) + '</div>' : '')
+          + (p.status_note ? '<div class="attach-note">' + esc(p.status_note) + '</div>' : '')
+          + '</div>'
+          + (p.status === 'active'
+              ? '<button type="button" class="btn btn-icon" title="Отменить или прекратить" aria-label="Отменить или прекратить"'
+                + ' data-act="presc.stop" data-id="' + esc(p.id) + '" data-visit="' + esc(visitId) + '" data-pet="' + esc(petId || '') + '">'
+                + I('alert') + '</button>'
+              : '')
+          + '</div>';
+      });
+      html += '</div>';
+    }
+    box.innerHTML = html;
+  }
+
+  // Форма ВНУТРИ панели: она открывается в форме приёма, а вложенные модалки
+  // здесь были бы третьим окном поверх второго.
+  function prescFormHTML(visitId, petId) {
+    var drugs = (_pFormItems || []).filter(function (i) { return !i.is_deleted && i.type === 'drug'; });
+    return '<div class="attach-stage">'
+      + '<div class="attach-stage-head">Назначение</div>'
+      + '<div class="presc-grid">'
+      + '<label class="vf-lbl presc-wide">Препарат <span class="form-req">*</span>'
+      + '<input type="text" class="form-input" id="px-drug" list="px-drugs" placeholder="Амоксиклав 125 мг">'
+      + '<datalist id="px-drugs">'
+      + drugs.map(function (d) { return '<option value="' + esc(d.name) + '"></option>'; }).join('')
+      + '</datalist></label>'
+      + '<label class="vf-lbl">Доза'
+      + '<input type="number" step="0.01" min="0" class="form-input" id="px-dose" placeholder="0.5"></label>'
+      + '<label class="vf-lbl">Единица'
+      + '<select class="form-select" id="px-unit">'
+      + PRESC_UNITS.map(function (u) { return '<option value="' + u + '">' + u + '</option>'; }).join('')
+      + '</select></label>'
+      + '<label class="vf-lbl">Путь введения'
+      + '<select class="form-select" id="px-route">'
+      + PRESC_ROUTES.map(function (r) { return '<option value="' + r + '">' + r + '</option>'; }).join('')
+      + '</select></label>'
+      + '<label class="vf-lbl">Длительность, дней'
+      + '<input type="number" step="1" min="0" class="form-input" id="px-days" placeholder="7"></label>'
+      + '<label class="vf-lbl presc-wide">Инструкция'
+      + '<input type="text" class="form-input" id="px-instr" maxlength="300"'
+      + ' placeholder="по 1 таблетке 2 раза в день, после еды"></label>'
+      + '</div>'
+      + '<div class="attach-stage-actions">'
+      + '<button type="button" class="btn btn-ghost btn-sm" data-act="presc.cancel" data-visit="' + esc(visitId) + '" data-pet="' + esc(petId || '') + '">Отмена</button>'
+      + '<button type="button" class="btn btn-primary btn-sm" data-act="presc.add" data-visit="' + esc(visitId) + '" data-pet="' + esc(petId || '') + '">Добавить</button>'
+      + '</div></div>';
+  }
+
+  var _pFormItems = [];
+
+  async function openPrescForm(visitId, petId) {
+    try { _pFormItems = (await loadAll()).items || []; } catch (e) { _pFormItems = []; }
+    if (!_prescPending || _prescPending.visitId !== visitId) {
+      _prescPending = { visitId: visitId, list: [], form: true };
+    } else { _prescPending.form = true; }
+    renderVisitPrescriptions(visitId, petId);
+  }
+
+  function cancelPrescForm(visitId, petId) {
+    if (_prescPending && _prescPending.visitId === visitId) _prescPending.form = false;
+    renderVisitPrescriptions(visitId, petId);
+  }
+
+  async function addPresc(visitId, petId) {
+    var name = ((document.getElementById('px-drug') || {}).value || '').trim();
+    if (!name) { UI.toast('Укажите препарат', 'err'); return; }
+    var dose = (document.getElementById('px-dose') || {}).value;
+    var days = (document.getElementById('px-days') || {}).value;
+    var match = (_pFormItems || []).find(function (i) { return !i.is_deleted && i.name === name; });
+    var rec = {
+      pet_id: petId,
+      item_id: match ? match.id : '',
+      drug_name: name,
+      dose: dose ? Number(dose) : null,
+      dose_unit: (document.getElementById('px-unit') || {}).value || '',
+      route: (document.getElementById('px-route') || {}).value || '',
+      duration_days: days ? parseInt(days, 10) : null,
+      instruction: ((document.getElementById('px-instr') || {}).value || '').trim(),
+      status: 'active',
+    };
+
+    if (isDraftVisitKey(visitId)) {
+      _prescPending.list.push(rec);
+      _prescPending.form = false;
+      if (UI.markModalDirty) UI.markModalDirty();
+      if (UI.forceVisitDraft) UI.forceVisitDraft();
+      await renderVisitPrescriptions(visitId, petId);
+      UI.toast('Назначение запишется вместе с приёмом', 'ok');
+      return;
+    }
+    try {
+      rec.visit_id = visitId;
+      await api('POST', '/prescriptions', rec);
+      _prescPending.form = false;
+      await renderVisitPrescriptions(visitId, petId);
+      UI.toast('Назначение добавлено', 'ok');
+    } catch (e) { UI.toast(e.message, 'err'); }
+  }
+
+  function dropPendingPresc(visitId, idx, petId) {
+    if (!_prescPending || _prescPending.visitId !== visitId) return;
+    _prescPending.list.splice(Number(idx), 1);
+    renderVisitPrescriptions(visitId, petId);
+  }
+
+  async function commitPendingPrescriptions(draftKey, visitId, petId, staffId) {
+    var list = prescPendingList(draftKey);
+    if (!list.length) { _prescPending = null; return 0; }
+    var done = 0;
+    for (var i = 0; i < list.length; i++) {
+      try {
+        await api('POST', '/prescriptions', Object.assign({}, list[i], {
+          visit_id: visitId, pet_id: petId || list[i].pet_id, staff_id: staffId || ''
+        }));
+        done++;
+      } catch (e) { console.warn('[VetPages] назначение:', e); }
+    }
+    _prescPending = null;
+    return done;
+  }
+
+  // Отмена и досрочное прекращение — разные вещи (ответ клиники на вопрос 4):
+  // отменено = не давать вовсе, прекращено = давали и остановили. Смешивать
+  // их значило бы потерять, получал ли пациент препарат.
+  async function stopPresc(id, visitId, petId) {
+    var all = await window.VetDB.getAll('prescriptions');
+    var p = all.find(function (x) { return x.id === id; });
+    if (!p) return;
+    UI.showModal({
+      stacked: true,
+      title: 'Курс: ' + (p.drug_name || ''),
+      size: 'lg',
+      saveLabel: 'Сохранить',
+      bodyHTML: '<div class="form-stack">'
+        + '<div class="form-group"><label class="form-label">Что произошло</label>'
+        + '<select id="px-status" class="form-select">'
+        + '<option value="cancelled">Отменено — препарат не давали</option>'
+        + '<option value="stopped">Прекращено досрочно — давали и остановили</option>'
+        + '</select></div>'
+        + '<div class="form-group"><label class="form-label">Причина</label>'
+        + '<input id="px-note" class="form-input" maxlength="300" placeholder="реакция, нет эффекта, сменили схему"></div>'
+        + '</div>',
+      onSave: async function () {
+        try {
+          var newStatus = (document.getElementById('px-status') || {}).value || 'cancelled';
+          var note = ((document.getElementById('px-note') || {}).value || '').trim();
+          // Журнал ведём ЗДЕСЬ, а не на сервере. Клиент офлайн-first: api()
+          // пишет локально, а на сервер запись едет синхронизацией, минуя
+          // серверный PUT. Оставь логику там — и история изменений не
+          // записалась бы никогда (проверено: status_at и change_log пустые).
+          // Так же устроен change_log приёмов: его собирает клиент.
+          var now = new Date().toISOString();
+          var entry = { at: now, from: p.status || 'active', to: newStatus, note: note };
+          var log = [];
+          try { log = JSON.parse(p.change_log || '[]') || []; } catch (e) { log = []; }
+          log.push(entry);
+          await api('PUT', '/prescriptions/' + id, Object.assign({}, p, {
+            status: newStatus,
+            status_note: note,
+            status_at: now,
+            change_log: JSON.stringify(log),
+          }));
+          UI.hideModal();
+          await renderVisitPrescriptions(visitId, petId);
+          UI.toast('Сохранено', 'ok');
+        } catch (e) { UI.toast(e.message, 'err'); }
+      }
     });
   }
 
@@ -5149,6 +5435,21 @@
                   act: v.visit_id ? 'visit.peek' : '', id: v.visit_id || '' });
       });
 
+    // F4/VET-004: назначения в ленте — отдельными событиями. Курс лечения из
+    // visits.treatment остаётся (свободный текст никуда не делся), но теперь
+    // рядом стоят структурированные назначения с дозой и путём введения.
+    try {
+      (await window.VetDB.getAll('prescriptions'))
+        .filter(function (p) { return !p.is_deleted && p.pet_id === petId; })
+        .forEach(function (p) {
+          var st = PRESC_STATUS[p.status || 'active'] || PRESC_STATUS.active;
+          ev.push({ kind: 'course', when: p.started_at || p.created_at || '',
+                    title: p.drug_name + (p.status !== 'active' ? ' — ' + st.label : ''),
+                    sub: [prescLine(p), p.instruction, p.status_note].filter(Boolean).join(' · '),
+                    act: 'visit.peek', id: p.visit_id || '' });
+        });
+    } catch (e) {}
+
     try {
       (await window.VetDB.getAll('visit_results'))
         .filter(function (r) { return !r.is_deleted && r.pet_id === petId && r.status === 'done'; })
@@ -7026,6 +7327,11 @@
       'attach.dropPending':    function (el) { dropPendingAttachment(el.dataset.visit, el.dataset.idx); },
       'attach.preview':        function (el) { previewAttachment(el.dataset.id, el.dataset.name); },
       'visit.peek':            function (el) { peekVisit(el.dataset.id); },
+      'presc.open':            function (el) { openPrescForm(el.dataset.visit, el.dataset.pet); },
+      'presc.cancel':          function (el) { cancelPrescForm(el.dataset.visit, el.dataset.pet); },
+      'presc.add':             function (el) { addPresc(el.dataset.visit, el.dataset.pet); },
+      'presc.dropPending':     function (el) { dropPendingPresc(el.dataset.visit, el.dataset.idx, el.dataset.pet); },
+      'presc.stop':            function (el) { stopPresc(el.dataset.id, el.dataset.visit, el.dataset.pet); },
       'pet.allergyEdit':       function (el) { editPetAllergies(el.dataset.id); },
       'pet.timeline':          function (el) { showPetTimeline(el.dataset.id); },
       'tl.filter':             function (el) { setTimelineFilter(el.dataset.kind, el); },

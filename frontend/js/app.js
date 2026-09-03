@@ -51,6 +51,7 @@
     "/pets":         "pets",
     "/visits":       "visits",
     "/visit-items":  "visit_items",
+    "/prescriptions": "prescriptions",
     "/vaccinations": "vaccinations",
     "/staff":        "staff",
     "/appointments": "appointments"
@@ -458,6 +459,18 @@
       return rows.sort(byField("name"));
     }
 
+    // Назначения: те же фильтры, что понимает сервер, — иначе офлайн и онлайн
+    // отдавали бы разное (F4/VET-004).
+    if (storeName === "prescriptions") {
+      if (sp.get("visit_id")) rows = rows.filter(function (r) { return r.visit_id === sp.get("visit_id"); });
+      if (sp.get("pet_id"))   rows = rows.filter(function (r) { return r.pet_id === sp.get("pet_id"); });
+      if (sp.get("status"))   rows = rows.filter(function (r) { return (r.status || "active") === sp.get("status"); });
+      return rows.sort(function (a, b) {
+        var ax = a.started_at || a.created_at || "", bx = b.started_at || b.created_at || "";
+        return bx > ax ? 1 : -1;
+      });
+    }
+
     if (storeName === "vaccinations") {
       if (sp.get("pet_id")) rows = rows.filter(function (r) { return r.pet_id === sp.get("pet_id"); });
       return rows.sort(function (a, b) { return b.administered_at > a.administered_at ? 1 : -1; });
@@ -584,6 +597,10 @@
       if (!body.fields) body.fields = "[]";
     }
     if (storeName === "items" && !body.result_mode) body.result_mode = "none";
+    // Сервер ставит статус 'active' (normalizePrescriptionStatus). Дублируем:
+    // иначе назначение, заведённое офлайн, до синка выглядит без статуса и
+    // не попадает в выборку действующей терапии.
+    if (storeName === "prescriptions" && !body.status) body.status = "active";
     var record = await window.VetDB.save(storeName, Object.assign({ id: window.VetDB.uuid() }, body));
     await refreshStore(storeName);
     emitChange(storeName);

@@ -40,7 +40,7 @@
   // вложение создаётся загрузкой файла через POST /attachments, а не push-ом.
   // Порядок = порядок внешних ключей. visit_results идут ПОСЛЕ visits и
   // visit_items: результат ссылается на приём, и на сервере это FK.
-  const CORE_STORE_ORDER = ["owners", "pets", "items", "diagnosis_templates", "protocol_templates", "tasks", "visits", "visit_items", "visit_results", "vaccinations", "staff", "appointments"];
+  const CORE_STORE_ORDER = ["owners", "pets", "items", "diagnosis_templates", "protocol_templates", "tasks", "visits", "visit_items", "visit_results", "prescriptions", "vaccinations", "staff", "appointments"];
   const MODULE_STORES = (window.VetModules && window.VetModules.stores()) || ["warehouses", "stock_movements"];
   const STORE_ORDER = CORE_STORE_ORDER.concat(MODULE_STORES).concat(["attachments"]);
 

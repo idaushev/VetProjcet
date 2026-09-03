@@ -638,3 +638,77 @@ type syncPushResult struct {
 // Ответ pull теперь собирается картой в handleSyncPull по реестру
 // coreSyncEntities (см. sync_registry.go). Отдельная структура syncPullData
 // больше не нужна — ключи и форма записей те же, совместимость сохранена.
+
+// ─── F4 / VET-004: назначения ────────────────────────────────────────────────
+
+// Prescription — назначение препарата в рамках приёма. Состав полей задан
+// ответом клиники (вопросы 1–4): препарат, доза (абсолютная, одно число),
+// единица, путь введения, длительность, инструкция; кратность пишется в
+// инструкции. Статус — только для прерываний курса: нормально доведённый до
+// конца курс определяется по started_at + duration_days.
+type Prescription struct {
+	ID           string     `json:"id"`
+	VisitID      string     `json:"visit_id"`
+	PetID        string     `json:"pet_id"`
+	StaffID      string     `json:"staff_id,omitempty"`
+	ItemID       string     `json:"item_id,omitempty"`
+	DrugName     string     `json:"drug_name"`
+	Dose         *float64   `json:"dose,omitempty"`
+	DoseUnit     string     `json:"dose_unit,omitempty"`
+	Route        string     `json:"route,omitempty"`
+	DurationDays *int       `json:"duration_days,omitempty"`
+	Instruction  string     `json:"instruction,omitempty"`
+	StartedAt    *time.Time `json:"started_at,omitempty"`
+	Status       string     `json:"status"`
+	StatusNote   string     `json:"status_note,omitempty"`
+	StatusAt     *time.Time `json:"status_at,omitempty"`
+	ChangeLog    string     `json:"change_log,omitempty"`
+	SyncMeta
+}
+
+func (p Prescription) recordID() string { return p.ID }
+
+type prescriptionPayload struct {
+	ID           string   `json:"id,omitempty"`
+	VisitID      string   `json:"visit_id"`
+	PetID        string   `json:"pet_id"`
+	StaffID      string   `json:"staff_id,omitempty"`
+	ItemID       string   `json:"item_id,omitempty"`
+	DrugName     string   `json:"drug_name"`
+	Dose         *float64 `json:"dose,omitempty"`
+	DoseUnit     string   `json:"dose_unit,omitempty"`
+	Route        string   `json:"route,omitempty"`
+	DurationDays *int     `json:"duration_days,omitempty"`
+	Instruction  string   `json:"instruction,omitempty"`
+	StartedAt    string   `json:"started_at,omitempty"`
+	Status       string   `json:"status,omitempty"`
+	StatusNote   string   `json:"status_note,omitempty"`
+	StatusAt     string   `json:"status_at,omitempty"`
+	ChangeLog    string   `json:"change_log,omitempty"`
+}
+
+type prescriptionSyncRecord struct {
+	ID           string   `json:"id"`
+	VisitID      string   `json:"visit_id"`
+	PetID        string   `json:"pet_id"`
+	StaffID      string   `json:"staff_id"`
+	ItemID       string   `json:"item_id"`
+	DrugName     string   `json:"drug_name"`
+	Dose         *float64 `json:"dose"`
+	DoseUnit     string   `json:"dose_unit"`
+	Route        string   `json:"route"`
+	DurationDays *int     `json:"duration_days"`
+	Instruction  string   `json:"instruction"`
+	StartedAt    *string  `json:"started_at"`
+	Status       string   `json:"status"`
+	StatusNote   string   `json:"status_note"`
+	StatusAt     *string  `json:"status_at"`
+	ChangeLog    string   `json:"change_log"`
+	UpdatedAt    string   `json:"updated_at"`
+	DeletedAt    *string  `json:"deleted_at"`
+	IsDeleted    int      `json:"is_deleted"`
+	DeviceID     string   `json:"device_id"`
+	Version      int      `json:"version"`
+}
+
+func (r prescriptionSyncRecord) recordID() string { return r.ID }

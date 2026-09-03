@@ -131,7 +131,8 @@ func (a *app) handleSyncPull(w http.ResponseWriter, r *http.Request) {
 	pullUser := userFromCtx(ctx)
 	permTableFor := func(name string) string {
 		switch name {
-		case "visit_items", "appointments", "attachments":
+		case "visit_items", "appointments", "attachments", "prescriptions":
+			// Назначения — часть медкарты: право на них то же, что на приёмы.
 			return "visits"
 		default:
 			return name

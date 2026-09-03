@@ -73,6 +73,12 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("DELETE /visit-items/{id}",      a.handleVisitItemByID)
 
 	// Vaccinations (вакцинации)
+	// F4/VET-004: назначения
+	mux.HandleFunc("GET /prescriptions",        a.handlePrescriptions)
+	mux.HandleFunc("POST /prescriptions",       a.handlePrescriptions)
+	mux.HandleFunc("PUT /prescriptions/{id}",   a.handlePrescriptionByID)
+	mux.HandleFunc("DELETE /prescriptions/{id}", a.handlePrescriptionByID)
+
 	mux.HandleFunc("GET /vaccinations",         a.handleVaccinations)
 	mux.HandleFunc("POST /vaccinations",        a.handleVaccinations)
 	mux.HandleFunc("GET /vaccinations/{id}",    a.handleVaccinationByID)

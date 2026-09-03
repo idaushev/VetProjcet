@@ -138,6 +138,15 @@ func coreSyncEntities() []syncEntity {
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullVisitItems(ctx, db, since) },
 		},
 		{
+			// Назначения идут ПОСЛЕ visits: у них visit_id NOT NULL, и приём
+			// должен доехать первым, иначе вставка упадёт по внешнему ключу.
+			Name: "prescriptions",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "prescriptions", "visits", "prescriptions", uid, cp, pushPrescription, res)
+			},
+			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullPrescriptions(ctx, db, since) },
+		},
+		{
 			Name: "vaccinations",
 			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
 				pushEntity(ctx, a, raw, "vaccinations", "vaccinations", "vaccinations", uid, cp, pushVaccination, res)

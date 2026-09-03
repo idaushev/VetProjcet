@@ -780,6 +780,61 @@ var migrations = []string{
 	`CREATE INDEX IF NOT EXISTS idx_tasks_pet ON tasks(pet_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_tasks_visit ON tasks(visit_id)`,
 
+	// ─── F4 / VET-004: назначения ────────────────────────────────────────
+	//
+	// До сих пор назначение жило свободным текстом в visits.treatment вместе с
+	// рекомендациями владельцу. Через три недели другой врач читал «амоксиклав
+	// 2р/д 7 дней, диета» и не мог восстановить ни дозу, ни когда курс кончился.
+	//
+	// СОСТАВ ПОЛЕЙ — ответ клиники на вопрос 1, дословно: препарат, доза,
+	// единица, путь введения, длительность, инструкция. КРАТНОСТИ в ответе нет,
+	// хотя в вопросе она перечислялась: «2 раза в день» пишется в инструкции.
+	// Отдельной колонки под неё нет намеренно — добавить проще, чем убрать.
+	//
+	// Доза — ОДНО число (ответ на вопрос 2: «абсолютная»). Пары «значение +
+	// база расчёта» и пересчёта по весу нет.
+	//
+	// Разделения «назначено / выдано на руки» нет (ответ на вопрос 3: «Нет»).
+	//
+	// status — ответ на вопрос 4 («Да»): active | cancelled | stopped.
+	// Нормально доведённый до конца курс отдельным статусом НЕ помечается:
+	// это выводится из started_at + duration_days. Статусы нужны только для
+	// прерываний: отменён (не давать) и завершён досрочно (давали, прекратили).
+	`CREATE TABLE IF NOT EXISTS prescriptions (
+	    id            TEXT PRIMARY KEY,
+	    visit_id      TEXT NOT NULL,
+	    pet_id        TEXT NOT NULL,      -- дублируем ради выборки «вся терапия животного»
+	    staff_id      TEXT,               -- кто назначил
+	    item_id       TEXT,               -- позиция каталога, если препарат оттуда
+	    drug_name     TEXT NOT NULL,      -- название на момент назначения
+	    dose          REAL,
+	    dose_unit     TEXT,               -- мл, мг, таб, кап, г
+	    route         TEXT,               -- внутрь, п/к, в/м, в/в, наружно, в глаза, в уши
+	    duration_days INTEGER,
+	    instruction   TEXT,               -- сюда же кратность: «по 1 таб 2 раза в день»
+	    started_at    DATETIME,           -- начало курса (по умолчанию дата приёма)
+	    status        TEXT NOT NULL DEFAULT 'active'
+	                  CHECK(status IN ('active','cancelled','stopped')),
+	    status_note   TEXT,               -- почему отменён/прекращён
+	    status_at     DATETIME,           -- когда сменили статус
+	    change_log    TEXT,               -- история правок, как у visits
+	    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	    client_updated_at DATETIME,
+	    deleted_at DATETIME,
+	    is_deleted INTEGER NOT NULL DEFAULT 0,
+	    device_id  TEXT,
+	    version    INTEGER NOT NULL DEFAULT 1,
+	    created_by TEXT,
+	    updated_by TEXT,
+	    FOREIGN KEY (visit_id) REFERENCES visits(id),
+	    FOREIGN KEY (pet_id)   REFERENCES pets(id)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_presc_visit   ON prescriptions(visit_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_presc_pet     ON prescriptions(pet_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_presc_status  ON prescriptions(status)`,
+	`CREATE INDEX IF NOT EXISTS idx_presc_updated ON prescriptions(updated_at)`,
+
 	// Справочник диагнозов с готовым текстом лечения и рекомендаций.
 	// Врач выбирает диагноз — система подставляет заготовку, врач правит.
 	// Это же даёт статистику «частые диагнозы»: сейчас diagnosis — свободная
