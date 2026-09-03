@@ -1648,7 +1648,8 @@
           // Автозаполнение веса из последнего приёма
           window.VetDB.getAll('visits').then(function(visits) {
             var petVisits = visits.filter(function(v){ return !v.is_deleted && v.pet_id===p.id && v.animal_weight; });
-            petVisits.sort(function(a,b){ return new Date(b.date)-new Date(a.date); });
+            // TECH-003: без аллокации Date на каждое сравнение.
+            petVisits.sort(function(a,b){ return (b.date || '') > (a.date || '') ? 1 : -1; });
             if (petVisits.length) {
               var wEl = document.getElementById('f-animal-weight');
               if (wEl && !wEl.value) wEl.value = petVisits[0].animal_weight;
