@@ -1894,6 +1894,17 @@
   ];
   var ATTACH_MAX_BYTES = 10 * 1024 * 1024; // как на сервере
 
+  // Умолчание типа по имени файла: снимок с камеры почти всегда «Фото», PDF —
+  // обычно бланк анализов. Врачу остаётся поправить, а не выбирать каждый раз.
+  function guessAttachKind(file) {
+    var n = String(file && file.name || '').toLowerCase();
+    var t = String(file && file.type || '').toLowerCase();
+    if (t === 'application/pdf' || /\.pdf$/.test(n)) return 'lab';
+    if (/(uzi|узи|ultra)/.test(n)) return 'ultrasound';
+    if (/(rentg|рент|xray|x-ray)/.test(n)) return 'xray';
+    return 'photo';
+  }
+
   function attachKindLabel(v) {
     var k = ATTACH_KINDS.find(function (x) { return x.v === v; });
     return k ? k.l : 'Другое';
@@ -1992,6 +2003,36 @@
       + '<button type="button" class="btn btn-ghost btn-sm attach-add" data-act="attach.pick" data-visit="' + visitId + '">'
       + I('upload') + ' Добавить</button></div>';
 
+    // Отобранные, но ещё не подтверждённые файлы: тип и комментарий задаются
+    // здесь, а не системным окном. Блок идёт первым — это то, чем врач занят
+    // прямо сейчас.
+    if (_attachPending && _attachPending.visitId === visitId) {
+      var prev = _attachPending.saved || [];
+      html += '<div class="attach-stage"><div class="attach-stage-head">'
+        + 'Выбрано файлов: ' + _attachPending.files.length + ' — укажите тип и подпись</div>';
+      _attachPending.files.forEach(function (f, i) {
+        var pk = (prev[i] && prev[i].kind) || guessAttachKind(f);
+        var pn = (prev[i] && prev[i].notes) || '';
+        html += '<div class="attach-stage-row">'
+          + '<div class="attach-stage-name" title="' + esc(f.name) + '">' + esc(f.name)
+          + ' <span class="attach-meta">' + fmtBytes(f.size) + '</span></div>'
+          + '<select class="filter-select ctl-sm" id="att-kind-' + i + '" aria-label="Тип вложения">'
+          + ATTACH_KINDS.map(function (k) {
+              return '<option value="' + k.v + '"' + (k.v === pk ? ' selected' : '') + '>' + esc(k.l) + '</option>';
+            }).join('')
+          + '</select>'
+          + '<input type="text" class="input" id="att-note-' + i + '" maxlength="200"'
+          + ' placeholder="Подпись: например, до обработки" value="' + esc(pn) + '" aria-label="Комментарий к файлу">'
+          + '<button type="button" class="btn btn-icon" title="Убрать файл" aria-label="Убрать файл"'
+          + ' data-act="attach.dropPending" data-visit="' + visitId + '" data-idx="' + i + '">' + I('trash') + '</button>'
+          + '</div>';
+      });
+      html += '<div class="attach-stage-actions">'
+        + '<button type="button" class="btn btn-ghost btn-sm" data-act="attach.cancelPending" data-visit="' + visitId + '">Отмена</button>'
+        + '<button type="button" class="btn btn-primary btn-sm" data-act="attach.confirmPending" data-visit="' + visitId + '">Приложить</button>'
+        + '</div></div>';
+    }
+
     if (!saved.length && !queued.length) {
       html += '<div class="attach-empty">'
         + (isDraftVisitKey(visitId)
@@ -2013,15 +2054,29 @@
           + '<div class="attach-meta">' + esc(attachKindLabel(q.kind)) + ' · ' + fmtBytes(q.size)
           + (err ? ' · не отправлен: ' + esc((q.last_error || '').slice(0, 90))
                  : waitText)
-          + '</div></div>'
+          + '</div>'
+          + (q.notes ? '<div class="attach-note">' + esc(q.notes) + '</div>' : '')
+          + '</div>'
           + '<button class="btn btn-icon" title="Убрать из очереди" data-act="attach.dropQueued" data-id="' + q.id + '" data-visit="' + visitId + '" aria-label="Убрать из очереди">' + I('trash') + '</button>'
           + '</div>';
       });
       saved.forEach(function (a) {
+        var isImg = String(a.mime_type || '').indexOf('image/') === 0;
+        var href = '/attachments/' + a.id + '/file?t='
+                 + encodeURIComponent((window.VetAuth && window.VetAuth.token()) || '');
+        // Снимок открываем предпросмотром поверх приёма: уход в новую вкладку
+        // выбивал врача из формы, к которой он через секунду возвращается.
+        // PDF смотреть внутри нечем — его по-прежнему отдаём браузеру.
+        var nameHTML = isImg
+          ? '<button type="button" class="attach-name attach-name-btn" data-act="attach.preview" data-id="' + a.id
+            + '" data-name="' + esc(a.file_name) + '">' + esc(a.file_name) + '</button>'
+          : '<a class="attach-name" href="' + href + '" target="_blank" rel="noopener">' + esc(a.file_name) + '</a>';
         html += '<div class="attach-row">'
           + I(a.mime_type === 'application/pdf' ? 'file' : 'camera')
-          + '<div class="attach-body"><a class="attach-name" href="/attachments/' + a.id + '/file?t=' + encodeURIComponent((window.VetAuth&&window.VetAuth.token())||'') + '" target="_blank" rel="noopener">' + esc(a.file_name) + '</a>'
-          + '<div class="attach-meta">' + esc(attachKindLabel(a.kind)) + ' · ' + fmtBytes(a.size_bytes) + ' · ' + fmtDate(a.created_at) + '</div></div>'
+          + '<div class="attach-body">' + nameHTML
+          + '<div class="attach-meta">' + esc(attachKindLabel(a.kind)) + ' · ' + fmtBytes(a.size_bytes) + ' · ' + fmtDate(a.created_at) + '</div>'
+          + (a.notes ? '<div class="attach-note">' + esc(a.notes) + '</div>' : '')
+          + '</div>'
           + '<button class="btn btn-icon" title="Удалить" data-act="attach.remove" data-id="' + a.id + '" data-visit="' + visitId + '" aria-label="Удалить">' + I('trash') + '</button>'
           + '</div>';
       });
@@ -2030,64 +2085,148 @@
     box.innerHTML = html;
   }
 
-  // Выбор файла. Диалог с выбором типа показываем до открытия файла:
-  // на планшете камера открывается поверх, и после съёмки спрашивать поздно.
+  // VET-011. Тип вложения раньше спрашивали системным window.prompt со списком
+  // «1 — УЗИ, 2 — Рентген…»: на планшете это неудобно, а в части окружений
+  // prompt вовсе подавляется — тогда файл молча уходил в «Другое». Комментарий
+  // ввести было негде, хотя колонка notes в схеме есть. Теперь после выбора
+  // файлов в панели появляется обычная форма: тип селектом, комментарий полем.
+  // Форма не модальная намеренно — она открывается ВНУТРИ формы приёма, а
+  // вложенные модалки приложение пока не умеет (F2/UX-022).
+  var _attachPending = null;   // { visitId, files: [File] }
+
   function pickAttachment(visitId) {
     var input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*,application/pdf';
+    input.multiple = true;     // врач снимает поражение с нескольких ракурсов подряд
     input.onchange = async function () {
-      var file = input.files && input.files[0];
-      if (!file) return;
-      if (file.size > ATTACH_MAX_BYTES) {
-        UI.toast('Файл ' + fmtBytes(file.size) + ' — больше предела в 10 МБ', 'err', 6000);
-        return;
+      var picked = Array.prototype.slice.call(input.files || []);
+      if (!picked.length) return;
+      var tooBig = picked.filter(function (f) { return f.size > ATTACH_MAX_BYTES; });
+      var ok = picked.filter(function (f) { return f.size <= ATTACH_MAX_BYTES; });
+      if (tooBig.length) {
+        UI.toast(tooBig.length === 1
+          ? 'Файл ' + fmtBytes(tooBig[0].size) + ' — больше предела в 10 МБ'
+          : 'Не приняты файлы больше 10 МБ: ' + tooBig.map(function(f){ return f.name; }).join(', '),
+          'err', 6000);
       }
-      var kind = window.prompt(
-        'Тип вложения:\n' + ATTACH_KINDS.map(function (k, i) { return (i + 1) + ' — ' + k.l; }).join('\n'),
-        '1');
-      if (kind === null) return;
-      var idx = parseInt(kind, 10);
-      var chosen = (idx >= 1 && idx <= ATTACH_KINDS.length) ? ATTACH_KINDS[idx - 1].v : 'other';
+      if (!ok.length) return;
+      // Добавляем к уже отобранным: «Добавить» можно нажать несколько раз.
+      if (_attachPending && _attachPending.visitId === visitId) {
+        _attachPending.files = _attachPending.files.concat(ok);
+      } else {
+        _attachPending = { visitId: visitId, files: ok };
+      }
+      await renderAttachments(visitId);
+    };
+    input.click();
+  }
 
+  // Подтверждение отбора: читаем тип и комментарий из формы и кладём в очередь.
+  async function confirmPendingAttachments(visitId) {
+    if (!_attachPending || _attachPending.visitId !== visitId) return;
+    var files = _attachPending.files;
+    for (var i = 0; i < files.length; i++) {
+      var kindEl = document.getElementById('att-kind-' + i);
+      var noteEl = document.getElementById('att-note-' + i);
       // Кладём в очередь всегда, даже онлайн: одна дорога для всех случаев —
       // меньше веток, и файл не потеряется, если сеть отвалится в момент отправки.
       await window.VetSync.queueAttachment({
         id: window.VetDB.uuid(),
         visit_id: visitId,
-        kind: chosen,
-        file_name: file.name || 'scan',
-        size: file.size,
-        blob: file,
+        kind: (kindEl && kindEl.value) || 'other',
+        notes: (noteEl && noteEl.value.trim()) || '',
+        file_name: files[i].name || 'scan',
+        size: files[i].size,
+        blob: files[i],
         status: 'pending',
         retry_count: 0,
         created_at: new Date().toISOString(),
       });
+    }
+    _attachPending = null;
+    await renderAttachments(visitId);
+
+    // Приёма ещё нет — отправлять некуда: сервер отверг бы вложение к
+    // несуществующему приёму. Файл ждёт сохранения формы. И помечаем форму
+    // изменённой, иначе «Отмена» выбросила бы снимок без единого вопроса.
+    if (isDraftVisitKey(visitId)) {
+      if (UI.markModalDirty) UI.markModalDirty();
+      // Черновик формы должен сохраниться даже при пустых полях: в нём лежит
+      // ключ, по которому восстановленная форма найдёт этот файл.
+      if (UI.forceVisitDraft) UI.forceVisitDraft();
+      UI.toast(files.length === 1 ? 'Файл приложен — сохранится вместе с приёмом'
+                                  : 'Файлов приложено: ' + files.length + ' — сохранятся вместе с приёмом', 'ok');
+      return;
+    }
+
+    UI.toast('Отправляется на сервер…', 'ok');
+    try {
+      var res = await window.VetSync.pushAttachments();
       await renderAttachments(visitId);
+      if (res.uploaded) UI.toast(res.uploaded === 1 ? 'Вложение сохранено на сервере'
+                                                   : 'Вложений сохранено: ' + res.uploaded, 'ok');
+      else if (res.failed) UI.toast('Нет связи — файлы отправятся при подключении', 'warn', 5000);
+    } catch (e) {
+      UI.toast('Нет связи — файлы отправятся при подключении', 'warn', 5000);
+    }
+  }
 
-      // Приёма ещё нет — отправлять некуда: сервер отверг бы вложение к
-      // несуществующему приёму. Файл ждёт сохранения формы. И помечаем форму
-      // изменённой, иначе «Отмена» выбросила бы снимок без единого вопроса.
-      if (isDraftVisitKey(visitId)) {
-        if (UI.markModalDirty) UI.markModalDirty();
-        // Черновик формы должен сохраниться даже при пустых полях: в нём лежит
-        // ключ, по которому восстановленная форма найдёт этот файл.
-        if (UI.forceVisitDraft) UI.forceVisitDraft();
-        UI.toast('Файл приложен — сохранится вместе с приёмом', 'ok');
-        return;
-      }
+  function cancelPendingAttachments(visitId) {
+    _attachPending = null;
+    renderAttachments(visitId);
+  }
 
-      UI.toast('Файл добавлен, отправляется на сервер…', 'ok');
-      try {
-        var res = await window.VetSync.pushAttachments();
-        await renderAttachments(visitId);
-        if (res.uploaded) UI.toast('Вложение сохранено на сервере', 'ok');
-        else if (res.failed) UI.toast('Нет связи — файл отправится при подключении', 'warn', 5000);
-      } catch (e) {
-        UI.toast('Нет связи — файл отправится при подключении', 'warn', 5000);
-      }
-    };
-    input.click();
+  function dropPendingAttachment(visitId, idx) {
+    if (!_attachPending || _attachPending.visitId !== visitId) return;
+    // Значения полей уже введены — сохраняем их, чтобы удаление одного файла
+    // не стирало подписи у остальных.
+    var keep = _attachPending.files.map(function (f, i) {
+      var k = document.getElementById('att-kind-' + i);
+      var n = document.getElementById('att-note-' + i);
+      return { file: f, kind: k && k.value, notes: n && n.value };
+    });
+    keep.splice(Number(idx), 1);
+    _attachPending.files = keep.map(function (x) { return x.file; });
+    _attachPending.saved = keep;
+    if (!_attachPending.files.length) _attachPending = null;
+    renderAttachments(visitId);
+  }
+
+  // Просмотр снимка. Своим оверлеем, а не через showModal: панель вложений
+  // живёт ВНУТРИ модалки приёма, а вложенные модалки приложение пока не умеет
+  // (F2/UX-022). Тем же приёмом сделан UI.confirm — отдельный узел поверх всего.
+  function previewAttachment(id, name) {
+    var url = '/attachments/' + id + '/file?t='
+            + encodeURIComponent((window.VetAuth && window.VetAuth.token()) || '');
+    var o = document.createElement('div');
+    o.className = 'imgview-overlay';
+    o.innerHTML = '<div class="imgview-bar">'
+      + '<span class="imgview-name">' + esc(name || '') + '</span>'
+      + '<a class="btn btn-ghost btn-sm" href="' + url + '" target="_blank" rel="noopener">Открыть отдельно</a>'
+      + '<button type="button" class="btn btn-ghost btn-sm" id="imgview-close" aria-label="Закрыть">Закрыть</button>'
+      + '</div><div class="imgview-stage"><img class="imgview-img" alt="' + esc(name || '') + '" src="' + url + '"></div>'
+      + '<div class="imgview-hint">Нажмите на снимок, чтобы увеличить</div>';
+    document.body.appendChild(o);
+
+    var img = o.querySelector('.imgview-img');
+    // Увеличение по нажатию: на планшете это надёжнее жестов, а врачу нужно
+    // разглядеть участок кожи, а не листать масштабы.
+    img.onclick = function () { img.classList.toggle('imgview-zoom'); };
+    function close() { document.removeEventListener('keydown', onKey, true); o.remove(); }
+    o.querySelector('#imgview-close').onclick = close;
+    o.onclick = function (e) { if (e.target === o || e.target.classList.contains('imgview-stage')) close(); };
+    // Escape должен закрыть ТОЛЬКО просмотр. Модалка приёма слушает Escape на
+    // том же document, поэтому обычного stopPropagation мало (он не отменяет
+    // соседние обработчики того же узла): вешаемся на фазу перехвата и
+    // глушим событие целиком — иначе один Escape уносил и снимок, и форму.
+    function onKey(e) {
+      if (e.key !== 'Escape') return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      close();
+    }
+    document.addEventListener('keydown', onKey, true);
   }
 
   async function removeAttachment(id, visitId) {
@@ -6268,7 +6407,11 @@
       'vacc.print':  function (el) { printVaccinationCard(el.dataset.id); },
 
       // Вложения
-      'attach.pick':       function (el) { pickAttachment(el.dataset.visit); },
+      'attach.pick':          function (el) { pickAttachment(el.dataset.visit); },
+      'attach.confirmPending': function (el) { confirmPendingAttachments(el.dataset.visit); },
+      'attach.cancelPending':  function (el) { cancelPendingAttachments(el.dataset.visit); },
+      'attach.dropPending':    function (el) { dropPendingAttachment(el.dataset.visit, el.dataset.idx); },
+      'attach.preview':        function (el) { previewAttachment(el.dataset.id, el.dataset.name); },
       'attach.remove':     function (el) { removeAttachment(el.dataset.id, el.dataset.visit); },
       'attach.dropQueued': function (el) { dropQueuedAttachment(el.dataset.id, el.dataset.visit); },
 

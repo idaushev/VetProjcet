@@ -805,6 +805,74 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 .attach-meta { font-size: var(--fs-xs); color: var(--text-3); }
 /* Файл снят офлайн и ещё не на сервере — врач должен это видеть */
 .attach-pending { border-style: dashed; }
+/* VET-011: подпись к файлу. Без неё через месяц в карточке лежат три
+   IMG_2043.jpg и понять, какой из них «до лечения», нельзя. */
+.attach-note {
+  font-size: var(--fs-xs); color: var(--text-2);
+  margin-top: 2px; font-style: italic;
+}
+/* Отбор файлов: тип и подпись задаются здесь, а не системным prompt. */
+.attach-stage {
+  border: 1px dashed var(--accent); border-radius: var(--r);
+  padding: 10px; margin-bottom: 8px; background: var(--accent-dim);
+}
+.attach-stage-head { font-size: var(--fs-sm); font-weight: 600; margin-bottom: 8px; }
+.attach-stage-row {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+}
+.attach-stage-name {
+  flex: 0 1 30%; min-width: 0; font-size: var(--fs-sm);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.attach-stage-row select { flex: 0 0 120px; }
+.attach-stage-row input[type=text] { flex: 1 1 auto; min-width: 0; }
+.attach-stage-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+/* Узкий экран: в одну строку четыре элемента не помещаются — раскладываем. */
+@media (max-width: 700px) {
+  .attach-stage-row { flex-wrap: wrap; }
+  .attach-stage-name { flex: 1 1 100%; }
+  .attach-stage-row select { flex: 0 0 auto; }
+}
+
+/* Просмотр снимка поверх формы приёма. Отдельный оверлей, как у UI.confirm:
+   панель вложений живёт внутри модалки, а вложенные модалки не поддержаны. */
+.imgview-overlay {
+  position: fixed; inset: 0; z-index: 4000;
+  background: rgba(0,0,0,.86);
+  display: flex; flex-direction: column;
+}
+.imgview-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 12px; color: #fff; flex: 0 0 auto;
+}
+.imgview-name {
+  flex: 1 1 120px; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm);
+}
+/* btn-ghost светлый по умолчанию — на чёрном фоне просмотра он превращался
+   в белый прямоугольник без читаемой подписи. Гасим фон и тень. */
+.imgview-bar .btn {
+  background: transparent; color: #fff;
+  border: 1.5px solid rgba(255,255,255,.4); box-shadow: none;
+  white-space: nowrap;
+}
+.imgview-bar .btn:hover { background: rgba(255,255,255,.14); color: #fff; }
+.imgview-stage {
+  flex: 1; min-height: 0; overflow: auto;
+  display: flex; align-items: center; justify-content: center; padding: 8px;
+}
+.imgview-img {
+  max-width: 100%; max-height: 100%; object-fit: contain;
+  cursor: zoom-in; border-radius: 4px;
+}
+/* Увеличение: снимаем ограничение по высоте и отдаём прокрутку контейнеру. */
+.imgview-img.imgview-zoom {
+  max-width: none; max-height: none; width: auto; cursor: zoom-out;
+}
+.imgview-hint {
+  flex: 0 0 auto; text-align: center; padding: 6px 12px 12px;
+  color: rgba(255,255,255,.6); font-size: var(--fs-xs);
+}
 .attach-err { border-color: var(--danger-border, #f5c6cb); background: var(--danger-dim, #fdf3f4); }
 
 /* Активный курс лечения. Считается из визитов на лету, в pets.status не хранится. */
