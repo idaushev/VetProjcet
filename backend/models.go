@@ -134,6 +134,9 @@ type Attachment struct {
 type Vaccination struct {
 	ID             string     `json:"id"`
 	PetID          string     `json:"pet_id"`
+	// VisitID — приём, на котором сделана прививка. Пустой у самостоятельных
+	// записей: вакцинацию заводят и без приёма, и задним числом.
+	VisitID        string     `json:"visit_id,omitempty"`
 	StaffID        string     `json:"staff_id,omitempty"`
 	VaccineName    string     `json:"vaccine_name"`
 	BatchNumber    string     `json:"batch_number,omitempty"`
@@ -295,6 +298,7 @@ type createVisitItemPayload struct {
 type vaccinationPayload struct {
 	ID             string   `json:"id,omitempty"`
 	PetID          string   `json:"pet_id"`
+	VisitID        string   `json:"visit_id,omitempty"`
 	StaffID        string   `json:"staff_id,omitempty"`
 	VaccineName    string   `json:"vaccine_name"`
 	BatchNumber    string   `json:"batch_number,omitempty"`
@@ -556,6 +560,7 @@ type visitItemSyncRecord struct {
 type vaccinationSyncRecord struct {
 	ID             string   `json:"id"`
 	PetID          string   `json:"pet_id"`
+	VisitID        string   `json:"visit_id"`
 	StaffID        string   `json:"staff_id"`
 	VaccineName    string   `json:"vaccine_name"`
 	BatchNumber    string   `json:"batch_number"`

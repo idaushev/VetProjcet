@@ -593,6 +593,12 @@ var migrations = []string{
 	// сохраняют сегодняшний смысл, а незавершённость врач отмечает явно.
 	`ALTER TABLE visits ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'`,
 	`CREATE INDEX IF NOT EXISTS idx_visits_status ON visits(status)`,
+	// VET-007: прививка, сделанная НА приёме, была связана с ним только по
+	// животному и дате — через полгода при разборе реакции приходилось
+	// сопоставлять записи вручную. Ссылка необязательная: вакцинация остаётся
+	// самостоятельной сущностью (её заводят и вне приёма, и задним числом).
+	`ALTER TABLE vaccinations ADD COLUMN visit_id TEXT`,
+	`CREATE INDEX IF NOT EXISTS idx_vacc_visit ON vaccinations(visit_id)`,
 	`ALTER TABLE visit_items ADD COLUMN created_by TEXT`,
 	`ALTER TABLE visit_items ADD COLUMN updated_by TEXT`,
 	`ALTER TABLE vaccinations ADD COLUMN created_by TEXT`,

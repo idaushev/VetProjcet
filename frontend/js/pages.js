@@ -999,6 +999,7 @@
     // сделанный до того, как планшет уснул, остался бы в очереди ничей.
     var attachKey = (draft && draft.attachKey) || ('draft:' + window.VetDB.uuid());
     var attachCommitted = false;
+    var _vaccPetId = prefillPet ? prefillPet.id : '';
     // Всё, что осталось от прошлых незакрытых форм, к приёму уже не привяжется.
     await sweepOrphanDraftAttachments([attachKey]);
     if (draft) {
@@ -1019,12 +1020,22 @@
         }
         UI.startVisitDraftAutosave('new', attachKey);
         renderAttachments(attachKey);
+        renderVisitVaccinations(attachKey, prefillPet ? prefillPet.id : '');
+        // Животное в новом приёме выбирают уже после открытия формы, а прививке
+        // нужен pet_id — перерисовываем блок, когда выбор сделан.
+        var petHook = setInterval(function () {
+          if (!document.getElementById('vf-root')) { clearInterval(petHook); return; }
+          var vs = UI.getVisitState();
+          var pid = (vs.pet && vs.pet.id) || '';
+          if (pid !== _vaccPetId) { _vaccPetId = pid; renderVisitVaccinations(attachKey, pid); }
+        }, 1200);
       },
       // Уборка за формой: приём не создан — файлы к нему не привяжутся.
       // Срабатывает на «Отмену», крестик и жест «назад». После успешного
       // сохранения ключ уже подменён, и удалять нечего.
       onClose: function() {
         if (!attachCommitted) discardDraftAttachments(attachKey);
+        _vaccPending = null;   // приём не создан — привязывать прививки не к чему
       },
       onSave: async function() {
         var vs = UI.getVisitState();
@@ -1093,7 +1104,7 @@
         };
         try {
           var created = await api('POST', '/visits/full', body);
-          var attached = 0;
+          var attached = 0, vaccAdded = 0;
           if (created && created.visit) {
             await ensureVisitResults(created.visit.id, finalPet.id, vs.items);
             // Приём появился — только теперь у файлов есть к чему привязаться.
@@ -1101,12 +1112,15 @@
             // и удалил бы уже привязанные снимки.
             attachCommitted = true;
             attached = await commitDraftAttachments(attachKey, created.visit.id);
+            vaccAdded = await commitPendingVaccinations(attachKey, created.visit.id, finalPet.id);
           }
           UI.clearVisitDraft();
-          UI.toast(attached
-            ? 'Приём сохранён, файлов приложено: ' + attached
-            : 'Приём сохранён', 'ok');
+          var extra = [];
+          if (attached)  extra.push('файлов: ' + attached);
+          if (vaccAdded) extra.push('прививок: ' + vaccAdded);
+          UI.toast(extra.length ? 'Приём сохранён (' + extra.join(', ') + ')' : 'Приём сохранён', 'ok');
           UI.hideModal();
+          if (vaccAdded) await initVaccinations();
           await initVisits();
           initDashboard();
           maybeOfferAppointment(vs, finalPet, finalOwner);
@@ -1162,8 +1176,10 @@
         }
         UI.startVisitDraftAutosave('edit:'+id);
 
-        // Вложения — только у сохранённого приёма: файл нужно к чему-то привязать.
         renderAttachments(id);
+        // VET-007: прививки этого приёма. У сохранённого приёма id есть, поэтому
+        // новая прививка пишется сразу, без промежуточного накопления.
+        renderVisitVaccinations(id, visit.pet_id);
 
         // Обновляем заголовок: добавляем имя питомца и кнопку печати
         var modalTitle = document.getElementById('modal-title');
@@ -1589,7 +1605,11 @@
         +UI.avatar(pet.name||'?',pet.type)
         +'<div class="erow-body">'
         +'<div class="erow-title">'+esc(pet.name||'?')+' · '+esc(v.vaccine_name)+'</div>'
-        +'<div class="erow-sub">'+(v.manufacturer?esc(v.manufacturer)+' · ':'')+'Серия: '+esc(v.batch_number||'—')+'</div>'
+        +'<div class="erow-sub">'+(v.manufacturer?esc(v.manufacturer)+' · ':'')+'Серия: '+esc(v.batch_number||'—')
+        // VET-007: видно, что прививка сделана на приёме, и можно этот приём
+        // открыть — раньше связь приходилось искать по животному и дате.
+        +(v.visit_id?' · <span class="vacc-from-visit" data-act="visit.edit" data-id="'+esc(v.visit_id)+'" role="button" tabindex="0" title="Открыть приём, на котором сделана прививка">на приёме →</span>':'')
+        +'</div>'
         +(v.next_due_at?'<div class="erow-meta">Следующая: '+fmtDate(v.next_due_at)+(overdue?' '+I('alert')+' Просрочена':'')+'</div>':'')
         +'</div>'
         +'<div class="erow-right">'
@@ -1983,6 +2003,181 @@
       await window.VetDB.deleteRaw('attachment_queue', list[i].id);
     }
     return list.length;
+  }
+
+  // ── VET-007: вакцинации, выполненные на приёме ───────────────────────
+  //
+  // Прививка, сделанная во время приёма, жила отдельной записью, связанной с
+  // ним лишь по животному и дате. Теперь у вакцинации есть необязательная
+  // ссылка на приём. Необязательная сознательно: вакцинацию заводят и вне
+  // приёма (выезд, повторная явка только за прививкой), и задним числом.
+  //
+  // У НЕсохранённого приёма id ещё нет, поэтому введённые прививки ждут в
+  // памяти и создаются сразу после создания приёма — той же логикой, что и
+  // вложения, только очередь тут не нужна: запись маленькая и уходит обычным
+  // POST, который и сам умеет работать офлайн.
+  var _vaccPending = null;   // { visitId, list: [payload], form: bool }
+
+  function pendingVaccList(visitId) {
+    return (_vaccPending && _vaccPending.visitId === visitId) ? _vaccPending.list : [];
+  }
+
+  async function renderVisitVaccinations(visitId, petId) {
+    var box = document.getElementById('visit-vaccinations');
+    if (!box) return;
+    var saved = [];
+    if (!isDraftVisitKey(visitId)) {
+      try {
+        saved = (await window.VetDB.getAll('vaccinations'))
+          .filter(function (v) { return v.visit_id === visitId && !v.is_deleted; });
+      } catch (e) {}
+    }
+    var pend = pendingVaccList(visitId);
+    var open = !!(_vaccPending && _vaccPending.visitId === visitId && _vaccPending.form);
+
+    var html = '<div class="attach-head">' + I('syringe') + ' Вакцинации'
+      + '<span class="attach-count">' + (saved.length + pend.length) + '</span>'
+      + (open ? '' : '<button type="button" class="btn btn-ghost btn-sm attach-add"'
+          + ' data-act="vacc.inlineOpen" data-visit="' + esc(visitId) + '" data-pet="' + esc(petId || '') + '">'
+          + I('plus') + ' Вакцинация</button>')
+      + '</div>';
+
+    if (open) html += vaccInlineFormHTML(visitId, petId);
+
+    if (!saved.length && !pend.length) {
+      if (!open) html += '<div class="attach-empty">Прививок на этом приёме не делали</div>';
+    } else {
+      html += '<div class="attach-list">';
+      pend.forEach(function (v, i) {
+        html += '<div class="attach-row attach-pending">' + I('clock')
+          + '<div class="attach-body"><div class="attach-name">' + esc(v.vaccine_name) + '</div>'
+          + '<div class="attach-meta">' + esc(fmtDate(v.administered_at))
+          + (v.next_due_at ? ' · следующая ' + esc(fmtDate(v.next_due_at)) : '')
+          + ' · запишется после сохранения приёма</div>'
+          + (v.notes ? '<div class="attach-note">' + esc(v.notes) + '</div>' : '')
+          + '</div>'
+          + '<button type="button" class="btn btn-icon" title="Убрать" aria-label="Убрать"'
+          + ' data-act="vacc.dropPending" data-visit="' + esc(visitId) + '" data-idx="' + i + '">' + I('trash') + '</button>'
+          + '</div>';
+      });
+      saved.forEach(function (v) {
+        html += '<div class="attach-row">' + I('syringe')
+          + '<div class="attach-body"><div class="attach-name">' + esc(v.vaccine_name) + '</div>'
+          + '<div class="attach-meta">' + esc(fmtDate(v.administered_at))
+          + (v.next_due_at ? ' · следующая ' + esc(fmtDate(v.next_due_at)) : '')
+          + (v.batch_number ? ' · серия ' + esc(v.batch_number) : '')
+          + '</div>'
+          + (v.notes ? '<div class="attach-note">' + esc(v.notes) + '</div>' : '')
+          + '</div></div>';
+      });
+      html += '</div>';
+    }
+    box.innerHTML = html;
+  }
+
+  // Форма ВНУТРИ панели, а не отдельным окном: панель живёт внутри модалки
+  // приёма, а вложенные модалки приложение пока не умеет (F2/UX-022).
+  // Владельца и животное не спрашиваем — они уже заданы приёмом.
+  function vaccInlineFormHTML(visitId, petId) {
+    var today = new Date().toISOString().slice(0, 10);
+    return '<div class="attach-stage">'
+      + '<div class="attach-stage-head">Прививка, сделанная на этом приёме</div>'
+      + '<div class="vacc-inline-grid">'
+      + '<label class="vf-lbl">Вакцина <span class="form-req">*</span>'
+      + '<input type="text" class="form-input" id="vv-name" placeholder="Nobivac Tricat"></label>'
+      + '<label class="vf-lbl">Дата введения <span class="form-req">*</span>'
+      + '<input type="date" class="form-input" id="vv-date" value="' + today + '"></label>'
+      + '<label class="vf-lbl">Следующая'
+      + '<input type="date" class="form-input" id="vv-next"></label>'
+      + '<label class="vf-lbl">Серия/партия'
+      + '<input type="text" class="form-input" id="vv-batch" placeholder="A123456"></label>'
+      + '<label class="vf-lbl">Производитель'
+      + '<input type="text" class="form-input" id="vv-mfr" placeholder="Nobivac"></label>'
+      + '<label class="vf-lbl">Доза (мл)'
+      + '<input type="number" step="0.1" min="0" class="form-input" id="vv-dose" placeholder="1.0"></label>'
+      + '<label class="vf-lbl vf-lbl-wide">Примечание'
+      + '<input type="text" class="form-input" id="vv-notes" maxlength="300"></label>'
+      + '</div>'
+      + '<div class="attach-stage-actions">'
+      + '<button type="button" class="btn btn-ghost btn-sm" data-act="vacc.inlineCancel" data-visit="' + esc(visitId) + '" data-pet="' + esc(petId || '') + '">Отмена</button>'
+      + '<button type="button" class="btn btn-primary btn-sm" data-act="vacc.inlineAdd" data-visit="' + esc(visitId) + '" data-pet="' + esc(petId || '') + '">Добавить</button>'
+      + '</div></div>';
+  }
+
+  function openVaccInline(visitId, petId) {
+    if (!_vaccPending || _vaccPending.visitId !== visitId) {
+      _vaccPending = { visitId: visitId, list: [], form: true };
+    } else {
+      _vaccPending.form = true;
+    }
+    renderVisitVaccinations(visitId, petId);
+  }
+
+  function cancelVaccInline(visitId, petId) {
+    if (_vaccPending && _vaccPending.visitId === visitId) _vaccPending.form = false;
+    renderVisitVaccinations(visitId, petId);
+  }
+
+  // Добавление. Для СОХРАНЁННОГО приёма пишем сразу; для нового — копим и
+  // создаём после сохранения, когда у приёма появится id.
+  async function addVaccInline(visitId, petId) {
+    var name = (document.getElementById('vv-name') || {}).value || '';
+    var date = (document.getElementById('vv-date') || {}).value || '';
+    if (!name.trim()) { UI.toast('Введите название вакцины', 'err'); return; }
+    if (!date)        { UI.toast('Укажите дату введения', 'err'); return; }
+    var dose = (document.getElementById('vv-dose') || {}).value;
+    var rec = {
+      pet_id: petId,
+      vaccine_name: name.trim(),
+      administered_at: date,
+      next_due_at: (document.getElementById('vv-next') || {}).value || '',
+      batch_number: ((document.getElementById('vv-batch') || {}).value || '').trim(),
+      manufacturer: ((document.getElementById('vv-mfr') || {}).value || '').trim(),
+      dose: dose ? Number(dose) : null,
+      notes: ((document.getElementById('vv-notes') || {}).value || '').trim(),
+    };
+
+    if (isDraftVisitKey(visitId)) {
+      _vaccPending.list.push(rec);
+      _vaccPending.form = false;
+      // Прививка — тоже несохранённая работа: без этого «Отмена» выбросила бы
+      // её без вопроса, как раньше выбрасывала снимок.
+      if (UI.markModalDirty) UI.markModalDirty();
+      if (UI.forceVisitDraft) UI.forceVisitDraft();
+      await renderVisitVaccinations(visitId, petId);
+      UI.toast('Прививка запишется вместе с приёмом', 'ok');
+      return;
+    }
+
+    try {
+      rec.visit_id = visitId;
+      await api('POST', '/vaccinations', rec);
+      _vaccPending.form = false;
+      await renderVisitVaccinations(visitId, petId);
+      UI.toast('Вакцинация добавлена', 'ok');
+    } catch (e) { UI.toast(e.message, 'err'); }
+  }
+
+  function dropPendingVacc(visitId, idx, petId) {
+    if (!_vaccPending || _vaccPending.visitId !== visitId) return;
+    _vaccPending.list.splice(Number(idx), 1);
+    renderVisitVaccinations(visitId, petId);
+  }
+
+  // Приём создан — заводим накопленные прививки с ссылкой на него.
+  async function commitPendingVaccinations(draftKey, visitId, petId) {
+    var list = pendingVaccList(draftKey);
+    if (!list.length) { _vaccPending = null; return 0; }
+    var done = 0;
+    for (var i = 0; i < list.length; i++) {
+      try {
+        await api('POST', '/vaccinations',
+          Object.assign({}, list[i], { visit_id: visitId, pet_id: petId || list[i].pet_id }));
+        done++;
+      } catch (e) { console.warn('[VetPages] вакцинация приёма:', e); }
+    }
+    _vaccPending = null;
+    return done;
   }
 
   // Панель вложений внутри карточки приёма.
@@ -6412,6 +6607,10 @@
       'attach.cancelPending':  function (el) { cancelPendingAttachments(el.dataset.visit); },
       'attach.dropPending':    function (el) { dropPendingAttachment(el.dataset.visit, el.dataset.idx); },
       'attach.preview':        function (el) { previewAttachment(el.dataset.id, el.dataset.name); },
+      'vacc.inlineOpen':       function (el) { openVaccInline(el.dataset.visit, el.dataset.pet); },
+      'vacc.inlineCancel':     function (el) { cancelVaccInline(el.dataset.visit, el.dataset.pet); },
+      'vacc.inlineAdd':        function (el) { addVaccInline(el.dataset.visit, el.dataset.pet); },
+      'vacc.dropPending':      function (el) { dropPendingVacc(el.dataset.visit, el.dataset.idx, el.dataset.pet); },
       'attach.remove':     function (el) { removeAttachment(el.dataset.id, el.dataset.visit); },
       'attach.dropQueued': function (el) { dropQueuedAttachment(el.dataset.id, el.dataset.visit); },
 

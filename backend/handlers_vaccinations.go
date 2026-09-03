@@ -133,11 +133,11 @@ func (a *app) createVaccination(w http.ResponseWriter, r *http.Request) {
 
 	now := T(nowUTC())
 	if _, err := a.db.ExecContext(ctx,
-		`INSERT INTO vaccinations (id, pet_id, staff_id, vaccine_name, batch_number, manufacturer,
+		`INSERT INTO vaccinations (id, pet_id, visit_id, staff_id, vaccine_name, batch_number, manufacturer,
 		                           dose, administered_at, next_due_at, notes,
 		                           created_at, updated_at, version)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-		id, p.PetID, nullableString(p.StaffID),
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+		id, p.PetID, nullableString(p.VisitID), nullableString(p.StaffID),
 		strings.TrimSpace(p.VaccineName), nullableString(p.BatchNumber),
 		nullableString(p.Manufacturer), p.Dose, adminAt, nullableTime(nextDue),
 		nullableString(p.Notes), now, now,
@@ -175,13 +175,18 @@ func (a *app) updateVaccination(w http.ResponseWriter, r *http.Request, id strin
 	defer cancel()
 
 	res, err := a.db.ExecContext(ctx,
+		// visit_id через COALESCE: пустое поле в payload означает «не меняем».
+		// Старый клиент про связь не знает и слал бы пустую строку — молча
+		// отвязывать прививку от приёма из-за версии клиента нельзя.
 		`UPDATE vaccinations SET vaccine_name=?, batch_number=?, manufacturer=?, dose=?,
 		                         administered_at=?, next_due_at=?, notes=?, staff_id=?,
+		                         visit_id=COALESCE(?, visit_id),
 		                         updated_at=?, version=version+1
 		 WHERE id=? AND is_deleted=0`,
 		strings.TrimSpace(p.VaccineName), nullableString(p.BatchNumber),
 		nullableString(p.Manufacturer), p.Dose, adminAt, nullableTime(nextDue),
 		nullableString(p.Notes), nullableString(p.StaffID),
+		nullableString(p.VisitID),
 		T(nowUTC()), id,
 	)
 	if err != nil {
@@ -221,7 +226,7 @@ func (a *app) deleteVaccination(w http.ResponseWriter, r *http.Request, id strin
 // ─── DB helpers ───────────────────────────────────────────────────────────────
 
 const vaccinationSelectAll = `
-SELECT id, pet_id, COALESCE(staff_id,''), vaccine_name,
+SELECT id, pet_id, COALESCE(visit_id,''), COALESCE(staff_id,''), vaccine_name,
        COALESCE(batch_number,''), COALESCE(manufacturer,''), dose,
        administered_at, next_due_at, COALESCE(notes,''),
        created_at, updated_at, deleted_at, is_deleted,
@@ -238,7 +243,7 @@ func scanVaccination(s interface{ Scan(...interface{}) error }) (Vaccination, er
 	var dose sql.NullFloat64
 	var administeredAt, nextDue, createdAt, updatedAt, deletedAt timeScanner
 	err := s.Scan(
-		&v.ID, &v.PetID, &v.StaffID, &v.VaccineName,
+		&v.ID, &v.PetID, &v.VisitID, &v.StaffID, &v.VaccineName,
 		&v.BatchNumber, &v.Manufacturer, &dose,
 		&administeredAt, &nextDue, &v.Notes,
 		&createdAt, &updatedAt, &deletedAt,

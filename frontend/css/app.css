@@ -827,6 +827,18 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 .attach-stage-row select { flex: 0 0 120px; }
 .attach-stage-row input[type=text] { flex: 1 1 auto; min-width: 0; }
 .attach-stage-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+/* VET-007: поля прививки прямо в форме приёма. Владельца и животное не
+   спрашиваем — они уже заданы приёмом, поэтому сетка узкая и в две колонки. */
+.vacc-inline-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; margin-bottom: 8px;
+}
+.vf-lbl { display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-xs); color: var(--text-2); }
+.vf-lbl-wide { grid-column: 1 / -1; }
+/* Отметка «сделана на приёме» в списке вакцинаций — она кликабельна, поэтому
+   выделена цветом действия, а не читается как обычная подпись. */
+.vacc-from-visit { color: var(--accent); cursor: pointer; }
+.vacc-from-visit:hover { text-decoration: underline; }
+@media (max-width: 700px) { .vacc-inline-grid { grid-template-columns: 1fr; } }
 /* Узкий экран: в одну строку четыре элемента не помещаются — раскладываем. */
 @media (max-width: 700px) {
   .attach-stage-row { flex-wrap: wrap; }

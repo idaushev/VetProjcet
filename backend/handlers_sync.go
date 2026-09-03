@@ -528,19 +528,20 @@ func pushVaccination(ctx context.Context, db *sql.DB, rec vaccinationSyncRecord)
 	deletedAt := Tp(parseSyncTimePtr(rec.DeletedAt))
 	nextDue := parseSyncTimePtr(rec.NextDueAt)
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO vaccinations (id, pet_id, staff_id, vaccine_name, batch_number, manufacturer,
+		INSERT INTO vaccinations (id, pet_id, visit_id, staff_id, vaccine_name, batch_number, manufacturer,
 		                          dose, administered_at, next_due_at, notes,
 		                          updated_at, deleted_at, is_deleted, device_id, version, created_at, client_updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
-		  pet_id=excluded.pet_id, staff_id=excluded.staff_id, vaccine_name=excluded.vaccine_name,
+		  pet_id=excluded.pet_id, visit_id=excluded.visit_id,
+		  staff_id=excluded.staff_id, vaccine_name=excluded.vaccine_name,
 		  batch_number=excluded.batch_number, manufacturer=excluded.manufacturer,
 		  dose=excluded.dose, administered_at=excluded.administered_at, next_due_at=excluded.next_due_at,
 		  notes=excluded.notes, updated_at=excluded.updated_at,
 		  deleted_at=excluded.deleted_at, is_deleted=excluded.is_deleted,
 		  device_id=excluded.device_id, version=excluded.version,
 		  client_updated_at=excluded.client_updated_at`,
-		rec.ID, rec.PetID, nullableString(rec.StaffID), rec.VaccineName,
+		rec.ID, rec.PetID, nullableString(rec.VisitID), nullableString(rec.StaffID), rec.VaccineName,
 		nullableString(rec.BatchNumber), nullableString(rec.Manufacturer),
 		rec.Dose, T(adminAt), Tp(nextDue), nullableString(rec.Notes),
 		serverNow, deletedAt, rec.IsDeleted,
