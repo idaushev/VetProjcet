@@ -351,6 +351,10 @@
     var res = (all || []).find(function (r) { return r.id === resultId; });
     if (!res) { UI.toast('Результат не найден', 'err'); return; }
     UI.showModal({
+      // Поверх того, откуда пришли (лента истории, контекст пациента, приём),
+      // а не вместо: иначе просмотр результата уничтожал бы экран, с которого
+      // его открыли, и возвращаться было бы некуда (F2/UX-022).
+      stacked: true,
       title: res.title || 'Результат',
       bodyHTML: await resultBodyHTML(res),
       size: 'lg',

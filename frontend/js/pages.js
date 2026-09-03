@@ -729,6 +729,7 @@
         +'<button class="btn btn-icon" data-act="pet.newVisit" data-id="'+p.id+'" title="Новый приём" aria-label="Новый приём">'+UI.icon('plus','')+'</button>'
         +'<button class="btn btn-icon" data-act="pet.edit" data-id="'+p.id+'" title="Редактировать" aria-label="Редактировать">'+UI.icon('edit','')+'</button>'
         +UI.rowMenu([
+            {label:'Хронология', icon:'clock', act:'pet.timeline', data:{id:p.id}},
             {label:'История приёмов', icon:'clipboard', act:'pet.history', data:{id:p.id}},
             {label:'Печать паспорта', icon:'print', act:'pet.print', data:{id:p.id}},
             {label:'Согласие на процедуру', icon:'print', act:'pet.consent', data:{id:p.id}}
@@ -4985,6 +4986,139 @@
     'шиншилла':'🐭','хорёк':'🦡','другое':'🐾',
   };
 
+  // ── VET-014: единая хронология животного ─────────────────────────────
+  //
+  // Данные были, связной истории — нет. Приёмы в одном месте, результаты во
+  // втором, вакцинации в третьем, вложения внутри приёма; чтобы восстановить
+  // ход хронического случая («приём → анализ → смена терапии → повторный
+  // приём → новый анализ»), врач собирал картину из трёх экранов и рисковал
+  // упустить звено. Лента ставит всё рядом по датам.
+  var TL_KINDS = {
+    visit:  { label: 'Приёмы',     icon: 'clipboard' },
+    result: { label: 'Анализы',    icon: 'chart'     },
+    attach: { label: 'Вложения',   icon: 'camera'    },
+    vacc:   { label: 'Прививки',   icon: 'syringe'   },
+    course: { label: 'Назначения', icon: 'stethoscope' },
+  };
+  var _tlFilter = 'all';
+
+  async function petTimelineEvents(petId) {
+    var all = await loadAll();
+    var ev = [];
+
+    (all.visits || []).filter(function (v) { return !v.is_deleted && v.pet_id === petId; })
+      .forEach(function (v) {
+        ev.push({ kind: 'visit', when: v.date, title: v.diagnosis || 'Приём без диагноза',
+                  sub: (v.animal_weight ? v.animal_weight + ' кг' : '')
+                     + (v.patient_condition ? (v.animal_weight ? ' · ' : '') + v.patient_condition : ''),
+                  act: 'visit.peek', id: v.id });
+        // Курс лечения — отдельное событие: он длится и объясняет, почему
+        // следующий приём выглядит именно так.
+        if (v.treatment && (v.treatment_days || v.treatment_until)) {
+          ev.push({ kind: 'course', when: v.date,
+                    title: 'Курс лечения' + (v.treatment_days ? ', ' + v.treatment_days + ' дн.' : ''),
+                    sub: String(v.treatment).slice(0, 120), act: 'visit.peek', id: v.id });
+        }
+      });
+
+    (all.vaccinations || []).filter(function (v) { return !v.is_deleted && v.pet_id === petId; })
+      .forEach(function (v) {
+        ev.push({ kind: 'vacc', when: v.administered_at, title: v.vaccine_name,
+                  sub: (v.next_due_at ? 'следующая ' + fmtDate(v.next_due_at) : '')
+                     + (v.batch_number ? (v.next_due_at ? ' · ' : '') + 'серия ' + v.batch_number : ''),
+                  act: v.visit_id ? 'visit.peek' : '', id: v.visit_id || '' });
+      });
+
+    try {
+      (await window.VetDB.getAll('visit_results'))
+        .filter(function (r) { return !r.is_deleted && r.pet_id === petId && r.status === 'done'; })
+        .forEach(function (r) {
+          ev.push({ kind: 'result', when: r.filled_at || r.created_at,
+                    title: r.title || 'Результат', sub: r.conclusion || '',
+                    act: 'result.view', id: r.id });
+        });
+    } catch (e) {}
+
+    try {
+      var visitIds = {};
+      (all.visits || []).forEach(function (v) { if (v.pet_id === petId) visitIds[v.id] = v.date; });
+      (await window.VetDB.getAll('attachments'))
+        .filter(function (a) { return !a.is_deleted && a.pet_id === petId; })
+        .forEach(function (a) {
+          ev.push({ kind: 'attach', when: a.created_at || visitIds[a.visit_id] || '',
+                    title: a.file_name, sub: attachKindLabel(a.kind) + (a.notes ? ' · ' + a.notes : ''),
+                    act: String(a.mime_type || '').indexOf('image/') === 0 ? 'attach.preview' : '',
+                    id: a.id, name: a.file_name });
+        });
+    } catch (e) {}
+
+    ev.sort(function (a, b) { return (b.when || '') > (a.when || '') ? 1 : -1; });
+    return ev;
+  }
+
+  function renderTimeline(events) {
+    var box = document.getElementById('tl-list');
+    if (!box) return;
+    var list = _tlFilter === 'all' ? events : events.filter(function (e) { return e.kind === _tlFilter; });
+    if (!list.length) {
+      box.innerHTML = '<div class="attach-empty">Событий этого типа нет</div>';
+      return;
+    }
+    var lastDay = '';
+    box.innerHTML = list.map(function (e) {
+      var day = (e.when || '').slice(0, 10);
+      var head = day !== lastDay ? '<div class="tl-day">' + esc(fmtDate(e.when)) + '</div>' : '';
+      lastDay = day;
+      var k = TL_KINDS[e.kind] || TL_KINDS.visit;
+      var clickable = e.act && e.id;
+      return head
+        + '<div class="tl-item tl-' + e.kind + (clickable ? ' tl-click' : '') + '"'
+        + (clickable ? ' data-act="' + e.act + '" data-id="' + esc(e.id) + '"'
+                     + (e.name ? ' data-name="' + esc(e.name) + '"' : '') + ' role="button" tabindex="0"' : '')
+        + '><span class="tl-icon">' + I(k.icon) + '</span>'
+        + '<div class="tl-body"><div class="tl-title">' + esc(e.title) + '</div>'
+        + (e.sub ? '<div class="tl-sub">' + esc(e.sub) + '</div>' : '')
+        + '</div><span class="tl-kind">' + esc(k.label) + '</span></div>';
+    }).join('');
+  }
+
+  async function showPetTimeline(petId) {
+    var all = await loadAll();
+    var pet = (all.pets || []).find(function (p) { return p.id === petId; });
+    if (!pet) { UI.toast('Животное не найдено', 'err'); return; }
+    var events = await petTimelineEvents(petId);
+    _tlEvents = events;
+    _tlFilter = 'all';
+
+    var counts = { all: events.length };
+    Object.keys(TL_KINDS).forEach(function (k) {
+      counts[k] = events.filter(function (e) { return e.kind === k; }).length;
+    });
+    var chips = '<button type="button" class="filter-btn active" data-act="tl.filter" data-kind="all">Все ' + counts.all + '</button>'
+      + Object.keys(TL_KINDS).filter(function (k) { return counts[k]; }).map(function (k) {
+          return '<button type="button" class="filter-btn" data-act="tl.filter" data-kind="' + k + '">'
+               + esc(TL_KINDS[k].label) + ' ' + counts[k] + '</button>';
+        }).join('');
+
+    UI.showModal({
+      stacked: true,
+      title: 'История: ' + (pet.name || ''),
+      size: 'lg', onSave: false, cancelLabel: 'Закрыть',
+      bodyHTML: '<div class="tl-filters flex-gap">' + chips + '</div><div class="tl-list" id="tl-list"></div>',
+      afterOpen: function () { renderTimeline(events); }
+    });
+  }
+  var _tlEvents = [];
+
+  function setTimelineFilter(kind, btn) {
+    _tlFilter = kind;
+    var box = btn && btn.parentNode;
+    if (box) box.querySelectorAll('.filter-btn').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.kind === kind);
+    });
+    renderTimeline(_tlEvents);
+  }
+
   async function showPetCard(petId) {
     var allPets   = await window.VetDB.getAll('pets');
     var allOwners = await window.VetDB.getAll('owners');
@@ -6772,6 +6906,8 @@
       'attach.dropPending':    function (el) { dropPendingAttachment(el.dataset.visit, el.dataset.idx); },
       'attach.preview':        function (el) { previewAttachment(el.dataset.id, el.dataset.name); },
       'visit.peek':            function (el) { peekVisit(el.dataset.id); },
+      'pet.timeline':          function (el) { showPetTimeline(el.dataset.id); },
+      'tl.filter':             function (el) { setTimelineFilter(el.dataset.kind, el); },
       'task.forPet':           function (el) {
         // visitId проставляем только у сохранённого приёма: у нового id ещё нет.
         var vid = (_curVisitId && !isDraftVisitKey(_curVisitId)) ? _curVisitId : '';
@@ -6862,6 +6998,7 @@
     deletePet:          deletePet,
     showPetCard:        showPetCard,
     showPetHistory:     showPetHistory,
+    showPetTimeline:    showPetTimeline,
     showNotificationsLog: showNotificationsLog,
     markDeceased:       markDeceased,
     petPhotoInput:      petPhotoInput,

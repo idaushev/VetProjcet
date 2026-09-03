@@ -960,6 +960,42 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 }
 .vctx-task .icon { width: 14px; height: 14px; opacity: .6; flex-shrink: 0; }
 .vctx-task > span:first-of-type { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── VET-014: единая хронология животного ─────────────────────────────────
+   Приём, анализ, снимок, прививка и курс лечения стоят рядом по датам —
+   именно так читается ход хронического случая. */
+.tl-filters { margin-bottom: var(--sp-3); flex-wrap: wrap; }
+.tl-list { display: flex; flex-direction: column; }
+.tl-day {
+  font-size: var(--fs-xs); font-weight: 700; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: .04em;
+  margin: var(--sp-3) 0 var(--sp-1);
+}
+.tl-item {
+  display: flex; align-items: flex-start; gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-1);
+  border-left: 2px solid var(--border); margin-left: var(--sp-2);
+  padding-left: var(--sp-3);
+}
+.tl-click { cursor: pointer; }
+.tl-click:hover { background: var(--bg-hover); }
+.tl-icon { flex-shrink: 0; opacity: .55; margin-top: 2px; }
+.tl-icon .icon { width: 16px; height: 16px; }
+.tl-body { flex: 1; min-width: 0; }
+.tl-title { font-weight: 600; font-size: var(--fs-sm); }
+.tl-sub { font-size: var(--fs-xs); color: var(--text-2); overflow-wrap: anywhere; }
+.tl-kind {
+  flex-shrink: 0; font-size: var(--fs-xs); color: var(--text-3);
+  padding-top: 2px;
+}
+/* Цвет левой линии по типу события: глазом видно чередование «приём →
+   анализ → приём», не вчитываясь в подписи. */
+.tl-visit  { border-left-color: var(--accent); }
+.tl-result { border-left-color: #6a8fd8; }
+.tl-vacc   { border-left-color: #7fb069; }
+.tl-attach { border-left-color: #c9a227; }
+.tl-course { border-left-color: #b07bd8; }
+@media (max-width: 767px) { .tl-kind { display: none; } }
 @media (max-width: 767px) { .vacc-inline-grid { grid-template-columns: 1fr; } }
 /* Узкий экран: в одну строку четыре элемента не помещаются — раскладываем. */
 @media (max-width: 767px) {
