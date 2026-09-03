@@ -1172,7 +1172,7 @@
       <span class="vs-toggle">▾</span>
     </div>
     <div class="visit-section-body">
-      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+      <div class="vf-row">
         <div class="form-group" style="flex:0 0 200px;">
           <label class="form-label">Дата и время</label>
           <input id="f-visit-date" class="form-input" type="datetime-local" value="${esc(dateVal)}" data-act="ui.treatment" data-act-on="input">
@@ -1207,7 +1207,15 @@
             <option value="вторичный"${visitType==='вторичный'?' selected':''}>Вторичный</option>
           </select>
         </div>
-        <div class="form-group" style="flex:0 0 140px;">
+      </div>
+
+      <!-- Измерения осмотра отдельным рядом: вес, температура и свободные
+           показатели — одна смысловая группа, и она не должна конкурировать
+           за строку с датой и врачом. -->
+      <div class="vf-row">
+        <!-- 170px, а не 140: подпись «ВЕС ЖИВОТНОГО (КГ)» в узкой ячейке
+             переносилась на две строки и ломала выравнивание ряда. -->
+        <div class="form-group" style="flex:0 0 170px;">
           <label class="form-label">Вес животного (кг)</label>
           <input id="f-animal-weight" class="form-input" type="number" step="0.1" min="0" value="${esc(weight)}" placeholder="0.0">
         </div>
@@ -1232,20 +1240,27 @@
              прежним. Снимают её, когда работа не завершена — ждём анализ или
              диагноз под вопросом. Ничего не блокирует: приём сохраняется в
              любом случае и одинаково попадает в выручку и отчёты. -->
-        <div class="form-group" style="flex:0 0 auto;align-self:flex-end;">
+        <!-- VET-003. Отметка «дописан ли приём» — в конце ряда измерений,
+             прижата вправо. Она про приём целиком, а не про поле рядом,
+             поэтому отделена, а не втиснута между вводами. -->
+        <div class="form-group vf-done-cell">
           <label class="vf-status" title="Снимите, если к приёму ещё нужно вернуться"
                  aria-label="Приём завершён">
             <input type="checkbox" id="f-visit-done" ${prefill.status === 'draft' ? '' : 'checked'}>
             <span>Приём завершён</span>
           </label>
         </div>
-        <div class="form-group" style="flex:1;min-width:200px;">
-          <label class="form-label">Состояние пациента</label>
-          <div id="condition-tabs" class="condition-tabs mt-1">
-            ${CONDITIONS.map(function(c,i){ var sel = c.toLowerCase()===(prefill.patient_condition||'').toLowerCase(); return '<span class="condition-tab sev-'+i+(sel?' selected':'')+'" data-val="'+c+'">'+c+'</span>'; }).join('')}
-          </div>
-          <input type="hidden" id="f-condition" value="${esc(prefill.patient_condition||'')}">
+      </div>
+
+      <!-- Состояние пациента — СВОЙ ряд во всю ширину. Это группа из семи
+           кнопок: делить строку с полями ввода она не может, иначе получает
+           остаток и вытягивается в столбик. -->
+      <div class="form-group vf-condition-row">
+        <label class="form-label">Состояние пациента</label>
+        <div id="condition-tabs" class="condition-tabs mt-1">
+          ${CONDITIONS.map(function(c,i){ var sel = c.toLowerCase()===(prefill.patient_condition||'').toLowerCase(); return '<span class="condition-tab sev-'+i+(sel?' selected':'')+'" data-val="'+c+'">'+c+'</span>'; }).join('')}
         </div>
+        <input type="hidden" id="f-condition" value="${esc(prefill.patient_condition||'')}">
       </div>
       <div class="visit-details-2col">
         <div>

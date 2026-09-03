@@ -1554,6 +1554,20 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 }
 
 /* Condition tabs */
+/* Ряд полей формы приёма. Раньше это был инлайновый стиль на одном длинном
+   ряду из десяти элементов; после добавления температуры и показателей
+   (VET-009) «Состояние пациента» стало получать остаток строки и вытягивалось
+   в столбик. Теперь рядов три — по смыслу, а не по тому, что поместилось. */
+.vf-row {
+  display: flex; gap: var(--sp-3); flex-wrap: wrap;
+  align-items: flex-start; margin-bottom: var(--sp-4);
+}
+/* Отметка «Приём завершён» прижата вправо и выровнена по низу полей ввода:
+   она относится к приёму целиком, а не к соседнему полю. */
+.vf-done-cell { flex: 0 0 auto; margin-left: auto; align-self: flex-end; }
+@media (max-width: 767px) { .vf-done-cell { margin-left: 0; } }
+.vf-condition-row { margin-bottom: var(--sp-4); }
+
 .condition-tabs { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 
 .condition-tab {
