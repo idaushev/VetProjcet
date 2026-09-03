@@ -1963,6 +1963,14 @@
           _diagDDEl.style.display = 'none';
         }
       }, true);
+      // ...и при прокрутке. Список position:fixed, координаты ему считают
+      // ОДИН раз по месту поля: стоит прокрутить форму — и подсказки остаются
+      // висеть над чужим содержимым (замер: поле уехало на 247px, список нет).
+      // Закрыть проще и честнее, чем пересчитывать: пользователь всё равно
+      // продолжит печатать, и список появится там, где надо.
+      document.addEventListener('scroll', function() {
+        if (_diagDDEl && _diagDDEl.style.display !== 'none') _diagDDEl.style.display = 'none';
+      }, true);
     }
     return _diagDDEl;
   }
