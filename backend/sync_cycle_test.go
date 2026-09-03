@@ -647,9 +647,9 @@ func TestVisitResultLifecycle(t *testing.T) {
 		"visits":[{"id":"v-r","pet_id":"p-r","date":"2026-09-01T10:00:00Z","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
 		"visit_results":[
 		  {"id":"r-pending","visit_id":"v-r","pet_id":"p-r","item_id":"i-uzi","title":"УЗИ",
-		   "kind":"protocol","status":"pending","values":"{}","version":1,"updated_at":"2026-09-01T10:00:00Z"},
+		   "kind":"protocol","status":"pending","values_json":"{}","version":1,"updated_at":"2026-09-01T10:00:00Z"},
 		  {"id":"r-done","visit_id":"v-r","pet_id":"p-r","item_id":"i-blood","title":"Кровь",
-		   "kind":"protocol","status":"done","values":"{\"hgb\":\"120\"}","conclusion":"норма",
+		   "kind":"protocol","status":"done","values_json":"{\"hgb\":\"120\"}","conclusion":"норма",
 		   "lab_name":"Своя лаборатория","version":1,"updated_at":"2026-09-01T10:00:00Z"}]}`)
 
 	var pending, done, lab, concl string
@@ -671,7 +671,7 @@ func TestVisitResultLifecycle(t *testing.T) {
 	// заполненную. Удаление приезжает флагом, как любое другое.
 	doPush(t, a, `{"device_id":"dev-1","visit_results":[
 		{"id":"r-pending","visit_id":"v-r","pet_id":"p-r","item_id":"i-uzi","title":"УЗИ",
-		 "kind":"protocol","status":"pending","values":"{}",
+		 "kind":"protocol","status":"pending","values_json":"{}",
 		 "is_deleted":1,"deleted_at":"2026-09-01T12:00:00Z",
 		 "version":2,"updated_at":"2026-09-01T12:00:00Z"}]}`)
 
@@ -695,8 +695,12 @@ func TestVisitResultLifecycle(t *testing.T) {
 			if r["lab_name"] != "Своя лаборатория" {
 				t.Errorf("lab_name после pull = %v", r["lab_name"])
 			}
-			if r["values"] == nil && r["values_json"] == nil {
-				t.Error("значения протокола не вернулись")
+			// Проверяем СОДЕРЖИМОЕ, а не наличие ключа: values_json есть всегда
+			// (по умолчанию «{}»), и прежняя проверка проходила бы, даже если
+			// значения не доехали вовсе — что и происходило, пока тест слал их
+			// под именем «values».
+			if v, _ := r["values_json"].(string); !strings.Contains(v, "120") {
+				t.Errorf("значения протокола не вернулись: %q", v)
 			}
 		}
 	}
@@ -721,10 +725,10 @@ func TestTwoStudiesOfSameServiceCoexist(t *testing.T) {
 		"visits":[{"id":"v-2","pet_id":"p-2","date":"2026-09-01T10:00:00Z","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
 		"visit_results":[
 		  {"id":"r-uzi-1","visit_id":"v-2","pet_id":"p-2","item_id":"i-uzi","seq":0,"title":"УЗИ брюшной полости",
-		   "kind":"protocol","status":"done","values":"{\"liver_echo\":\"норма\"}","conclusion":"без патологии",
+		   "kind":"protocol","status":"done","values_json":"{\"liver_echo\":\"норма\"}","conclusion":"без патологии",
 		   "version":1,"updated_at":"2026-09-01T10:00:00Z"},
 		  {"id":"r-uzi-2","visit_id":"v-2","pet_id":"p-2","item_id":"i-uzi","seq":1,"title":"УЗИ брюшной полости №2",
-		   "kind":"protocol","status":"done","values":"{\"liver_echo\":\"повышена\"}","conclusion":"контроль через месяц",
+		   "kind":"protocol","status":"done","values_json":"{\"liver_echo\":\"повышена\"}","conclusion":"контроль через месяц",
 		   "version":1,"updated_at":"2026-09-01T10:00:00Z"}]}`)
 
 	var n int

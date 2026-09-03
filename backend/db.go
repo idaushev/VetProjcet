@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -205,6 +206,13 @@ CREATE TABLE IF NOT EXISTS visit_results (
     -- values — JSON {"ключ_поля": "значение"}. Конфликт разрешается целиком по
     -- версии: два человека один протокол одновременно не заполняют.
     values_json   TEXT NOT NULL DEFAULT '{}',
+    -- Описание полей на момент заполнения: [{key,label,type,unit,ref_low,…}].
+    -- Дублирует шаблон НАМЕРЕННО. В values_json лежат только значения по
+    -- ключам; подписи, единицы и нормы жили в шаблоне, и стоило клинике
+    -- удалить или переделать бланк — таблица показателей в старых результатах
+    -- исчезала: цифры целы, показать их нечем. Медицинская запись обязана
+    -- читаться сама по себе, спустя годы и независимо от справочника.
+    fields_snapshot TEXT,
     attachment_id TEXT,                   -- ссылка на файл, если kind='file'
     conclusion    TEXT,                   -- заключение врача свободным текстом
     status        TEXT NOT NULL DEFAULT 'pending',   -- pending | done
@@ -627,6 +635,7 @@ var migrations = []string{
 	// фиксирован, а справочник ради двух-трёх названий — лишняя сущность.
 	`ALTER TABLE visit_results ADD COLUMN lab_name TEXT`,
 	`ALTER TABLE visit_results ADD COLUMN seq INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE visit_results ADD COLUMN fields_snapshot TEXT`,
 	`ALTER TABLE visit_items ADD COLUMN created_by TEXT`,
 	`ALTER TABLE visit_items ADD COLUMN updated_by TEXT`,
 	`ALTER TABLE vaccinations ADD COLUMN created_by TEXT`,
@@ -912,6 +921,7 @@ func openDB(dbPath string) (*sql.DB, error) {
 	migrateUsersRoleCheck(ctx, db)
 	seedDefaultWarehouse(ctx, db)
 	seedProtocolTemplates(ctx, db)
+	backfillResultFields(ctx, db)
 
 	return db, nil
 }
@@ -988,4 +998,40 @@ func runMigrations(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+// backfillResultFields проставляет снимок полей уже заполненным результатам,
+// у которых его ещё нет.
+//
+// Записи, сделанные до появления снимка, живут ровно с той же угрозой: удалят
+// или переделают бланк — и таблица показателей в них исчезнет. Пока шаблон на
+// месте, его можно переписать в саму запись, и тогда её уже ничем не испортить.
+// Позже такой возможности не будет, поэтому делаем это при каждом запуске: с
+// планшетов, которые ещё не обновились, продолжают приезжать результаты без
+// снимка.
+//
+// Только status='done': у ожидающего результата значений ещё нет, и замораживать
+// бланк до заполнения нельзя — врач должен получить актуальный.
+//
+// updated_at двигаем намеренно: иначе снимок останется только на сервере, а на
+// планшете запись деградирует по-прежнему. Версию НЕ трогаем — это не правка
+// содержания, и она не должна выигрывать конфликт у настоящей правки с планшета.
+func backfillResultFields(ctx context.Context, db *sql.DB) {
+	res, err := db.ExecContext(ctx, `
+		UPDATE visit_results
+		SET fields_snapshot = (SELECT t.fields FROM protocol_templates t
+		                        WHERE t.id = visit_results.template_id),
+		    updated_at = ?
+		WHERE status = 'done'
+		  AND COALESCE(fields_snapshot,'') = ''
+		  AND COALESCE(template_id,'') <> ''
+		  AND EXISTS (SELECT 1 FROM protocol_templates t
+		               WHERE t.id = visit_results.template_id
+		                 AND COALESCE(t.fields,'') NOT IN ('', '[]'))`, T(nowUTC()))
+	if err != nil {
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		log.Printf("[vet] снимок полей проставлен %d результатам", n)
+	}
 }

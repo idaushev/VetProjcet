@@ -2544,6 +2544,9 @@
         var d = _resultDrafts[keys[i]];
         await api('PUT', '/results/' + row.id, {
           values_json: JSON.stringify(d.values || {}),
+          // Снимок бланка — вместе со значениями: запись должна читаться и
+          // через годы, когда справочник давно переписали.
+          fields_snapshot: JSON.stringify(d.fields || []),
           conclusion: d.conclusion || '',
           lab_name: d.lab_name || '',
           status: 'done'

@@ -90,6 +90,7 @@ type resultSyncRecord struct {
 	TemplateID   string  `json:"template_id"`
 	Kind         string  `json:"kind"`
 	Values       string  `json:"values_json"`
+	FieldsSnap   string  `json:"fields_snapshot"`
 	AttachmentID string  `json:"attachment_id"`
 	Conclusion   string  `json:"conclusion"`
 	LabName      string  `json:"lab_name"`
@@ -125,13 +126,18 @@ func pushVisitResult(ctx context.Context, db *sql.DB, rec resultSyncRecord) (boo
 	}
 	_, err = db.ExecContext(ctx, `
 		INSERT INTO visit_results (id, visit_id, pet_id, visit_item_id, item_id, seq, title,
-		        template_id, kind, values_json, attachment_id, conclusion, lab_name, status, filled_at,
+		        template_id, kind, values_json, fields_snapshot, attachment_id, conclusion, lab_name, status, filled_at,
 		        created_at, updated_at, deleted_at, is_deleted, device_id, version, client_updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		  visit_item_id=excluded.visit_item_id, item_id=excluded.item_id, seq=excluded.seq,
 		  title=excluded.title, template_id=excluded.template_id, kind=excluded.kind,
 		  values_json=excluded.values_json,
+		  -- Снимок полей не затираем пустым и не переписываем: он фиксирует
+		  -- бланк на момент заполнения. Планшет со старой версией его не
+		  -- присылает вовсе — и не должен обнулить уже сохранённый.
+		  fields_snapshot=COALESCE(NULLIF(excluded.fields_snapshot,''),
+		                           NULLIF(visit_results.fields_snapshot,'')),
 		  -- Файл прикрепляется отдельным механизмом (очередь вложений) и может
 		  -- доехать раньше, чем планшет пришлёт запись результата. Пустая
 		  -- ссылка от клиента не должна стирать уже привязанный файл.
@@ -143,7 +149,7 @@ func pushVisitResult(ctx context.Context, db *sql.DB, rec resultSyncRecord) (boo
 		  version=excluded.version, client_updated_at=excluded.client_updated_at`,
 		rec.ID, rec.VisitID, rec.PetID, nullableString(rec.VisitItemID), nullableString(rec.ItemID),
 		rec.Seq, rec.Title, nullableString(rec.TemplateID), normalizeResultKind(rec.Kind),
-		defaultJSON(rec.Values, "{}"), nullableString(rec.AttachmentID),
+		defaultJSON(rec.Values, "{}"), nullableString(rec.FieldsSnap), nullableString(rec.AttachmentID),
 		nullableString(rec.Conclusion), nullableString(rec.LabName), status, filledAt,
 		serverNow, serverNow, Tp(parseSyncTimePtr(rec.DeletedAt)), rec.IsDeleted,
 		nullableString(rec.DeviceID), rec.Version, clientAt)

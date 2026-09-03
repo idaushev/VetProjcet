@@ -230,7 +230,7 @@ func TestCorrectingResultKeepsArrivalDate(t *testing.T) {
 		"pets":[{"id":"p-c","owner_id":"o-c","name":"Мурка","type":"cat","gender":"f","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
 		"visits":[{"id":"v-c","pet_id":"p-c","date":"2026-09-01T10:00:00Z","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
 		"visit_results":[{"id":"r-c","visit_id":"v-c","pet_id":"p-c","item_id":"i-bio","title":"Биохимия",
-		  "kind":"protocol","status":"done","values":"{\"creatinine\":\"400\"}","conclusion":"почки",
+		  "kind":"protocol","status":"done","values_json":"{\"creatinine\":\"400\"}","conclusion":"почки",
 		  "filled_at":"2026-09-01T11:00:00Z","version":1,"updated_at":"2026-09-01T11:00:00Z"}]}`)
 
 	var filledBefore string
@@ -285,5 +285,150 @@ func TestEditingResultsNeedsMedicalRecordAccess(t *testing.T) {
 	}
 	if editor.tableLevel("visits") < permLevels["edit"] {
 		t.Error("врач без настроенных прав потерял возможность править результаты")
+	}
+}
+
+// Ради чего всё затевалось: удалённый бланк не должен уносить с собой
+// показатели уже сделанного исследования. Значения лежат в записи по ключам,
+// подписи и нормы жили только в шаблоне — без снимка таблица показателей
+// исчезала целиком, и в карточке оставалось одно заключение.
+func TestResultStaysReadableAfterTemplateIsDeleted(t *testing.T) {
+	a := testApp(t)
+
+	doPush(t, a, `{"device_id":"dev-1",
+		"owners":[{"id":"o-s","fio":"Хозяин","phone":"+7 700 444 0000","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"pets":[{"id":"p-s","owner_id":"o-s","name":"Рекс","type":"dog","gender":"m","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"visits":[{"id":"v-s","pet_id":"p-s","date":"2026-09-01T10:00:00Z","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"protocol_templates":[{"id":"t-s","name":"ОАК","kind":"lab",
+		  "fields":"[{\"key\":\"hgb\",\"label\":\"Гемоглобин\",\"type\":\"number\",\"unit\":\"г/л\",\"ref_low\":120,\"ref_high\":180}]",
+		  "version":1,"updated_at":"2026-09-01T09:00:00Z"}],
+		"visit_results":[{"id":"r-s","visit_id":"v-s","pet_id":"p-s","template_id":"t-s","title":"ОАК",
+		  "kind":"protocol","status":"done","values_json":"{\"hgb\":\"95\"}",
+		  "fields_snapshot":"[{\"key\":\"hgb\",\"label\":\"Гемоглобин\",\"type\":\"number\",\"unit\":\"г/л\",\"ref_low\":120,\"ref_high\":180}]",
+		  "version":1,"updated_at":"2026-09-01T11:00:00Z"}]}`)
+
+	// Клиника переделала справочник и удалила старый бланк.
+	if _, err := a.db.Exec(`DELETE FROM protocol_templates WHERE id='t-s'`); err != nil {
+		t.Fatalf("удаление шаблона: %v", err)
+	}
+
+	var snap, values string
+	err := a.db.QueryRow(`SELECT COALESCE(fields_snapshot,''), values_json
+	                      FROM visit_results WHERE id='r-s'`).Scan(&snap, &values)
+	if err != nil {
+		t.Fatalf("чтение результата: %v", err)
+	}
+	if !strings.Contains(snap, "Гемоглобин") {
+		t.Fatalf("подписи показателей потерялись вместе с бланком: %q", snap)
+	}
+	// Норма тоже: без неё «95» перестаёт быть отклонением, и это уже искажение
+	// медицинской записи, а не потеря оформления.
+	if !strings.Contains(snap, "120") || !strings.Contains(snap, "г/л") {
+		t.Errorf("норма или единица не сохранились: %q", snap)
+	}
+	if !strings.Contains(values, "95") {
+		t.Errorf("значение потерялось: %q", values)
+	}
+
+	// И всё это доезжает до планшета.
+	doc := &User{ID: "u-s", Login: "vet", Role: "doctor", IsActive: true}
+	var got string
+	for _, r := range pullAs(t, a, doc, "")["visit_results"] {
+		if r["id"] == "r-s" {
+			got, _ = r["fields_snapshot"].(string)
+		}
+	}
+	if !strings.Contains(got, "Гемоглобин") {
+		t.Errorf("снимок не доехал до планшета: %q", got)
+	}
+}
+
+// Снимок фиксирует бланк на момент заполнения. Правка результата его НЕ
+// переписывает: врач исправляет цифру в том бланке, по которому исследование и
+// делали. Иначе исправление описки задним числом меняло бы нормы, по которым
+// результат оценивали.
+func TestSnapshotIsTakenOnceAndSurvivesCorrections(t *testing.T) {
+	a := testApp(t)
+
+	doPush(t, a, `{"device_id":"dev-1",
+		"owners":[{"id":"o-q","fio":"Хозяин","phone":"+7 700 555 0000","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"pets":[{"id":"p-q","owner_id":"o-q","name":"Мурка","type":"cat","gender":"f","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"visits":[{"id":"v-q","pet_id":"p-q","date":"2026-09-01T10:00:00Z","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"visit_results":[{"id":"r-q","visit_id":"v-q","pet_id":"p-q","title":"ОАК","template_id":"t-q",
+		  "kind":"protocol","status":"pending","values_json":"{}","version":1,"updated_at":"2026-09-01T10:00:00Z"}]}`)
+
+	put := func(body string) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPut, "/results/r-q", strings.NewReader(body))
+		req.SetPathValue("id", "r-q")
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		a.handleResultByID(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("PUT HTTP %d: %s", rec.Code, rec.Body.String())
+		}
+	}
+
+	// Заполнение: снимок ставится.
+	put(`{"values_json":"{\"hgb\":\"95\"}","status":"done",
+	      "fields_snapshot":"[{\"key\":\"hgb\",\"label\":\"Гемоглобин\",\"ref_low\":120}]"}`)
+	// Позже клинику переписали справочник, и правка приезжает с НОВЫМ бланком.
+	put(`{"values_json":"{\"hgb\":\"105\"}","status":"done",
+	      "fields_snapshot":"[{\"key\":\"hgb\",\"label\":\"HGB\",\"ref_low\":80}]"}`)
+
+	var snap, values string
+	a.db.QueryRow(`SELECT COALESCE(fields_snapshot,''), values_json FROM visit_results WHERE id='r-q'`).Scan(&snap, &values)
+	if strings.Contains(snap, "HGB") || strings.Contains(snap, "80") {
+		t.Errorf("правка переписала бланк, по которому делали исследование: %q", snap)
+	}
+	if !strings.Contains(snap, "Гемоглобин") || !strings.Contains(snap, "120") {
+		t.Errorf("исходный бланк потерян: %q", snap)
+	}
+	if !strings.Contains(values, "105") {
+		t.Errorf("значение не исправилось: %q", values)
+	}
+
+	// Планшет старой версии снимка не присылает вовсе — и не должен его стереть.
+	doPush(t, a, `{"device_id":"dev-old",
+		"visit_results":[{"id":"r-q","visit_id":"v-q","pet_id":"p-q","title":"ОАК","kind":"protocol",
+		  "status":"done","values_json":"{\"hgb\":\"105\"}","version":9,"updated_at":"2026-09-02T10:00:00Z"}]}`)
+	a.db.QueryRow(`SELECT COALESCE(fields_snapshot,'') FROM visit_results WHERE id='r-q'`).Scan(&snap)
+	if !strings.Contains(snap, "Гемоглобин") {
+		t.Errorf("планшет старой версии обнулил снимок: %q", snap)
+	}
+}
+
+// Записи, сделанные ДО появления снимка, живут с той же угрозой. Пока шаблон
+// на месте, его переписывают в саму запись — позже такой возможности не будет.
+func TestBackfillFreezesFieldsOfOldResults(t *testing.T) {
+	a := testApp(t)
+	ctx := context.Background()
+
+	doPush(t, a, `{"device_id":"dev-1",
+		"owners":[{"id":"o-b","fio":"Хозяин","phone":"+7 700 666 0000","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"pets":[{"id":"p-b","owner_id":"o-b","name":"Барс","type":"cat","gender":"m","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"visits":[{"id":"v-b","pet_id":"p-b","date":"2026-09-01T10:00:00Z","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"protocol_templates":[{"id":"t-b","name":"Биохимия","kind":"lab",
+		  "fields":"[{\"key\":\"crea\",\"label\":\"Креатинин\",\"type\":\"number\",\"unit\":\"мкмоль/л\"}]",
+		  "version":1,"updated_at":"2026-09-01T09:00:00Z"}],
+		"visit_results":[
+		  {"id":"r-old","visit_id":"v-b","pet_id":"p-b","template_id":"t-b","title":"Биохимия",
+		   "kind":"protocol","status":"done","values_json":"{\"crea\":\"180\"}","version":1,"updated_at":"2026-09-01T11:00:00Z"},
+		  {"id":"r-wait","visit_id":"v-b","pet_id":"p-b","template_id":"t-b","title":"Биохимия повтор",
+		   "kind":"protocol","status":"pending","values_json":"{}","version":1,"updated_at":"2026-09-01T11:00:00Z"}]}`)
+
+	backfillResultFields(ctx, a.db)
+
+	var done, pending string
+	a.db.QueryRow(`SELECT COALESCE(fields_snapshot,'') FROM visit_results WHERE id='r-old'`).Scan(&done)
+	a.db.QueryRow(`SELECT COALESCE(fields_snapshot,'') FROM visit_results WHERE id='r-wait'`).Scan(&pending)
+
+	if !strings.Contains(done, "Креатинин") {
+		t.Errorf("заполненный результат не заморожен: %q", done)
+	}
+	// Ожидающему бланк замораживать НЕЛЬЗЯ: значений ещё нет, и врач должен
+	// получить актуальную редакцию, а не ту, что была на момент запуска сервера.
+	if pending != "" {
+		t.Errorf("незаполненному результату проставили снимок: %q", pending)
 	}
 }

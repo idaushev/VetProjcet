@@ -50,6 +50,33 @@
     }
   }
   function fieldsOf(tpl)  { return parseJSON(tpl && tpl.fields, []) || []; }
+
+  // Поля ДЛЯ РЕЗУЛЬТАТА: сначала снимок, снятый при заполнении, и только потом
+  // текущий шаблон. Порядок именно такой, а не наоборот: медицинская запись
+  // должна читаться так, как её сделали. Клиника вправе переписать бланк —
+  // поменять единицу, сузить норму, убрать показатель, — но старый результат
+  // от этого не должен ни исчезнуть, ни начать врать: цифра, снятая по норме
+  // 60–77, не может задним числом стать отклонением по новой границе.
+  function fieldsForResult(res, tpl) {
+    var snap = parseJSON(res && res.fields_snapshot, null);
+    if (snap && snap.length) return snap;
+    return fieldsOf(tpl);
+  }
+
+  // Снимок для записи: то же описание полей, но без пустот — их в бланке УЗИ
+  // на три десятка полей набирается заметно, а снимок едет на каждый планшет
+  // вместе с записью.
+  function snapshotFields(fields) {
+    return (fields || []).map(function (f) {
+      var o = { key: f.key, label: f.label, type: f.type || 'text' };
+      if (f.unit) o.unit = f.unit;
+      if (f.ref_low != null) o.ref_low = f.ref_low;
+      if (f.ref_high != null) o.ref_high = f.ref_high;
+      if (f.options && f.options.length) o.options = f.options;
+      if (f.group) o.group = f.group;
+      return o;
+    });
+  }
   function valuesOf(res)  { return parseJSON(res && res.values_json, {}) || {}; }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -367,6 +394,9 @@
       saveLabel: 'Готово',
       onSave: function () {
         var data = collectProtocolValues();
+        // Вместе со значениями отдаём и описание полей: приём ещё не сохранён,
+        // записи нет, и снимок поставить некуда — сделает это applyDraftResults.
+        data.fields = snapshotFields(fieldsOf(tpl));
         UI.hideModal();
         if (onDone) onDone(data);
       }
@@ -381,7 +411,10 @@
     var tpl = res.template_id ? tpls.find(function (t) { return t.id === res.template_id; }) : null;
     // VET-008 (вопрос 14): в теле формы есть и лаборатория-исполнитель —
     // при разборе спорного результата её спрашивают первой.
-    var body = protocolBodyHTML(tpl, valuesOf(res), res.conclusion, res.lab_name);
+    // Правим в ТОМ бланке, по которому исследование делали: у заполненной
+    // записи берём её снимок, а не сегодняшний шаблон.
+    var fields = fieldsForResult(res, tpl);
+    var body = protocolBodyHTML({ fields: JSON.stringify(fields) }, valuesOf(res), res.conclusion, res.lab_name);
 
     UI.showModal({
       // Поверх формы приёма, а не вместо неё: заполнение протокола вызывают
@@ -403,6 +436,9 @@
         try {
           await api('PUT', '/results/' + resultId, {
             values_json: JSON.stringify(d.values),
+            // Снимок полей уходит вместе со значениями. Сервер поставит его
+            // только если снимка ещё не было: правка не переписывает бланк.
+            fields_snapshot: JSON.stringify(snapshotFields(fields)),
             conclusion: d.conclusion,
             lab_name: d.lab_name,
             status: 'done'
@@ -470,7 +506,9 @@
       if (r.is_deleted || r.pet_id !== petId) return;
       if (r.status && r.status === 'pending') return;   // ещё не внесён
       var tpl = r.template_id ? byId[r.template_id] : null;
-      var f = fieldsOf(tpl).find(function (x) { return x.key === fieldKey; });
+      // По снимку КАЖДОГО результата: точку в ряд берём с той единицей, с
+      // какой её и записали, а не с сегодняшней из справочника.
+      var f = fieldsForResult(r, tpl).find(function (x) { return x.key === fieldKey; });
       if (!f) return;
       if ((f.unit || '') !== (unit || '')) return;      // разные единицы не смешиваем
       var raw = valuesOf(r)[fieldKey];
@@ -555,7 +593,7 @@
     if (!res) return;
     var tpls = await loadTemplates();
     var tpl = res.template_id ? tpls.find(function (t) { return t.id === res.template_id; }) : null;
-    var f = fieldsOf(tpl).find(function (x) { return x.key === fieldKey; });
+    var f = fieldsForResult(res, tpl).find(function (x) { return x.key === fieldKey; });
     if (!f) return;
 
     var pts = await seriesFor(res.pet_id, fieldKey, f.unit);
@@ -597,7 +635,7 @@
   async function resultBodyHTML(res) {
     var tpls = await loadTemplates();
     var tpl = res.template_id ? tpls.find(function (t) { return t.id === res.template_id; }) : null;
-    var fields = fieldsOf(tpl);
+    var fields = fieldsForResult(res, tpl);
     var values = valuesOf(res);
     var html = '';
 
@@ -700,6 +738,7 @@
 
   window.VetProtocols = {
     init: renderTemplateList,
+    fieldsForResult: fieldsForResult,
     wasCorrected: wasCorrected,
     fillProtocolDraft: fillProtocolDraft,
     loadTemplates: loadTemplates,

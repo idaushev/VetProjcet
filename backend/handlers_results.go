@@ -242,6 +242,8 @@ type VisitResult struct {
 	TemplateID   string     `json:"template_id,omitempty"`
 	Kind         string     `json:"kind"`
 	Values       string     `json:"values_json"`
+	// Поля бланка на момент заполнения — чтобы запись читалась без шаблона.
+	FieldsSnap   string     `json:"fields_snapshot,omitempty"`
 	AttachmentID string     `json:"attachment_id,omitempty"`
 	Conclusion   string     `json:"conclusion,omitempty"`
 	// Лаборатория-исполнитель: свободный текст (VET-008, вопрос 14).
@@ -256,7 +258,7 @@ func (v VisitResult) recordID() string { return v.ID }
 const resultSelectAll = `
 SELECT id, visit_id, pet_id, COALESCE(visit_item_id,''), COALESCE(item_id,''),
        COALESCE(seq,0), title, COALESCE(template_id,''), COALESCE(kind,'protocol'),
-       COALESCE(values_json,'{}'), COALESCE(attachment_id,''),
+       COALESCE(values_json,'{}'), COALESCE(fields_snapshot,''), COALESCE(attachment_id,''),
        COALESCE(conclusion,''), COALESCE(lab_name,''), COALESCE(status,'pending'), filled_at,
        created_at, updated_at, deleted_at, is_deleted,
        COALESCE(device_id,''), COALESCE(version,1)
@@ -266,7 +268,7 @@ func scanResult(rows *sql.Rows) (VisitResult, error) {
 	var v VisitResult
 	var filled, created, updated, deleted timeScanner
 	err := rows.Scan(&v.ID, &v.VisitID, &v.PetID, &v.VisitItemID, &v.ItemID,
-		&v.Seq, &v.Title, &v.TemplateID, &v.Kind, &v.Values, &v.AttachmentID,
+		&v.Seq, &v.Title, &v.TemplateID, &v.Kind, &v.Values, &v.FieldsSnap, &v.AttachmentID,
 		&v.Conclusion, &v.LabName, &v.Status, &filled,
 		&created, &updated, &deleted, &v.IsDeleted, &v.DeviceID, &v.Version)
 	if err != nil {
@@ -357,6 +359,7 @@ func (a *app) handleResults(w http.ResponseWriter, r *http.Request) {
 			TemplateID   string `json:"template_id"`
 			Kind         string `json:"kind"`
 			Values       string `json:"values_json"`
+			FieldsSnap   string `json:"fields_snapshot"`
 			AttachmentID string `json:"attachment_id"`
 			Conclusion   string `json:"conclusion"`
 			LabName      string `json:"lab_name"`
@@ -386,12 +389,12 @@ func (a *app) handleResults(w http.ResponseWriter, r *http.Request) {
 		}
 		if _, err := a.db.ExecContext(ctx, `
 			INSERT INTO visit_results (id, visit_id, pet_id, visit_item_id, item_id, seq, title,
-			        template_id, kind, values_json, attachment_id, conclusion, lab_name, status, filled_at,
+			        template_id, kind, values_json, fields_snapshot, attachment_id, conclusion, lab_name, status, filled_at,
 			        created_at, updated_at, client_updated_at, is_deleted, version)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`,
 			id, p.VisitID, p.PetID, nullableString(p.VisitItemID), nullableString(p.ItemID),
 			p.Seq, strings.TrimSpace(p.Title), nullableString(p.TemplateID), normalizeResultKind(p.Kind),
-			defaultJSON(p.Values, "{}"), nullableString(p.AttachmentID),
+			defaultJSON(p.Values, "{}"), nullableString(p.FieldsSnap), nullableString(p.AttachmentID),
 			nullableString(p.Conclusion), nullableString(p.LabName), status, filled, now, now, now); err != nil {
 			a.logger.Printf("createResult: %v", err)
 			writeError(w, http.StatusInternalServerError, "Не удалось сохранить результат")
@@ -418,6 +421,7 @@ func (a *app) handleResultByID(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPut:
 		var p struct {
 			Values       *string `json:"values_json"`
+			FieldsSnap   *string `json:"fields_snapshot"`
 			Conclusion   *string `json:"conclusion"`
 			LabName      *string `json:"lab_name"`
 			Status       *string `json:"status"`
@@ -434,6 +438,13 @@ func (a *app) handleResultByID(w http.ResponseWriter, r *http.Request) {
 		if p.Values != nil {
 			sets = append([]string{"values_json=?"}, sets...)
 			args = append([]interface{}{defaultJSON(*p.Values, "{}")}, args...)
+		}
+		// Снимок полей ставим ОДИН РАЗ — при первом заполнении. Правка записи
+		// его не переписывает: врач исправляет цифру в том бланке, по которому
+		// исследование и делали, а не в сегодняшней редакции справочника.
+		if p.FieldsSnap != nil && strings.TrimSpace(*p.FieldsSnap) != "" {
+			sets = append(sets, "fields_snapshot=COALESCE(NULLIF(fields_snapshot,''), ?)")
+			args = append(args, strings.TrimSpace(*p.FieldsSnap))
 		}
 		if p.Conclusion != nil {
 			sets = append(sets, "conclusion=?")
