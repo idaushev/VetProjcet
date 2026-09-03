@@ -170,12 +170,31 @@ html {
 }
 
 /* Планшет и телефон: текст крупнее — читаем с вытянутой руки */
+/* ── Опорные ширины (UX-004) ─────────────────────────────────────────────
+   Было 15 произвольных границ (420, 520, 599, 640, 700, 720, 768, 899,
+   900–1099, 1100, 1200, 1400, 1500, 1800): каждая появилась под конкретную
+   поломку, системы не было. Поведение между 899 и 900 или 1099 и 1100 нельзя
+   было предсказать, а любая правка макета требовала проверки на десятке ширин.
+
+   Осталось пять:
+     ≤767   — телефон
+     ≤1023  — планшет и уже: меню оверлеем, нижняя панель
+     1024…1279 — узкий десктоп: сайдбар «рельсом»
+     ≥1280  — десктоп: сайдбар целиком
+     ≥1440  — широкий монитор
+   и отдельно ≥1800 для кегля на очень больших мониторах — это типографика,
+   а не раскладка.
+
+   pointer: coarse — ОТДЕЛЬНАЯ ось: она про палец, а не про ширину. Планшет
+   бывает шире ноутбука, и мешать эти вещи в одно условие как раз и
+   порождало произвольные границы.
+   ────────────────────────────────────────────────────────────────────── */
 @media (pointer: coarse) {
   html { font-size: 17px; }
 }
 
 /* Узкие телефоны: масштаб обратно вниз, иначе на 360px ничего не помещается */
-@media (pointer: coarse) and (max-width: 420px) {
+@media (pointer: coarse) and (max-width: 767px) {
   html { font-size: 15.5px; }
 }
 
@@ -329,12 +348,12 @@ h4 { font-size: var(--fs-md);   font-weight: 600; }
   border-bottom: 1px solid var(--border);
   cursor: pointer; flex-shrink: 0;
 }
-@media (max-width: 899px) {
+@media (max-width: 1023px) {
   .sidebar-brand { display: flex; }
 }
 
 /* Mobile drawer */
-@media (max-width: 899px) {
+@media (max-width: 1023px) {
   .sidebar {
     /* На всю высоту экрана, поверх topbar: раньше меню начиналось под шапкой,
        и над ним оставалась «пустая» полоса с обрезанным topbar. Теперь внутри
@@ -860,9 +879,9 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 .res-series-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 .res-series-table td { padding: 3px 6px; border-bottom: 1px solid var(--border); }
 .res-series-cur { font-weight: 700; }
-@media (max-width: 700px) { .vacc-inline-grid { grid-template-columns: 1fr; } }
+@media (max-width: 767px) { .vacc-inline-grid { grid-template-columns: 1fr; } }
 /* Узкий экран: в одну строку четыре элемента не помещаются — раскладываем. */
-@media (max-width: 700px) {
+@media (max-width: 767px) {
   .attach-stage-row { flex-wrap: wrap; }
   .attach-stage-name { flex: 1 1 100%; }
   .attach-stage-row select { flex: 0 0 auto; }
@@ -954,7 +973,7 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
   gap: 16px;
   align-items: start;
 }
-@media (min-width: 1100px) {
+@media (min-width: 1280px) {
   /* stretch, а не start: высоту строки грида всё равно задаёт самая высокая
      панель, и при align-items:start под короткой оставалась дыра (замер:
      250px между «Записи на сегодня» и «На лечении»). Со stretch панели
@@ -968,7 +987,7 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
   .dash-grid > .card { display: flex; flex-direction: column; }
   .dash-grid > .card > .card-body { flex: 1; }
 }
-@media (min-width: 1500px) {
+@media (min-width: 1440px) {
   /* На большом мониторе лента приёмов шире виджета сбоку — так удобнее читать */
   .dash-grid { grid-template-columns: 3fr 2fr; }
 }
@@ -1274,7 +1293,7 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 .visit-details-2col {
   display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
 }
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .visit-details-2col { grid-template-columns: 1fr; }
 }
 
@@ -1579,7 +1598,7 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 }
 
 /* ── Responsive ─────────────────────────────────────────────────── */
-@media (max-width: 899px) {
+@media (max-width: 1023px) {
   /* Врезка карточек на узких экранах — сразу и для шапки, и для строк */
   :root { --card-pad-x: 16px; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
@@ -1622,14 +1641,14 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
    и строка списка вырастала с 72px до 172px. На экране высотой 1280px
    помещалось всего 6 приёмов вместо 14 — при том, что места по горизонтали
    вагон. Планшету перенос не нужен, ему хватает ширины. */
-@media (max-width: 599px) {
+@media (max-width: 767px) {
   .erow { flex-wrap: wrap; }
   .erow-right { width: 100%; flex-direction: row; justify-content: flex-end;
                 align-items: center; gap: 8px; margin-top: 4px; }
 }
 
 /* Автоматический rail для средних планшетов */
-@media (min-width: 900px) and (max-width: 1099px) {
+@media (min-width: 1024px) and (max-width: 1279px) {
   .sidebar { width: var(--rail-w); }
   .sidebar .nav-text,
   .sidebar .nav-badge,
@@ -1638,12 +1657,12 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
   .sidebar .nav-item { justify-content: center; padding: 0 12px; }
 }
 
-@media (min-width: 1100px) {
+@media (min-width: 1280px) {
   .stats-grid { grid-template-columns: repeat(4, 1fr); }
 }
 
 /* Xiaomi Pad 7 landscape (≈1280×800 CSS) */
-@media (min-width: 1200px) {
+@media (min-width: 1280px) {
   /* Просторнее — но одинаково для шапки карточки и строк списка */
   :root { --card-pad-x: 22px; }
   :root { --page-pad-x: 36px; }
@@ -1738,7 +1757,7 @@ a.attach-name:hover { color: var(--accent); text-decoration: underline; }
 .form-required-note span { color: var(--danger); font-weight: 700; }
 
 /* ── Page inner — responsive max-width для форм ─────────────────── */
-@media (min-width: 1400px) {
+@media (min-width: 1440px) {
   .page-inner > .card { max-width: 820px; }
 }
 
@@ -2053,9 +2072,8 @@ mark {
 .pc-action-btn.primary:hover { background: var(--accent-d); }
 
 /* ── Print ──────────────────────────────────────────────────────── */
-@media (max-width: 640px) {
+@media (max-width: 767px) {
   .pc-health-grid { grid-template-columns: 1fr; }
-  .pc-actions { grid-template-columns: 1fr 1fr; }
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -2184,7 +2202,7 @@ mark {
 }
 .oc-action-btn.primary:hover { background: var(--accent-d); }
 
-@media (max-width: 520px) {
+@media (max-width: 767px) {
   .oc-pets-grid { grid-template-columns: repeat(3, 1fr); }
 }
 
@@ -2548,7 +2566,7 @@ body[data-role="reception"] #ssg-analytics { display: none; }
      тянется вправо, но не за край экрана. */
   min-width: min(360px, calc(100vw - 24px));
 }
-@media (max-width: 640px) {
+@media (max-width: 767px) {
   .topbar-search { max-width: none; margin: 0 8px; }
   .topbar-search input { font-size: var(--fs-sm); }
 }
@@ -2644,7 +2662,7 @@ body[data-role="reception"] #ssg-analytics { display: none; }
    На десктопе скрыта — там сайдбар всегда на экране. */
 .bottom-nav { display: none; }
 
-@media (max-width: 899px) {
+@media (max-width: 1023px) {
   .bottom-nav {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 250;
     /* flex, а не grid с фиксированными колонками: пункт, скрытый
@@ -3142,7 +3160,7 @@ body.mod-portal-off .needs-mod-portal { display: none !important; }
 /* У правого края экрана всплывающая подсказка уезжала бы за границу. */
 .hint.hint-right .hint-body { left: auto; right: 0; }
 
-@media (max-width: 640px) {
+@media (max-width: 767px) {
   /* На узком экране 260px всё ещё может не поместиться. */
   .hint-body { max-width: 70vw; }
 }
