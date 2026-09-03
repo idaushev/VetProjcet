@@ -288,7 +288,9 @@
     }
     var ref = refText(f);
     return '<div class="form-group">'
-      + '<label class="form-label">' + esc(f.label) + (f.unit ? ' <span class="text-muted">, ' + esc(f.unit) + '</span>' : '') + '</label>'
+      // Запятая внутри span, а не перед ним: иначе между подписью и запятой
+      // вставал пробел — «Селезёнка, толщина , мм».
+      + '<label class="form-label">' + esc(f.label) + (f.unit ? '<span class="text-muted">, ' + esc(f.unit) + '</span>' : '') + '</label>'
       + input
       + (ref ? '<div class="form-hint">норма ' + esc(ref) + '</div>' : '')
       + '</div>';

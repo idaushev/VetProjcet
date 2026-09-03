@@ -160,7 +160,14 @@ func (a *app) updateItem(w http.ResponseWriter, r *http.Request, id string) {
 	mode, percent, cost := resolveCost(p.CostMode, p.CostPercent, p.Price, p.CostPrice)
 
 	res, err := a.db.ExecContext(ctx,
-		`UPDATE items SET name=?, type=?, price=?, cost_price=?, cost_mode=?, cost_percent=?, purchase_price=?, is_active=?, updated_at=?, version=version+1
+		// result_mode и protocol_id отсутствовали в списке SET, хотя значения
+		// для них передавались: 10 плейсхолдеров против 12 аргументов. Значения
+		// сдвигались — is_active получал строку режима результата, а id
+		// получал 0/1, поэтому WHERE не находил строку и правка КАЖДОЙ позиции
+		// каталога отвечала «item not found». Та же ошибка, что была в
+		// createItem: при добавлении полей правку соседних запросов забыли.
+		`UPDATE items SET name=?, type=?, price=?, cost_price=?, cost_mode=?, cost_percent=?, purchase_price=?,
+		                  result_mode=?, protocol_id=?, is_active=?, updated_at=?, version=version+1
 		 WHERE id=? AND is_deleted=0`,
 		strings.TrimSpace(p.Name), normalizeItemType(p.Type), p.Price, cost, mode, percent, p.PurchasePrice,
 		normalizeResultMode(p.ResultMode), nullableString(p.ProtocolID),

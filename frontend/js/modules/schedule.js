@@ -522,6 +522,13 @@
   window.VetSchedule = { init: initSchedule };
 
   window.VetPages = window.VetPages || {};
+  // maybeOfferAppointment зовут из pages.js после сохранения приёма. Экспорт
+  // потерялся при выносе расписания из pages.js в этот модуль (296e54f):
+  // функция уехала в замыкание, а вызов остался голым именем. С тех пор
+  // КАЖДОЕ сохранение приёма падало с «maybeOfferAppointment is not defined»
+  // уже ПОСЛЕ записи — приём сохранялся, но врач видел ошибку, а предложение
+  // записать на повторный приём не работало вовсе.
+  window.VetPages.maybeOfferAppointment = maybeOfferAppointment;
   window.VetPages.newApptAt      = newApptAt;
   window.VetPages.newApptForDoc  = newApptForDoc;
   if (window.VetActions) {

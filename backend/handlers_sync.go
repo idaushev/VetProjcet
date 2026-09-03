@@ -403,8 +403,12 @@ func pushItem(ctx context.Context, db *sql.DB, rec itemSyncRecord) (bool, error)
 	// Пересчитываем на сервере: клиент мог прислать percent с устаревшей суммой.
 	mode, percent, cost := resolveCost(rec.CostMode, rec.CostPercent, rec.Price, rec.CostPrice)
 	_, err = db.ExecContext(ctx, `
+		-- 18 колонок и 18 плейсхолдеров. Раньше их было 16: при добавлении
+		-- result_mode и protocol_id колонки дописали, а знаки вопроса — нет,
+		-- и push позиции каталога падал целиком. Настройка «требует
+		-- результата» до сервера не доезжала никогда.
 		INSERT INTO items (id, name, type, price, cost_price, cost_mode, cost_percent, purchase_price, result_mode, protocol_id, is_active, updated_at, deleted_at, is_deleted, device_id, version, created_at, client_updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		  name=excluded.name, type=excluded.type, price=excluded.price,
 		  cost_price=excluded.cost_price, cost_mode=excluded.cost_mode,

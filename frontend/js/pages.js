@@ -1166,7 +1166,9 @@
           if (vaccAdded) await initVaccinations();
           await initVisits();
           initDashboard();
-          maybeOfferAppointment(vs, finalPet, finalOwner);
+          // Через VetPages, а не голым именем: функция живёт в modules/schedule.js.
+          // Проверка на существование — модуль расписания может быть не загружен.
+          if (VetPages.maybeOfferAppointment) VetPages.maybeOfferAppointment(vs, finalPet, finalOwner);
         } catch(e) { UI.toast(e.message, 'err'); }
       }
     });
@@ -1377,7 +1379,9 @@
           if (!failedDeletes) UI.toast('Приём обновлён', 'ok');
           UI.hideModal();
           await initVisits();
-          maybeOfferAppointment(vs, finalPet, finalOwner);
+          // Через VetPages, а не голым именем: функция живёт в modules/schedule.js.
+          // Проверка на существование — модуль расписания может быть не загружен.
+          if (VetPages.maybeOfferAppointment) VetPages.maybeOfferAppointment(vs, finalPet, finalOwner);
         } catch(e) { UI.toast(e.message, 'err'); }
       }
     });

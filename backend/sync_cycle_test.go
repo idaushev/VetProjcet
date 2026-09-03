@@ -551,3 +551,76 @@ func TestSinceBoundaryFormatIsLexicographic(t *testing.T) {
 		t.Errorf("запись %q старше границы %q, но считается новее", older, bound)
 	}
 }
+
+// ─── Позиции каталога: колонки и плейсхолдеры ────────────────────────────────
+//
+// Одна и та же ошибка допущена ТРИЖДЫ: при добавлении result_mode и
+// protocol_id колонки дописали, а список значений — нет. В createItem это
+// делало невозможным создание позиции (исправлено раньше), в pushItem роняло
+// синхронизацию каталога, в updateItem сдвигало аргументы так, что правка
+// любой позиции отвечала «item not found». Тест проверяет весь цикл целиком,
+// потому что счёт «колонок и вопросиков» глазами уже трижды не сработал.
+func TestItemResultModeSurvivesCreateUpdateAndSync(t *testing.T) {
+	a := testApp(t)
+
+	// 1. Создание через REST.
+	req := httptest.NewRequest(http.MethodPost, "/items", strings.NewReader(
+		`{"name":"УЗИ брюшной полости","type":"service","price":6000,
+		  "result_mode":"protocol","protocol_id":"tpl-1"}`))
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{},
+		&User{ID: "u", Login: "admin", Role: "admin", IsActive: true}))
+	rec := httptest.NewRecorder()
+	a.handleItems(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("создание позиции: HTTP %d: %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Data struct {
+			ID         string `json:"id"`
+			ResultMode string `json:"result_mode"`
+			ProtocolID string `json:"protocol_id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("ответ не JSON: %v", err)
+	}
+	if created.Data.ResultMode != "protocol" {
+		t.Errorf("после создания result_mode = %q, ждём protocol", created.Data.ResultMode)
+	}
+	id := created.Data.ID
+
+	// 2. Правка через REST — раньше отвечала 404 из-за сдвига аргументов.
+	req = httptest.NewRequest(http.MethodPut, "/items/"+id, strings.NewReader(
+		`{"name":"УЗИ брюшной полости","type":"service","price":6500,
+		  "result_mode":"both","protocol_id":"tpl-2"}`))
+	req.SetPathValue("id", id)
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{},
+		&User{ID: "u", Login: "admin", Role: "admin", IsActive: true}))
+	rec = httptest.NewRecorder()
+	a.handleItemByID(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("правка позиции: HTTP %d: %s", rec.Code, rec.Body.String())
+	}
+	var mode, proto string
+	if err := a.db.QueryRow(`SELECT COALESCE(result_mode,''), COALESCE(protocol_id,'') FROM items WHERE id=?`, id).
+		Scan(&mode, &proto); err != nil {
+		t.Fatalf("чтение после правки: %v", err)
+	}
+	if mode != "both" || proto != "tpl-2" {
+		t.Errorf("после правки result_mode=%q protocol_id=%q, ждём both/tpl-2", mode, proto)
+	}
+
+	// 3. Синхронизация с планшета — раньше падала на несовпадении
+	//    числа колонок и плейсхолдеров, то есть каталог не синхронизировался.
+	doPush(t, a, `{"device_id":"dev-1","items":[{
+		"id":"i-sync","name":"Рентген","type":"service","price":4000,
+		"result_mode":"file","protocol_id":"tpl-3","is_active":true,
+		"version":1,"updated_at":"2026-09-01T10:00:00Z"}]}`)
+	if err := a.db.QueryRow(`SELECT COALESCE(result_mode,''), COALESCE(protocol_id,'') FROM items WHERE id='i-sync'`).
+		Scan(&mode, &proto); err != nil {
+		t.Fatalf("позиция не доехала синхронизацией: %v", err)
+	}
+	if mode != "file" || proto != "tpl-3" {
+		t.Errorf("после синка result_mode=%q protocol_id=%q, ждём file/tpl-3", mode, proto)
+	}
+}
