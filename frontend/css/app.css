@@ -3269,6 +3269,9 @@ body.mod-portal-off .needs-mod-portal { display: none !important; }
 .res-row-title { font-weight: 600; font-size: var(--fs-md); }
 .res-row-sub { font-size: var(--fs-sm); color: var(--text-2); margin-top: 2px; }
 .res-row-go { font-size: var(--fs-sm); color: var(--accent); flex: 0 0 auto; }
+/* Правка внутри кликабельной строки: строка целиком открывает результат,
+   поэтому кнопка не должна тянуться и перехватывать всю ширину. */
+.res-row-edit { flex: 0 0 auto; }
 
 /* «Результата ещё нет» — не ошибка, а работа, которую предстоит сделать. */
 .res-pending { color: var(--warn); }

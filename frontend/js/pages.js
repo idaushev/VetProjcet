@@ -2452,6 +2452,13 @@
         + '<button type="button" class="btn btn-ghost btn-sm" data-act="'
         + (done ? 'result.view' : 'result.fill') + '" data-id="' + esc(r.id) + '">'
         + (done ? 'Открыть' : 'Заполнить') + '</button>'
+        // Правка рядом со «Смотреть», а не только внутри карточки: врач правит
+        // результат прямо во время приёма — описка в цифре, дописать
+        // заключение, — и лишний заход в карточку ради этого только мешает.
+        // «Открыть» остаётся первым: в карточке нормы, отклонения и динамика
+        // показателя, которых в форме заполнения нет.
+        + (done ? '<button type="button" class="btn btn-ghost btn-sm" data-act="result.fill"'
+                  + ' data-id="' + esc(r.id) + '">Изменить</button>' : '')
         + '</div>';
     });
     setBoxHTML(box, html + '</div>');
@@ -5979,6 +5986,10 @@
                   ? (r.filled_at ? fmtDate(r.filled_at) : 'внесён')
                   : '<span class="res-pending">результата ещё нет</span>')+'</div>'
               + '</div>'
+              + (done
+                  ? '<button type="button" class="btn btn-ghost btn-sm res-row-edit"'
+                    + ' data-act="result.fill" data-id="'+esc(r.id)+'">Изменить</button>'
+                  : '')
               + '<span class="res-row-go">'+(done ? 'смотреть' : 'заполнить')+'</span>'
               + '</div>';
           }).join('')
