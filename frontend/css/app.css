@@ -3278,6 +3278,18 @@ body.mod-portal-off .needs-mod-portal { display: none !important; }
 
 /* Таблица показателей протокола. */
 .res-actions { display: flex; justify-content: flex-end; margin-bottom: var(--sp-2); }
+
+/* U18. Отклонение от нормы в момент ввода. Цветом ГРАНИЦЫ, а не фоном: поле
+   остаётся читаемым, а сигнал виден боковым зрением, пока набирают следующее. */
+.rv-out-high { border-color: var(--danger) !important; }
+.rv-out-low  { border-color: var(--warn)   !important; }
+.form-hint-out { color: var(--danger); font-weight: 600; }
+
+/* U19. Заголовок раздела внутри таблицы результата. */
+.res-group { font-weight: 600; font-size: var(--fs-sm); text-transform: uppercase;
+             letter-spacing: .04em; color: var(--text-2); padding-top: var(--sp-3); }
+.res-hidden-note { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+                   margin-top: var(--sp-2); font-size: var(--fs-sm); color: var(--text-2); }
 .res-corrected { display: flex; align-items: center; gap: var(--sp-1);
                  margin-top: var(--sp-2); font-size: var(--fs-sm); color: var(--text-2); }
 .res-table { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }

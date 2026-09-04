@@ -302,6 +302,43 @@
     return f.ref_low != null ? 'от ' + f.ref_low : 'до ' + f.ref_high;
   }
 
+  // U18. Отклонение от нормы — В МОМЕНТ ВВОДА, а не при следующем открытии.
+  // Норма и раньше была подписана под полем, но сравнивал её с введённым
+  // числом человек. На бланке с полутора десятками показателей это ровно та
+  // работа, которую должен делать компьютер: описку в разряде (90 вместо 9.0)
+  // глаз пропускает, цветная рамка — нет.
+  function markDeviation(el) {
+    var low = el.getAttribute('data-low'), high = el.getAttribute('data-high');
+    if (low == null && high == null) return;          // норма не задана — не о чем говорить
+    var flag = outOfRange({ type: 'number',
+      ref_low:  low  == null || low  === '' ? null : Number(low),
+      ref_high: high == null || high === '' ? null : Number(high) }, el.value);
+    el.classList.toggle('rv-out-high', flag > 0);
+    el.classList.toggle('rv-out-low',  flag < 0);
+    var hint = el.parentElement && el.parentElement.querySelector('.form-hint');
+    if (!hint) return;
+    // Исходный текст подсказки держим в атрибуте: иначе при повторном вводе
+    // приписка «выше нормы» наслаивалась бы сама на себя.
+    var base = hint.getAttribute('data-base');
+    if (base == null) { base = hint.textContent; hint.setAttribute('data-base', base); }
+    hint.textContent = base + (flag > 0 ? ' · выше нормы' : (flag < 0 ? ' · ниже нормы' : ''));
+    hint.classList.toggle('form-hint-out', flag !== 0);
+  }
+
+  function markAllDeviations() {
+    document.querySelectorAll('.rv-input[type="number"]').forEach(markDeviation);
+  }
+
+  // Слушатель один на документ и ставится один раз: форма протокола
+  // пересобирается при каждом открытии, и вешать обработчики на поля значило
+  // бы плодить их заново.
+  document.addEventListener('input', function (e) {
+    var el = e.target;
+    if (el && el.classList && el.classList.contains('rv-input') && el.type === 'number') {
+      markDeviation(el);
+    }
+  });
+
   function fillFieldHTML(f, value) {
     var id = 'rv-' + f.key;
     var common = 'id="' + esc(id) + '" data-key="' + esc(f.key) + '" class="form-input rv-input"';
@@ -318,8 +355,15 @@
       input = '<label class="form-check"><input type="checkbox" ' + common
         + (value === '1' || value === true ? ' checked' : '') + '> да</label>';
     } else {
+      // U18: границы нормы кладём в саму разметку. Сравнение при вводе должно
+      // работать в форме, которая собрана и из шаблона, и из снимка полей, —
+      // держать для этого отдельную таблицу в памяти незачем.
+      var bounds = f.type === 'number'
+        ? (f.ref_low != null ? ' data-low="' + esc(f.ref_low) + '"' : '')
+          + (f.ref_high != null ? ' data-high="' + esc(f.ref_high) + '"' : '')
+        : '';
       input = '<input ' + common + (f.type === 'number' ? ' type="number" step="any" inputmode="decimal"' : '')
-        + ' value="' + esc(value != null ? value : '') + '">';
+        + bounds + ' value="' + esc(value != null ? value : '') + '">';
     }
     var ref = refText(f);
     return '<div class="form-group">'
@@ -406,6 +450,9 @@
         if (onDone) onDone(data);
       }
     });
+    // Отклонения показываем сразу: разметка модалки ставится синхронно,
+    // и ждать первого касания поля незачем.
+    markAllDeviations();
   }
 
   async function fillResult(resultId) {
@@ -459,6 +506,7 @@
         }
       }
     });
+    markAllDeviations();
   }
 
   // Просмотр — то, ради чего всё затевалось: открыть результат из карточки
@@ -657,9 +705,28 @@
         prevByKey[ff.key] = { prev: earlier.length ? earlier[earlier.length - 1] : null, count: series.length };
       }
 
-      html += '<table class="res-table"><thead><tr><th>Показатель</th><th>Значение</th>'
-            + '<th>Было</th><th>Норма</th></tr></thead><tbody>';
-      html += fields.map(function (f) {
+      // U19. Раздел, в котором не заполнено НИЧЕГО, — это не осмотренный орган,
+      // а неосмотренный. Печатать его прочерками наравне с осмотренным значит
+      // выдавать «не смотрели» за «смотрели, норма»; читающий протокол
+      // различить их не может, и это уже про смысл записи, а не про вид.
+      //
+      // Скрываем именно РАЗДЕЛ ЦЕЛИКОМ, а не пустые поля по отдельности:
+      // незаполненная галочка «Конкременты» в осмотренной почке значит
+      // «камней нет» — это находка, и прятать её нельзя.
+      var порядок = [], поРазделам = {};
+      fields.forEach(function (f) {
+        var g = (f.group || '').trim();
+        if (!поРазделам[g]) { поРазделам[g] = []; порядок.push(g); }
+        поРазделам[g].push(f);
+      });
+      var заполнен = function (f) {
+        var v = values[f.key];
+        return v != null && v !== '' && v !== false;
+      };
+      var пустые = порядок.filter(function (g) { return !поРазделам[g].some(заполнен); });
+      var скрытых = пустые.reduce(function (n, g) { return n + поРазделам[g].length; }, 0);
+
+      var строкаПоля = function (f) {
         var v = values[f.key];
         var flag = outOfRange(f, v);
         var cls = flag > 0 ? 'res-high' : (flag < 0 ? 'res-low' : '');
@@ -683,15 +750,41 @@
             + ' data-id="' + esc(res.id) + '" data-key="' + esc(f.key) + '"'
             + ' title="Показать динамику показателя">' + esc(f.label) + ' 📈</button>'
           : esc(f.label);
+        // Галочка хранится как «1»/пусто — печатать сырую единицу нельзя:
+        // в протоколе, который читает другой врач, «Взвесь | 1» непонятно.
+        var показ = f.type === 'check'
+          ? (v === '1' || v === true ? 'да' : 'нет')
+          : (v != null && v !== '' ? String(v) : '—');
         return '<tr><td>' + label + '</td>'
-          + '<td class="' + cls + '">' + esc(v != null && v !== '' ? v : '—')
-          + (f.unit ? ' ' + esc(f.unit) : '') + mark + '</td>'
+          + '<td class="' + cls + '">' + esc(показ)
+          + (f.unit && f.type !== 'check' ? ' ' + esc(f.unit) : '') + mark + '</td>'
           + '<td class="res-was">' + wasCell + '</td>'
           + '<td class="text-muted">' + esc(refText(f) || '—') + '</td></tr>'
           + '<tr class="res-series-row" id="res-series-' + esc(f.key) + '" style="display:none;" data-open="0">'
           + '<td colspan="4"></td></tr>';
-      }).join('');
+      };
+
+      html += '<table class="res-table"><thead><tr><th>Показатель</th><th>Значение</th>'
+            + '<th>Было</th><th>Норма</th></tr></thead><tbody>';
+      порядок.forEach(function (g) {
+        var пусто = пустые.indexOf(g) >= 0;
+        var кл = пусто ? ' class="res-group-empty" hidden' : '';
+        if (g) {
+          html += '<tr' + (пусто ? ' class="res-group-empty" hidden' : '') + '>'
+                + '<td colspan="4" class="res-group">' + esc(g) + '</td></tr>';
+        }
+        html += поРазделам[g].map(function (f) {
+          return пусто ? строкаПоля(f).replace(/<tr/g, '<tr hidden data-empty="1"') : строкаПоля(f);
+        }).join('');
+      });
       html += '</tbody></table>';
+
+      if (скрытых) {
+        html += '<div class="res-hidden-note">'
+          + 'Не заполнено: ' + esc(пустые.filter(Boolean).join(', ') || 'часть показателей')
+          + ' <button type="button" class="btn btn-ghost btn-sm" data-act="result.showEmpty">'
+          + 'Показать все поля (' + скрытых + ')</button></div>';
+      }
     }
     if (res.lab_name) {
       html += '<div class="res-lab">' + I('hospital') + ' Исполнитель: ' + esc(res.lab_name) + '</div>';
@@ -729,6 +822,17 @@
       'protocol.fieldRemove': function (el) { fieldRemove(Number(el.dataset.idx)); },
       'result.fill':          function (el) { fillResult(el.dataset.id); },
       'result.view':          function (el) { viewResult(el.dataset.id); },
+      // Скрытое — не потерянное: раскрывается на месте, без перезагрузки
+      // карточки, чтобы не потерять развёрнутую динамику показателей.
+      'result.showEmpty':     function (el) {
+                                document.querySelectorAll('.res-table [hidden], tr.res-group-empty')
+                                  .forEach(function (tr) {
+                                    if (tr.classList.contains('res-series-row')) return;
+                                    tr.hidden = false;
+                                  });
+                                var note = el.closest('.res-hidden-note');
+                                if (note) note.remove();
+                              },
       // Просмотр закрываем ПЕРЕД открытием правки: иначе под формой осталась
       // бы карточка со старыми значениями, и после сохранения врач вернулся
       // бы к тому, что уже исправил.
