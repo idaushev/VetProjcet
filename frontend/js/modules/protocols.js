@@ -685,7 +685,10 @@
       // лишь изредка — чтобы исправить цифру или дописать заключение. Кнопка
       // правки прямо в списке провоцировала бы менять запись, не взглянув
       // на неё.
-      bodyHTML: '<div class="res-actions"><button type="button" class="btn btn-ghost btn-sm"'
+      bodyHTML: '<div class="res-actions">'
+        + '<button type="button" class="btn btn-ghost btn-sm" data-act="result.print"'
+        + ' data-id="' + esc(res.id) + '">Печать</button>'
+        + '<button type="button" class="btn btn-ghost btn-sm"'
         + ' data-act="result.edit" data-id="' + esc(res.id) + '">Изменить результат</button></div>'
         + await resultBodyHTML(res),
       size: 'lg',
@@ -1012,6 +1015,10 @@
                                 // говорит заголовок раздела.
                                 box.scrollTo({ top: Math.max(0, y) });
                               },
+      'result.print':         function (el) {
+                                if (window.VetPages && VetPages.printResult) VetPages.printResult(el.dataset.id);
+                                else UI.toast('Модуль печати не загружен', 'err');
+                              },
       'result.showEmpty':     function (el) {
                                 document.querySelectorAll('.res-table [hidden], tr.res-group-empty')
                                   .forEach(function (tr) {
@@ -1036,6 +1043,10 @@
   window.VetProtocols = {
     init: renderTemplateList,
     fieldsForResult: fieldsForResult,
+    // Нужны печати: она рисует ту же таблицу показателей, и повторять разбор
+    // норм во втором месте значит однажды разойтись с экраном.
+    refText: refText,
+    outOfRange: outOfRange,
     wasCorrected: wasCorrected,
     fillProtocolDraft: fillProtocolDraft,
     loadTemplates: loadTemplates,

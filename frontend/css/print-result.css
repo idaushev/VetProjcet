@@ -1,0 +1,59 @@
+/* print-result.css — протокол исследования (U23).
+ *
+ * Шапка и подписи повторяют print-visit.css намеренно: владелец получает на
+ * руки бумаги одной клиники, и разнобой в них выглядит как разные документы.
+ * Отдельный файл, а не общий: печатные формы правят по одной, и общий файл
+ * означал бы, что правка бланка анализа молча меняет карточку приёма.
+ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body { font-family: 'Arial', sans-serif; font-size: 12pt; color: #1a2434; line-height: 1.45;
+       max-width: 700px; margin: 0 auto; padding: 20px; }
+
+.header { display: flex; align-items: center; gap: 16px; border-bottom: 3px solid #1a8c5e;
+          padding-bottom: 14px; margin-bottom: 18px; }
+.header-logo { width: 64px; height: 64px; object-fit: contain; flex-shrink: 0; border-radius: 8px; }
+.header-logo-placeholder { width: 64px; height: 64px; display: flex; align-items: center;
+          justify-content: center; font-size: 2.5rem; flex-shrink: 0; }
+.header-text { flex: 1; }
+.clinic-name { font-size: 16pt; font-weight: 900; color: #1a8c5e; letter-spacing: .5px; }
+.clinic-info { font-size: 10pt; color: #526070; margin-top: 2px; }
+.doc-title { font-size: 13pt; font-weight: 700; margin-top: 6px; }
+.doc-date { font-size: 10pt; color: #5d6f81; margin-top: 2px; }
+
+.meta { width: 100%; margin-bottom: 16px; border-collapse: collapse; }
+.meta td { padding: 3px 0; vertical-align: top; }
+.meta .k { width: 130px; color: #526070; font-size: 10pt; }
+
+.res { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+.res th { text-align: left; font-size: 9pt; text-transform: uppercase; letter-spacing: .6px;
+          color: #526070; border-bottom: 1.5px solid #1a8c5e; padding: 6px 8px 6px 0; }
+.res td { padding: 5px 8px 5px 0; border-bottom: 1px solid #e0e8f2; vertical-align: top; }
+.res .ref { color: #526070; font-size: 10pt; white-space: nowrap; }
+
+/* Отклонение — жирным и через стрелку, а НЕ цветом: протокол чаще всего
+   печатают на чёрно-белом принтере, и красная цифра стала бы просто серой. */
+.res .out { font-weight: 800; }
+
+.res .group td { font-size: 9pt; font-weight: 800; text-transform: uppercase; letter-spacing: .6px;
+                 color: #1a8c5e; padding-top: 12px; border-bottom: none; }
+
+.note { font-size: 10pt; color: #526070; margin-bottom: 14px; }
+.empty { font-size: 11pt; color: #526070; margin-bottom: 14px; }
+
+.concl { border: 1.5px solid #e0e8f2; border-radius: 8px; padding: 10px 12px; margin-bottom: 22px; }
+.concl-title { font-size: 9pt; font-weight: 800; text-transform: uppercase; letter-spacing: .6px;
+               color: #526070; margin-bottom: 4px; }
+
+.sign { display: flex; gap: 40px; margin-top: 30px; }
+.sign-field { flex: 1; }
+.sign-label { font-size: 9pt; color: #526070; margin-bottom: 18px; }
+.sign-line { border-bottom: 1px solid #1a2434; }
+
+@media print {
+  body { padding: 0; }
+  /* Строку показателя не рвём между страницами: половина значения на одной
+     странице, половина на другой — обычная беда длинных бланков. */
+  .res tr { page-break-inside: avoid; }
+  .concl, .sign { page-break-inside: avoid; }
+}

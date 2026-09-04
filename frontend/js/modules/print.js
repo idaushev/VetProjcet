@@ -469,7 +469,141 @@ ${visit.notes ? `<div class="section">
   // ── Экспорт ──────────────────────────────────────────────────────────
   // Все пять вызываются из onclick в списках и карточках.
   window.VetPages = window.VetPages || {};
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // PRINT: ПРОТОКОЛ ИССЛЕДОВАНИЯ (U23)
+  //
+  // Печатные формы были у приёма, животного, вакцинации и чипирования, а у
+  // результата исследования — нет: владельцу, который просит «распечатайте
+  // анализы», отдать было нечего.
+  //
+  // Печатаем ПО СНИМКУ полей (fields_snapshot), а не по текущему справочнику:
+  // распечатка обязана совпадать с тем, что видно на экране, и не меняться
+  // задним числом, если клиника переписала бланк.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  async function printResult(resultId) {
+    var all      = await window.VetDB.getAll('visit_results');
+    var res      = (all || []).find(function (r) { return r.id === resultId; });
+    if (!res) { UI.toast('Результат не найден', 'err'); return; }
+
+    var allPets   = await window.VetDB.getAll('pets');
+    var allOwners = await window.VetDB.getAll('owners');
+    var allTpls   = await window.VetDB.getAll('protocol_templates');
+    var allVisits = await window.VetDB.getAll('visits');
+    var settings  = await loadClinicSettings();
+
+    var pet   = allPets.find(function (p) { return p.id === res.pet_id; }) || {};
+    var owner = allOwners.find(function (o) { return o.id === pet.owner_id; }) || {};
+    var visit = allVisits.find(function (v) { return v.id === res.visit_id; }) || {};
+    var tpl   = res.template_id ? allTpls.find(function (t) { return t.id === res.template_id; }) : null;
+
+    var P = window.VetProtocols || {};
+    var fields = P.fieldsForResult ? P.fieldsForResult(res, tpl) : [];
+    var values = {};
+    try { values = JSON.parse(res.values_json || '{}') || {}; } catch (e) {}
+
+    // Разделы — как на экране: неосмотренное в распечатку не идёт, иначе
+    // страница прочерков выдаёт «не смотрели» за «смотрели, норма».
+    var порядок = [], поРазделам = {};
+    fields.forEach(function (f) {
+      var g = (f.group || '').trim();
+      if (!поРазделам[g]) { поРазделам[g] = []; порядок.push(g); }
+      поРазделам[g].push(f);
+    });
+    var заполнен = function (f) {
+      var v = values[f.key];
+      return v != null && v !== '' && v !== false;
+    };
+    var пустые = порядок.filter(function (g) { return !поРазделам[g].some(заполнен); });
+
+    var строки = '';
+    порядок.forEach(function (g) {
+      if (пустые.indexOf(g) >= 0) return;
+      if (g) строки += '<tr class="group"><td colspan="3">' + esc(g) + '</td></tr>';
+      поРазделам[g].forEach(function (f) {
+        var v = values[f.key];
+        var показ = f.type === 'check'
+          ? (v === '1' || v === true ? 'да' : 'нет')
+          : (v != null && v !== '' ? String(v) : '—');
+        var flag = P.outOfRange ? P.outOfRange(f, v) : 0;
+        var mark = flag > 0 ? ' ↑' : (flag < 0 ? ' ↓' : '');
+        строки += '<tr>'
+          + '<td>' + esc(f.label) + '</td>'
+          + '<td class="' + (flag ? 'out' : '') + '">' + esc(показ)
+          + (f.unit && f.type !== 'check' ? ' ' + esc(f.unit) : '') + mark + '</td>'
+          + '<td class="ref">' + esc((P.refText ? P.refText(f) : '') || '—') + '</td>'
+          + '</tr>';
+      });
+    });
+
+    var clinicName  = settings.name    || 'VetClinic';
+    var clinicPhone = settings.phone   || '';
+    var clinicAddr  = settings.address || '';
+    var clinicLogo  = settings.logo    || '';
+    var когда = res.filled_at ? fmtDate(res.filled_at) : (visit.date ? fmtDate(visit.date) : '');
+
+    var html = `<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Протокол — ${esc(res.title || 'исследование')}</title>
+<link rel="stylesheet" href="/css/print-result.css">
+</head>
+<body>
+
+<div class="header">
+  ${clinicLogo
+    ? '<img class="header-logo" src="' + clinicLogo + '" alt="Логотип">'
+    : '<div class="header-logo-placeholder">' + I('hospital') + '</div>'}
+  <div class="header-text">
+    <div class="clinic-name">${esc(clinicName)}</div>
+    ${clinicPhone || clinicAddr
+      ? '<div class="clinic-info">' + (clinicPhone ? esc(clinicPhone) : '')
+        + (clinicPhone && clinicAddr ? ' · ' : '') + (clinicAddr ? esc(clinicAddr) : '') + '</div>'
+      : ''}
+    <div class="doc-title">${esc(res.title || 'Протокол исследования')}</div>
+    <div class="doc-date">${esc(когда)}</div>
+  </div>
+</div>
+
+<table class="meta">
+  <tr><td class="k">Животное</td><td>${esc(pet.name || '—')}${pet.type ? ', ' + esc(pet.type) : ''}${pet.breed ? ', ' + esc(pet.breed) : ''}</td></tr>
+  <tr><td class="k">Владелец</td><td>${esc(owner.fio || '—')}${owner.phone ? ', ' + esc(owner.phone) : ''}</td></tr>
+  ${res.lab_name ? '<tr><td class="k">Исполнитель</td><td>' + esc(res.lab_name) + '</td></tr>' : ''}
+</table>
+
+${строки
+  ? '<table class="res"><thead><tr><th>Показатель</th><th>Значение</th><th>Норма</th></tr></thead><tbody>' + строки + '</tbody></table>'
+  : '<div class="empty">Показатели не заполнены.</div>'}
+
+${пустые.filter(Boolean).length
+  ? '<div class="note">Не исследовалось: ' + esc(пустые.filter(Boolean).join(', ')) + '</div>'
+  : ''}
+
+${res.conclusion
+  ? '<div class="concl"><div class="concl-title">Заключение</div><div>' + esc(res.conclusion) + '</div></div>'
+  : ''}
+
+<div class="sign">
+  <div class="sign-field">
+    <div class="sign-label">Врач</div>
+    <div class="sign-line"></div>
+  </div>
+  <div class="sign-field">
+    <div class="sign-label">Дата</div>
+    <div class="sign-line"></div>
+  </div>
+</div>
+
+</body></html>`;
+
+    printHTML(html);
+  }
+
   window.VetPages.printVisitCard       = printVisitCard;
+  window.VetPages.printResult          = printResult;
   window.VetPages.printOwnerCard       = printOwnerCard;
   window.VetPages.printPetCard         = printPetCard;
   window.VetPages.printVaccinationCard = printVaccinationCard;

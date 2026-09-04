@@ -12,7 +12,7 @@
 
 // ── Версия ────────────────────────────────────────────────────────
 // Поднимайте при каждом деплое → старые кэши удалятся автоматически
-var APP_VERSION  = "3.29.0"; // Свободные окна расписания свёрнуты; версионирование статики
+var APP_VERSION  = "3.30.0"; // Печать протокола исследования
 var CACHE_APP    = "vet-app-"   + APP_VERSION;  // версионированные ресурсы
 var CACHE_FONTS  = "vet-fonts-1";               // шрифты (стабильный кэш)
 
@@ -24,6 +24,7 @@ var PRECACHE = [
   "/manifest.json",
   "/css/app.css",
   "/css/print-visit.css",
+  "/css/print-result.css",
   "/css/print-pet.css",
   "/css/print-consent.css",
   "/css/print-owner.css",

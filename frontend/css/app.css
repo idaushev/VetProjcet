@@ -3281,7 +3281,7 @@ body.mod-portal-off .needs-mod-portal { display: none !important; }
 .res-pending { color: var(--warn); }
 
 /* Таблица показателей протокола. */
-.res-actions { display: flex; justify-content: flex-end; margin-bottom: var(--sp-2); }
+.res-actions { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-bottom: var(--sp-2); }
 
 /* U18. Отклонение от нормы в момент ввода. Цветом ГРАНИЦЫ, а не фоном: поле
    остаётся читаемым, а сигнал виден боковым зрением, пока набирают следующее. */
