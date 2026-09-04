@@ -2417,14 +2417,24 @@
 
     if (!shown.length && !drafts.length) { setBoxHTML(box, ''); return; }
 
+    // Порядок — как в счёте: «УЗИ», «УЗИ №2», «УЗИ №3». Раньше незаполненные
+    // шли впереди заполненных, и третье исследование оказывалось первой
+    // строкой блока — список читался как «№3, №1, №2».
+    var порядок = wanted.map(function (w) { return resKey(w.item_id, w.seq); });
+    var indexOf = function (k) {
+      var i = порядок.indexOf(k);
+      return i < 0 ? порядок.length : i;   // результат без строки в счёте — в конец
+    };
+
     var html = '<div class="attach-head">' + I('microscope') + ' Результаты'
       + '<span class="attach-count">' + (shown.length + drafts.length) + '</span></div>'
       + '<div class="attach-list">';
 
+    var строки = [];
     drafts.forEach(function (w) {
       var d = _resultDrafts[w.row_id];
       var filled = !!d;
-      html += '<div class="attach-row' + (filled ? '' : ' attach-pending') + '">'
+      строки.push({ k: resKey(w.item_id, w.seq), html: '<div class="attach-row' + (filled ? '' : ' attach-pending') + '">'
         + I(filled ? 'check' : 'clock')
         + '<div class="attach-body"><div class="attach-name">' + esc(w.label) + '</div>'
         + '<div class="attach-meta">'
@@ -2437,12 +2447,12 @@
             : '<button type="button" class="btn btn-ghost btn-sm" data-act="result.draftFill"'
               + ' data-row="' + esc(w.row_id) + '" data-tpl="' + esc(w.protocol_id) + '"'
               + ' data-name="' + esc(w.label) + '">' + (filled ? 'Изменить' : 'Заполнить') + '</button>')
-        + '</div>';
+        + '</div>' });
     });
 
     shown.forEach(function (r) {
       var done = r.status === 'done';
-      html += '<div class="attach-row' + (done ? '' : ' attach-pending') + '">' + I(done ? 'check' : 'clock')
+      строки.push({ k: resKey(r.item_id, r.seq), html: '<div class="attach-row' + (done ? '' : ' attach-pending') + '">' + I(done ? 'check' : 'clock')
         + '<div class="attach-body"><div class="attach-name">' + esc(r.title || 'Результат') + '</div>'
         + '<div class="attach-meta">' + (done ? 'заполнен ' + esc(fmtDate(r.filled_at || r.updated_at)) : 'ожидает результата')
         + (r.lab_name ? ' · ' + esc(r.lab_name) : '')
@@ -2459,8 +2469,11 @@
         // показателя, которых в форме заполнения нет.
         + (done ? '<button type="button" class="btn btn-ghost btn-sm" data-act="result.fill"'
                   + ' data-id="' + esc(r.id) + '">Изменить</button>' : '')
-        + '</div>';
+        + '</div>' });
     });
+
+    строки.sort(function (a, b) { return indexOf(a.k) - indexOf(b.k); });
+    строки.forEach(function (x) { html += x.html; });
     setBoxHTML(box, html + '</div>');
   }
 
@@ -5989,11 +6002,14 @@
                   ? (r.filled_at ? fmtDate(r.filled_at) : 'внесён')
                   : '<span class="res-pending">результата ещё нет</span>')+'</div>'
               + '</div>'
+              // Порядок тот же, что в приёме: сначала «смотреть», потом
+              // «Изменить». Разный порядок одних и тех же действий на соседних
+              // экранах заставляет читать кнопки каждый раз заново.
+              + '<span class="res-row-go">'+(done ? 'смотреть' : 'заполнить')+'</span>'
               + (done
                   ? '<button type="button" class="btn btn-ghost btn-sm res-row-edit"'
                     + ' data-act="result.fill" data-id="'+esc(r.id)+'">Изменить</button>'
                   : '')
-              + '<span class="res-row-go">'+(done ? 'смотреть' : 'заполнить')+'</span>'
               + '</div>';
           }).join('')
         + (petResults.length > 12 ? '<div class="text-sm text-muted">Показаны последние 12</div>' : '')

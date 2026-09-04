@@ -337,18 +337,23 @@
     var fields = fieldsOf(tpl);
     var body = '';
     if (fields.length) {
-      var cur = null, open = false;
+      // Раздел собираем ЦЕЛИКОМ, а не по подряд идущим полям. Новое поле
+      // редактор всегда дописывает в конец, переставить его нечем — и поле,
+      // добавленное к «Печени», заводило второй заголовок «Печень» внизу
+      // формы. Порядок разделов — по первому появлению: он и есть тот, в
+      // котором клиника их задумала.
+      var order = [], byGroup = {};
       fields.forEach(function (f) {
         var g = (f.group || '').trim();
-        if (g !== cur) {
-          if (open) { body += '</div>'; open = false; }
-          cur = g;
-          if (g) body += '<div class="form-section-title">' + esc(g) + '</div>';
-          body += '<div class="form-grid">'; open = true;
-        }
-        body += fillFieldHTML(f, (values || {})[f.key]);
+        if (!byGroup[g]) { byGroup[g] = []; order.push(g); }
+        byGroup[g].push(f);
       });
-      if (open) body += '</div>';
+      order.forEach(function (g) {
+        if (g) body += '<div class="form-section-title">' + esc(g) + '</div>';
+        body += '<div class="form-grid">'
+              + byGroup[g].map(function (f) { return fillFieldHTML(f, (values || {})[f.key]); }).join('')
+              + '</div>';
+      });
     } else {
       body += '<div class="text-sm text-muted">У этой услуги нет шаблона протокола — впишите заключение свободным текстом.</div>';
     }
