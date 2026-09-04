@@ -329,14 +329,38 @@
     document.querySelectorAll('.rv-input[type="number"]').forEach(markDeviation);
   }
 
+  // U17. Сколько полей раздела заполнено. Считаем по DOM, а не по модели:
+  // форма — единственное место, где известно текущее, ещё не сохранённое
+  // состояние, и пересчёт после каждого ввода стоит доли миллисекунды.
+  function refreshSectionCounts() {
+    var nav = document.getElementById('proto-nav');
+    if (!nav) return;
+    nav.querySelectorAll('.proto-nav-count').forEach(function (badge) {
+      var grid = document.querySelector('.form-grid[data-section="' + badge.getAttribute('data-count') + '"]');
+      if (!grid) return;
+      var поля = grid.querySelectorAll('.rv-input');
+      var заполнено = 0;
+      поля.forEach(function (el) {
+        if (el.type === 'checkbox' ? el.checked : String(el.value || '').trim() !== '') заполнено++;
+      });
+      badge.textContent = заполнено ? заполнено + '/' + поля.length : '';
+      badge.closest('.proto-nav-item').classList.toggle('proto-nav-done', заполнено > 0);
+    });
+  }
+
   // Слушатель один на документ и ставится один раз: форма протокола
   // пересобирается при каждом открытии, и вешать обработчики на поля значило
   // бы плодить их заново.
   document.addEventListener('input', function (e) {
     var el = e.target;
-    if (el && el.classList && el.classList.contains('rv-input') && el.type === 'number') {
-      markDeviation(el);
-    }
+    if (!el || !el.classList || !el.classList.contains('rv-input')) return;
+    if (el.type === 'number') markDeviation(el);
+    refreshSectionCounts();
+  });
+  // Галочки и списки меняются событием change, а не input.
+  document.addEventListener('change', function (e) {
+    var el = e.target;
+    if (el && el.classList && el.classList.contains('rv-input')) refreshSectionCounts();
   });
 
   function fillFieldHTML(f, value) {
@@ -392,9 +416,29 @@
         if (!byGroup[g]) { byGroup[g] = []; order.push(g); }
         byGroup[g].push(f);
       });
+      // U17. Полоса разделов вверху формы. Бланк УЗИ — почти пять экранов
+      // прокрутки; врач с датчиком в руке искал «Мочевой пузырь» пролистыванием
+      // и не видел, что осталось незаполненным. Полоса решает обе задачи разом:
+      // переход в один тап и метка заполненности у каждого раздела.
+      //
+      // Показываем её только когда разделов больше одного: у бланка анализа
+      // крови раздел один, и полоса была бы шумом.
+      var именованные = order.filter(Boolean);
+      if (именованные.length > 1) {
+        body += '<div class="proto-nav" id="proto-nav">'
+          + именованные.map(function (g, i) {
+              return '<button type="button" class="proto-nav-item" data-act="protocol.goSection"'
+                + ' data-idx="' + i + '"><span class="proto-nav-name">' + esc(g) + '</span>'
+                + '<span class="proto-nav-count" data-count="' + i + '"></span></button>';
+            }).join('')
+          + '</div>';
+      }
+
+      var номер = 0;
       order.forEach(function (g) {
-        if (g) body += '<div class="form-section-title">' + esc(g) + '</div>';
-        body += '<div class="form-grid">'
+        var id = g ? ' id="proto-sec-' + (номер++) + '"' : '';
+        if (g) body += '<div class="form-section-title"' + id + '>' + esc(g) + '</div>';
+        body += '<div class="form-grid"' + (g ? ' data-section="' + (номер - 1) + '"' : '') + '>'
               + byGroup[g].map(function (f) { return fillFieldHTML(f, (values || {})[f.key]); }).join('')
               + '</div>';
       });
@@ -453,6 +497,7 @@
     // Отклонения показываем сразу: разметка модалки ставится синхронно,
     // и ждать первого касания поля незачем.
     markAllDeviations();
+    refreshSectionCounts();
   }
 
   async function fillResult(resultId) {
@@ -507,6 +552,7 @@
       }
     });
     markAllDeviations();
+    refreshSectionCounts();
   }
 
   // Просмотр — то, ради чего всё затевалось: открыть результат из карточки
@@ -824,6 +870,24 @@
       'result.view':          function (el) { viewResult(el.dataset.id); },
       // Скрытое — не потерянное: раскрывается на месте, без перезагрузки
       // карточки, чтобы не потерять развёрнутую динамику показателей.
+      // Смещение считаем сами, а не через scrollIntoView: в контейнере модалки
+      // он молча не срабатывает (проверено — scrollTop остаётся 0). Заодно
+      // вычитаем высоту липкой полосы, иначе заголовок раздела уезжает под неё.
+      'protocol.goSection':   function (el) {
+                                var t   = document.getElementById('proto-sec-' + el.dataset.idx);
+                                var box = document.getElementById('modal-body');
+                                if (!t || !box) return;
+                                var nav = document.getElementById('proto-nav');
+                                var off = nav ? nav.getBoundingClientRect().height : 0;
+                                var y = t.getBoundingClientRect().top - box.getBoundingClientRect().top
+                                      + box.scrollTop - off - 20;
+                                // Прыжком, а не плавно: плавная прокрутка в этом
+                                // контейнере не срабатывает совсем (проверено —
+                                // остаётся на месте). Для перехода к органу это
+                                // и лучше: попадание предсказуемо, а куда попал,
+                                // говорит заголовок раздела.
+                                box.scrollTo({ top: Math.max(0, y) });
+                              },
       'result.showEmpty':     function (el) {
                                 document.querySelectorAll('.res-table [hidden], tr.res-group-empty')
                                   .forEach(function (tr) {
