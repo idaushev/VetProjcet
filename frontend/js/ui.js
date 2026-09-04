@@ -1140,6 +1140,24 @@
 
     return `<div class="visit-form" id="vf-root">
 
+  <!-- U22. Карта разделов приёма. Форма занимает почти три экрана на планшете
+       и четыре с половиной на телефоне ещё ДО заполнения — врач не видел её
+       состава целиком и не знал, что осталось. Полоса даёт и переход в одно
+       касание, и отметку заполненности.
+
+       Тот же приём, что в бланке протокола (U17), намеренно: два разных
+       способа перемещаться по длинной форме пришлось бы учить дважды. -->
+  <div class="vf-nav" id="vf-nav">
+    <button type="button" class="vf-nav-item" data-act="visit.goSection" data-target="vs-owner"><span>Владелец</span><span class="vf-nav-mark"></span></button>
+    <button type="button" class="vf-nav-item" data-act="visit.goSection" data-target="vs-pet"><span>Животное</span><span class="vf-nav-mark"></span></button>
+    <button type="button" class="vf-nav-item" data-act="visit.goSection" data-target="vs-data"><span>Данные</span><span class="vf-nav-mark"></span></button>
+    <button type="button" class="vf-nav-item" data-act="visit.goSection" data-target="vs-items"><span>Услуги</span><span class="vf-nav-mark"></span></button>
+    <button type="button" class="vf-nav-item" data-act="visit.goSection" data-target="visit-results"><span>Результаты</span><span class="vf-nav-mark"></span></button>
+    <button type="button" class="vf-nav-item" data-act="visit.goSection" data-target="visit-prescriptions"><span>Назначения</span><span class="vf-nav-mark"></span></button>
+    <button type="button" class="vf-nav-item" data-act="visit.goSection" data-target="visit-vaccinations"><span>Вакцинации</span><span class="vf-nav-mark"></span></button>
+    <button type="button" class="vf-nav-item" data-act="visit.goSection" data-target="visit-attachments"><span>Вложения</span><span class="vf-nav-mark"></span></button>
+  </div>
+
   <div class="visit-section${foldTop}" id="vs-owner">
     <div class="visit-section-header" data-act="ui.section" data-section="vs-owner">
       <span class="visit-section-num">1</span><span>Владелец</span>
@@ -1862,9 +1880,46 @@
     clearTimeout(_resultsTimer);
     _resultsTimer = setTimeout(function () {
       if (window.VetPages && VetPages.refreshVisitResults) VetPages.refreshVisitResults();
+      refreshVisitNav();
     }, 250);
   }
   var _resultsTimer = null;
+  // U22. Отметка «здесь уже что-то есть». Считаем по DOM и состоянию формы:
+  // до сохранения приёма другого источника правды нет.
+  function refreshVisitNav() {
+    var nav = document.getElementById('vf-nav');
+    if (!nav) return;
+    var st = null;
+    try { st = getVisitState(); } catch (e) { return; }
+    // Поля называются owner/pet (и ownerNew/petNew, когда заводят нового) —
+    // не owner_id/pet_id: состояние формы отличается от того, что уходит на
+    // сервер, и это стоило неверных отметок с первого раза.
+    var заполнено = {
+      'vs-owner': !!(st.owner || (st.ownerNew && st.ownerNew.fio)),
+      'vs-pet':   !!(st.pet   || (st.petNew   && st.petNew.name)),
+      // Диагноз — то, ради чего приём заводят; вес и жалобы без него не делают
+      // раздел законченным.
+      'vs-data':  !!(st.diagnosis && st.diagnosis.trim()),
+      'vs-items': (st.items || []).length > 0
+    };
+    nav.querySelectorAll('.vf-nav-item').forEach(function (b) {
+      var t = b.getAttribute('data-target');
+      var mark = b.querySelector('.vf-nav-mark');
+      if (t in заполнено) {
+        b.classList.toggle('vf-nav-done', !!заполнено[t]);
+        if (mark) mark.textContent = '';
+        return;
+      }
+      // Блоки-списки (результаты, назначения, вакцинации, вложения) уже
+      // печатают свой счётчик в шапке — берём его оттуда, а не считаем заново.
+      var box = document.getElementById(t);
+      var c = box ? box.querySelector('.attach-count') : null;
+      var n = c ? parseInt(c.textContent, 10) || 0 : 0;
+      b.classList.toggle('vf-nav-done', n > 0);
+      if (mark) mark.textContent = n > 0 ? String(n) : '';
+    });
+  }
+
   function collectVisitItems(){var items=[];document.querySelectorAll('.vitem-row').forEach(function(row){var id=row.dataset.rowId;var name=document.getElementById('vit-n-'+id).value.trim();var type=document.getElementById('vit-t-'+id).value;var qty=parseFloat(document.getElementById('vit-q-'+id).value)||1;var price=parseFloat(document.getElementById('vit-p-'+id).value)||0;var costEl=document.getElementById('vit-c-'+id);var costPrice=costEl?parseFloat(costEl.value)||0:Math.round(price*0.5*100)/100;if(!name)return;items.push({item_id:row.dataset.itemId||null,name:name,type:type,quantity:qty,price:price,cost_price:costPrice,total:Math.round(qty*price*100)/100});});return items;}
 
   // ── Черновики формы приёма ─────────────────────────────────────────────
@@ -2202,6 +2257,7 @@
     addVisitItemRow:addVisitItemRow,
     collectVisitItems:collectVisitItems,
     getVisitItemRows:getVisitItemRows,
+    refreshVisitNav:refreshVisitNav,
     getVisitState:getVisitState,
     startVisitDraftAutosave:startVisitDraftAutosave,
     markModalDirty:markModalDirty,

@@ -3289,6 +3289,27 @@ body.mod-portal-off .needs-mod-portal { display: none !important; }
 .rv-out-low  { border-color: var(--warn)   !important; }
 .form-hint-out { color: var(--danger); font-weight: 600; }
 
+/* U22. Карта разделов приёма. Устроена как полоса разделов протокола (U17):
+   одна привычка на две длинные формы. */
+.vf-nav {
+  position: sticky; top: 0; z-index: 4;
+  display: flex; gap: var(--sp-2); overflow-x: auto;
+  scrollbar-width: none; -ms-overflow-style: none;
+  padding: var(--sp-2) 0; margin-bottom: var(--sp-2);
+  background: var(--bg-s); border-bottom: 1px solid var(--border);
+}
+.vf-nav::-webkit-scrollbar { display: none; }
+.vf-nav-item {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
+  min-height: 40px; padding: 0 var(--sp-3);
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--bg-s); color: var(--text-2);
+  font-size: var(--fs-sm); font-weight: 600; cursor: pointer;
+}
+.vf-nav-item:hover { border-color: var(--border-strong); color: var(--text); }
+.vf-nav-done { border-color: var(--accent); color: var(--text); }
+.vf-nav-mark { font-weight: 500; color: var(--accent); }
+
 /* U24. Свёрнутый промежуток свободных слотов. Ниже обычного слота и без
    заливки: это не запись, а пропуск, и весить он должен меньше. */
 .sched-free {

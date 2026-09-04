@@ -1415,7 +1415,9 @@
   // появиться только что (ensureVisitResults) или быть заполнены поверх.
   function refreshVisitResultsBlock() {
     if (_curVisitId && document.getElementById('visit-results')) {
-      renderVisitResults(_curVisitId, _curPetId);
+      renderVisitResults(_curVisitId, _curPetId).then(function () {
+        if (UI.refreshVisitNav) UI.refreshVisitNav();
+      });
     }
   }
 
@@ -7660,6 +7662,19 @@
       'presc.stop':            function (el) { stopPresc(el.dataset.id, el.dataset.visit, el.dataset.pet); },
       'pet.allergyEdit':       function (el) { editPetAllergies(el.dataset.id); },
       'result.draftFill':      function (el) { fillResultDraft(el.dataset.row, el.dataset.tpl, el.dataset.name); },
+      // U22. Переход по карте разделов приёма. Смещение считаем сами и
+      // вычитаем липкую полосу — ровно как в бланке протокола: scrollIntoView
+      // в контейнере модалки не срабатывает.
+      'visit.goSection':       function (el) {
+                                 var t   = document.getElementById(el.dataset.target);
+                                 var box = document.getElementById('modal-body');
+                                 if (!t || !box) return;
+                                 var nav = document.getElementById('vf-nav');
+                                 var off = nav ? nav.getBoundingClientRect().height : 0;
+                                 var y = t.getBoundingClientRect().top - box.getBoundingClientRect().top
+                                       + box.scrollTop - off - 20;
+                                 box.scrollTo({ top: Math.max(0, y) });
+                               },
       'pet.timeline':          function (el) { showPetTimeline(el.dataset.id); },
       'tl.filter':             function (el) { setTimelineFilter(el.dataset.kind, el); },
       'task.forPet':           function (el) {
