@@ -120,8 +120,45 @@
   // сохранять по одному полю значит плодить промежуточные версии в синке.
   var _editing = null;   // {id, name, kind, notes, fields:[]}
 
+  // U20. Поле — СВЁРНУТОЙ строкой. Правка бланка УЗИ разворачивалась в 26
+  // экранов и 226 полей ввода на одном экране: поменять норму одного
+  // показателя означало прокрутку вслепую. Разворачивается по нажатию.
+  //
+  // Разметка полей остаётся в DOM и когда свёрнута: collectFields читает
+  // значения именно оттуда, и прятать их через display:none безопасно, а
+  // удалять — нельзя.
+  function fieldSummary(f) {
+    var т = (FIELD_TYPES.find(function (x) { return x.v === (f.type || 'text'); }) || {}).l || f.type;
+    var части = [т];
+    if (f.unit) части.push(f.unit);
+    var r = refText(f);
+    if (r) части.push('норма ' + r);
+    if (f.options && f.options.length) части.push(f.options.length + ' вариант(а)');
+    return части.join(' · ');
+  }
+
   function fieldRowHTML(f, i) {
-    return '<div class="proto-field" data-idx="' + i + '">'
+    // data-key ОБЯЗАТЕЛЕН прямо здесь. collectFields читает ключ из разметки, и
+    // без него выводит его заново из подписи — то есть простое открытие
+    // шаблона и «Сохранить» переименовывало ВСЕ ключи (bladder_wall →
+    // толщина_стенки). Значения уже заполненных протоколов лежат по старым
+    // ключам и после такой правки переставали находиться.
+    //
+    // Ключ проставлялся только в _redrawFields, то есть после первой
+    // перерисовки; при первом открытии редактора его в разметке не было вовсе.
+    return '<div class="proto-field" data-idx="' + i + '"'
+      + (f.key ? ' data-key="' + esc(f.key) + '"' : '') + '>'
+      + '<div class="proto-field-head">'
+      + '<button type="button" class="proto-field-toggle" data-act="protocol.fieldToggle" data-idx="' + i + '">'
+      + '<span class="proto-field-name">' + esc(f.label || '(без подписи)') + '</span>'
+      + '<span class="proto-field-meta">' + esc(fieldSummary(f)) + '</span>'
+      + '</button>'
+      // U21. Переставить поле внутри его раздела. Перетаскивание на планшете
+      // мимо цели чаще, чем в цель, поэтому стрелки.
+      + '<button type="button" class="btn btn-icon" title="Выше" data-act="protocol.fieldUp" data-idx="' + i + '">↑</button>'
+      + '<button type="button" class="btn btn-icon" title="Ниже" data-act="protocol.fieldDown" data-idx="' + i + '">↓</button>'
+      + '</div>'
+      + '<div class="proto-field-body" hidden>'
       + '<div class="form-grid">'
       + '<div class="form-group"><label class="form-label">Подпись</label>'
       + '<input class="form-input pf-label" value="' + esc(f.label || '') + '" placeholder="Гемоглобин"></div>'
@@ -142,7 +179,38 @@
       + '<input class="form-input pf-options" value="' + esc((f.options || []).join(', ')) + '" placeholder="норма, снижено, повышено"></div>'
       + '</div>'
       + '<button class="btn btn-ghost btn-sm danger" data-act="protocol.fieldRemove" data-idx="' + i + '">Убрать поле</button>'
-      + '</div>';
+      + '</div></div>';
+  }
+
+  // U20. Поля в редакторе идут разделами — в том же порядке, в каком их увидит
+  // врач в форме заполнения. Порядок разделов — по первому появлению.
+  // Нормализуем и САМ массив, а не только вывод: _redrawFields сопоставляет
+  // строки разметки с полями по индексу, и рассинхрон стоил бы перепутанных
+  // ключей.
+  function groupFields(fields) {
+    var порядок = [], по = {};
+    (fields || []).forEach(function (f) {
+      var g = (f.group || '').trim();
+      if (!по[g]) { по[g] = []; порядок.push(g); }
+      по[g].push(f);
+    });
+    var out = [];
+    порядок.forEach(function (g) { out = out.concat(по[g]); });
+    return out;
+  }
+
+  function fieldsHTML(fields) {
+    if (!fields.length) return '<div class="text-sm text-muted">Полей пока нет — добавьте первое.</div>';
+    var cur = null, html = '';
+    fields.forEach(function (f, i) {
+      var g = (f.group || '').trim();
+      if (g !== cur) {
+        cur = g;
+        html += '<div class="proto-editor-group">' + esc(g || 'Без раздела') + '</div>';
+      }
+      html += fieldRowHTML(f, i);
+    });
+    return html;
   }
 
   function editorHTML() {
@@ -155,10 +223,15 @@
           return '<option value="' + k.v + '"' + (t.kind === k.v ? ' selected' : '') + '>' + k.l + '</option>';
         }).join('') + '</select></div>'
       + '</div>'
-      + '<div class="form-section"><div class="form-section-title">Поля протокола</div>'
-      + '<div id="pt-fields">' + (t.fields.length
-          ? t.fields.map(fieldRowHTML).join('')
-          : '<div class="text-sm text-muted">Полей пока нет — добавьте первое.</div>') + '</div>'
+      + '<div class="form-section"><div class="form-section-title">Поля протокола ('
+      + t.fields.length + ')</div>'
+      // Поиск по подписи: на бланке в три десятка показателей найти «Креатинин»
+      // прокруткой дольше, чем набрать три буквы.
+      + (t.fields.length > 8
+          ? '<input id="pt-search" class="form-input" placeholder="Найти показатель…"'
+            + ' data-act="protocol.fieldSearch" data-act-on="input">'
+          : '')
+      + '<div id="pt-fields">' + fieldsHTML(t.fields) + '</div>'
       + '<button class="btn btn-ghost btn-sm" data-act="protocol.fieldAdd">+ Добавить поле</button>'
       + '</div>';
   }
@@ -212,7 +285,7 @@
         tpl = all.find(function (t) { return t.id === id; });
       }
       _editing = tpl
-        ? { id: tpl.id, name: tpl.name, kind: tpl.kind, notes: tpl.notes || '', fields: fieldsOf(tpl) }
+        ? { id: tpl.id, name: tpl.name, kind: tpl.kind, notes: tpl.notes || '', fields: groupFields(fieldsOf(tpl)) }
         : { id: '', name: '', kind: 'lab', notes: '', fields: [] };
 
       UI.showModal({
@@ -247,6 +320,45 @@
     _editing.fields.push({ key: '', label: '', type: 'number', unit: '', ref_low: null, ref_high: null, options: [] });
     _redrawFields();
   }
+  // U21. Перестановка поля ВНУТРИ его раздела. Между разделами не двигаем: за
+  // принадлежность отвечает поле «Раздел», и молчаливая смена раздела при
+  // перестановке была бы сюрпризом. Соседа ищем по тому же разделу — в
+  // сгруппированном списке он и так рядом, но в общем случае надёжнее.
+  function fieldMove(idx, dir) {
+    var fields = collectFields();
+    var f = fields[idx];
+    if (!f) return;
+    var g = (f.group || '').trim();
+    var j = idx + dir;
+    while (j >= 0 && j < fields.length && (fields[j].group || '').trim() !== g) j += dir;
+    if (j < 0 || j >= fields.length) return;      // уже с краю своего раздела
+    fields[idx] = fields[j]; fields[j] = f;
+    _editing.fields = fields;
+    _redrawFields();
+  }
+
+  // Поиск по подписи. Прячем и заголовок раздела, в котором ничего не нашлось,
+  // иначе список превращается в перечень пустых разделов.
+  function filterFields(q) {
+    var box = document.getElementById('pt-fields');
+    if (!box) return;
+    q = String(q || '').trim().toLowerCase();
+    var видимыхВРазделе = 0, последнийЗаголовок = null;
+    [...box.children].forEach(function (el) {
+      if (el.classList.contains('proto-editor-group')) {
+        if (последнийЗаголовок) последнийЗаголовок.hidden = видимыхВРазделе === 0;
+        последнийЗаголовок = el; видимыхВРазделе = 0;
+        return;
+      }
+      if (!el.classList.contains('proto-field')) return;
+      var подпись = (el.querySelector('.pf-label') || {}).value || '';
+      var видно = !q || подпись.toLowerCase().indexOf(q) >= 0;
+      el.hidden = !видно;
+      if (видно) видимыхВРазделе++;
+    });
+    if (последнийЗаголовок) последнийЗаголовок.hidden = видимыхВРазделе === 0;
+  }
+
   function fieldRemove(idx) {
     _editing.fields = collectFields().filter(function (_, i) { return i !== idx; });
     _redrawFields();
@@ -254,9 +366,8 @@
   function _redrawFields() {
     var box = document.getElementById('pt-fields');
     if (!box) return;
-    box.innerHTML = _editing.fields.length
-      ? _editing.fields.map(fieldRowHTML).join('')
-      : '<div class="text-sm text-muted">Полей пока нет — добавьте первое.</div>';
+    _editing.fields = groupFields(_editing.fields);
+    box.innerHTML = fieldsHTML(_editing.fields);
     // Проставляем сохранённые ключи обратно в разметку: collectFields читает
     // их оттуда, иначе после перерисовки ключи сгенерировались бы заново и
     // связь с уже заполненными протоколами потерялась бы.
@@ -866,6 +977,19 @@
       'protocol.delete':      function (el) { deleteTemplate(el.dataset.id); },
       'protocol.fieldAdd':    function () { fieldAdd(); },
       'protocol.fieldRemove': function (el) { fieldRemove(Number(el.dataset.idx)); },
+      // Разворачиваем на месте: значения полей живут в разметке, и
+      // перерисовывать список ради раскрытия одной строки нельзя — потерялись
+      // бы правки в остальных.
+      'protocol.fieldToggle': function (el) {
+                                var row = el.closest('.proto-field');
+                                var b = row && row.querySelector('.proto-field-body');
+                                if (!b) return;
+                                b.hidden = !b.hidden;
+                                row.classList.toggle('proto-field-open', !b.hidden);
+                              },
+      'protocol.fieldUp':     function (el) { fieldMove(Number(el.dataset.idx), -1); },
+      'protocol.fieldDown':   function (el) { fieldMove(Number(el.dataset.idx),  1); },
+      'protocol.fieldSearch': function (el) { filterFields(el.value); },
       'result.fill':          function (el) { fillResult(el.dataset.id); },
       'result.view':          function (el) { viewResult(el.dataset.id); },
       // Скрытое — не потерянное: раскрывается на месте, без перезагрузки

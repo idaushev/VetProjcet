@@ -3289,6 +3289,25 @@ body.mod-portal-off .needs-mod-portal { display: none !important; }
 .rv-out-low  { border-color: var(--warn)   !important; }
 .form-hint-out { color: var(--danger); font-weight: 600; }
 
+/* U20. Редактор шаблона: поле свёрнуто в строку. */
+.proto-editor-group {
+  margin: var(--sp-4) 0 var(--sp-2); font-size: var(--fs-sm); font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--text-2);
+}
+.proto-field-head { display: flex; align-items: center; gap: var(--sp-2); }
+.proto-field-toggle {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  min-height: 44px; padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border); border-radius: var(--r);
+  background: var(--bg-s); cursor: pointer; text-align: left;
+}
+.proto-field-toggle:hover { border-color: var(--border-strong); }
+.proto-field-name { font-weight: 600; font-size: var(--fs-md); color: var(--text); }
+.proto-field-meta { font-size: var(--fs-sm); color: var(--text-2); }
+.proto-field-open .proto-field-toggle { border-color: var(--accent); }
+.proto-field-body { padding: var(--sp-3) 0 var(--sp-4); }
+.proto-field { margin-bottom: var(--sp-2); }
+
 /* U17. Полоса разделов бланка. Липкая: на пяти экранах прокрутки ориентир
    нужен там, где взгляд, а не только в начале формы. Прокручивается вбок —
    разделов бывает восемь, и переносить их в три ряда значит съесть треть
