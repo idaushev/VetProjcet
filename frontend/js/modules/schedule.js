@@ -34,6 +34,9 @@
   var _schedPets   = [];
 
   var SCHED_START_H = 8, SCHED_END_H = 20; // рабочий день клиники
+  // Разворачивание свёрнутого промежутка: функцию ставит отрисовка дня, ей одной
+  // известен состав слотов.
+  var _expandFree = null;
 
   var APPT_STATUS = {
     scheduled: { label: 'Запись',    cls: 'appt-scheduled' },
@@ -178,21 +181,72 @@
 
     var html = '';
     if (bySlot.before) html += '<div class="sched-slot"><div class="sched-time">до ' + String(SCHED_START_H).padStart(2,'0') + ':00</div><div class="sched-cell">' + bySlot.before.map(apptCard).join('') + '</div></div>';
+    // U24. Длинную череду свободных слотов сворачиваем в одну строку. Рабочий
+    // день — 24 получасовых слота, и в тихий день регистратор пролистывал
+    // экран пустых строк, чтобы дойти до вечерней записи. Свёрнутое
+    // раскрывается нажатием: записать на любое время по-прежнему можно.
+    //
+    // Порог 4 (два часа): свернуть один-два пустых слота между записями значит
+    // разорвать зрительный ряд ради ничего.
+    var СВЕРНУТЬ_ОТ = 4;
+    // «17 слот(ов)» в интерфейсе, который читают весь день, выглядит как
+    // недоделка. Склоняем по-русски.
+    var склонение = function (n) {
+      var д = n % 10, дд = n % 100;
+      if (дд >= 11 && дд <= 14) return 'слотов';
+      if (д === 1) return 'слот';
+      if (д >= 2 && д <= 4) return 'слота';
+      return 'слотов';
+    };
+    var слоты = [];
     for (var h = SCHED_START_H; h < SCHED_END_H; h++) {
-      ['00','30'].forEach(function(mm) {
-        var t = String(h).padStart(2,'0') + ':' + mm;
-        if (!nowLinePlaced && t > nowHM) {
-          html += '<div class="sched-now-line"><span>' + nowHM + '</span></div>';
-          nowLinePlaced = true;
-        }
-        var appts = bySlot[t] || [];
-        html += '<div class="sched-slot' + (appts.length ? ' has-appts' : '') + '">'
-          + '<div class="sched-time">' + t + '</div>'
-          + '<div class="sched-cell" data-act="appt.newAt" data-time="' + t + '" title="Нажмите, чтобы записать на ' + t + '" aria-label="Нажмите, чтобы записать на ' + t + '">'
-          + appts.map(apptCard).join('')
-          + '</div></div>';
+      ['00','30'].forEach(function (mm) {
+        var t = String(h).padStart(2, '0') + ':' + mm;
+        слоты.push({ t: t, appts: bySlot[t] || [] });
       });
     }
+
+    var слотHTML = function (x) {
+      return '<div class="sched-slot' + (x.appts.length ? ' has-appts' : '') + '">'
+        + '<div class="sched-time">' + x.t + '</div>'
+        + '<div class="sched-cell" data-act="appt.newAt" data-time="' + x.t + '" title="Нажмите, чтобы записать на ' + x.t + '" aria-label="Нажмите, чтобы записать на ' + x.t + '">'
+        + x.appts.map(apptCard).join('')
+        + '</div></div>';
+    };
+
+    var i = 0;
+    while (i < слоты.length) {
+      // Линия «сейчас» должна остаться на месте, поэтому свёрнутый промежуток
+      // разрываем там, где она проходит.
+      var j = i;
+      while (j < слоты.length && !слоты[j].appts.length
+             && !(!nowLinePlaced && слоты[j].t > nowHM && j > i)) j++;
+      var подряд = j - i;
+
+      if (подряд >= СВЕРНУТЬ_ОТ) {
+        var с = слоты[i].t, по = слоты[j - 1].t;
+        html += '<div class="sched-free" data-act="sched.expandFree" data-from="' + i + '" data-to="' + (j - 1) + '">'
+          + '<span class="sched-free-time">' + с + ' – ' + по + '</span>'
+          + '<span class="sched-free-note">свободно · ' + подряд + ' ' + склонение(подряд) + ' · показать</span>'
+          + '</div>';
+        i = j;
+        continue;
+      }
+
+      var x = слоты[i];
+      if (!nowLinePlaced && x.t > nowHM) {
+        html += '<div class="sched-now-line"><span>' + nowHM + '</span></div>';
+        nowLinePlaced = true;
+      }
+      html += слотHTML(x);
+      i++;
+    }
+    // Разворачивание держим здесь же: разметка слотов строится только тут.
+    _expandFree = function (from, to) {
+      var out = '';
+      for (var k = Number(from); k <= Number(to); k++) out += слотHTML(слоты[k]);
+      return out;
+    };
     if (!nowLinePlaced) html += '<div class="sched-now-line"><span>' + nowHM + '</span></div>';
     if (bySlot.after) html += '<div class="sched-slot"><div class="sched-time">после ' + SCHED_END_H + ':00</div><div class="sched-cell">' + bySlot.after.map(apptCard).join('') + '</div></div>';
     grid.innerHTML = html;
@@ -538,6 +592,12 @@
       // ближайшего предка с data-act, и карточка перекрывает слот сама — но
       // у слота бывают и не-кликабельные потомки, поэтому проверку оставляем.
       'appt.newAt':      function (el, e) { if (e.target === el) newApptAt(el.dataset.time); },
+      // Раскрываем на месте, не перерисовывая день: иначе слетела бы прокрутка
+      // и линия «сейчас» прыгнула бы обратно к текущему времени.
+      'sched.expandFree': function (el) {
+                            if (!_expandFree) return;
+                            el.outerHTML = _expandFree(el.dataset.from, el.dataset.to);
+                          },
       'appt.newForDoc':  function (el, e) { if (e.target === el) newApptForDoc(el.dataset.time, el.dataset.doc); },
       'appt.startVisit': function (el) { apptStartVisit(el.dataset.id); },
       'appt.status':     function (el) { apptSetStatus(el.dataset.id, el.dataset.status); },

@@ -10,7 +10,10 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -182,10 +185,23 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /sync/pull",  a.handleSyncPull)
 
 	// Static frontend
+	//
+	// no-cache — не «не кэшировать», а «перед выдачей спросить сервер». Ответом
+	// обычно будет 304 без тела, так что цена — один лёгкий запрос на файл.
+	// Заголовков не было вовсе, и браузер кэшировал по своему усмотрению: после
+	// обновления клиника продолжала работать на старом коде, а на стенде правка
+	// «не появлялась» до ручной чистки кэша. Офлайн обеспечивает service worker
+	// со своей версией — сетевому слою кэшировать нечего.
 	fileServer := http.FileServer(http.Dir(a.frontend))
-	mux.Handle("GET /js/",     http.StripPrefix("/", fileServer))
-	mux.Handle("GET /css/",    http.StripPrefix("/", fileServer))
-	mux.Handle("GET /icons/",  http.StripPrefix("/", fileServer))
+	revalidate := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-cache")
+			h.ServeHTTP(w, r)
+		})
+	}
+	mux.Handle("GET /js/",     revalidate(http.StripPrefix("/", fileServer)))
+	mux.Handle("GET /css/",    revalidate(http.StripPrefix("/", fileServer)))
+	mux.Handle("GET /icons/",  revalidate(http.StripPrefix("/", fileServer)))
 	// vendor — сторонние библиотеки локальной копией (xlsx/SheetJS).
 	// Без этого маршрута запрос падал в catch-all "GET /" и получал index.html
 	// вместо скрипта: браузер молча не находил XLSX, а импорт Excel переставал работать.
@@ -197,8 +213,21 @@ func (a *app) routes() http.Handler {
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		http.ServeFile(w, r, filepath.Join(a.frontend, "service-worker.js"))
 	})
+	// index.html отдаём с подставленной версией: в разметке стоит ?v=__V__, и
+	// после обновления браузер запрашивает скрипты по новому адресу. Без этого
+	// он мог месяцами держать старую копию — версионирования не было ни у
+	// одного файла, и клиника рисковала работать на смеси старого и нового
+	// кода. Версию берём из service-worker.js, чтобы она была ровно в одном
+	// месте: два источника однажды разойдутся.
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, filepath.Join(a.frontend, "index.html"))
+		raw, err := os.ReadFile(filepath.Join(a.frontend, "index.html"))
+		if err != nil {
+			http.ServeFile(w, r, filepath.Join(a.frontend, "index.html"))
+			return
+		}
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(strings.ReplaceAll(string(raw), "__V__", a.appVersion())))
 	})
 
 	// authMiddleware внутри CORS: preflight-OPTIONS должен отвечать без токена.
@@ -378,4 +407,19 @@ func decodeJSON(r *http.Request, dest interface{}) error {
 		return errors.New("request body must contain a single JSON object")
 	}
 	return nil
+}
+
+// appVersion читает APP_VERSION из service-worker.js — единственного места, где
+// версия объявлена. Читаем при каждом запросе index.html: файл маленький, а
+// перезапуск ради смены версии на стенде только мешал бы.
+func (a *app) appVersion() string {
+	raw, err := os.ReadFile(filepath.Join(a.frontend, "service-worker.js"))
+	if err != nil {
+		return "0"
+	}
+	m := regexp.MustCompile(`APP_VERSION\s*=\s*"([^"]+)"`).FindSubmatch(raw)
+	if len(m) < 2 {
+		return "0"
+	}
+	return string(m[1])
 }
