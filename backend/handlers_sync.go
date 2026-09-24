@@ -796,6 +796,7 @@ func pushStaff(ctx context.Context, db *sql.DB, rec staffSyncRecord) (bool, erro
 		  client_updated_at=excluded.client_updated_at`,
 		rec.ID, rec.Name, rec.Role, nullableString(rec.Phone), nullableString(rec.Email),
 		boolToInt(rec.IsActive), nullableString(rec.Notes),
+		nullableString(rec.Photo),
 		serverNow, deletedAt, rec.IsDeleted,
 		nullableString(rec.DeviceID), rec.Version, serverNow, clientAt,
 	)

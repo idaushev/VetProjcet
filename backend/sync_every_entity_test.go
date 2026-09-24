@@ -1,0 +1,91 @@
+package main
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+// Каждая сущность реестра синка принимает push своей записи и отдаёт её при
+// pull. Тест ловит целый класс ошибок, который в проекте повторялся: список
+// колонок и список значений в SQL разошлись (правило 3). Так push сотрудников
+// месяц отклонял каждую запись (B-009): в INSERT 15 колонок, значений 14,
+// ошибка уходила в лог, а на планшете запись считалась отправленной.
+//
+// Новая сущность в реестре без примера здесь валит тест — пример обязателен.
+var entitySamples = map[string]string{
+	"owners":              `{"id":"e-o","fio":"Хозяин","phone":"+7 700 800 8000"}`,
+	"pets":                `{"id":"e-p","owner_id":"e-o","name":"Бобик","type":"dog","gender":"m"}`,
+	"items":               `{"id":"e-i","name":"Осмотр","type":"service","price":5000}`,
+	"visits":              `{"id":"e-v","pet_id":"e-p","date":"2026-09-01T11:00:00Z","total_amount":5000}`,
+	"visit_items":         `{"id":"e-vi","visit_id":"e-v","item_id":"e-i","name":"Осмотр","type":"service","quantity":1,"price":5000,"total":5000}`,
+	"prescriptions":       `{"id":"e-rx","visit_id":"e-v","pet_id":"e-p","drug_name":"Церукал","dose":0.5,"dose_unit":"мл"}`,
+	"vaccinations":        `{"id":"e-vac","pet_id":"e-p","vaccine_name":"Нобивак","administered_at":"2026-09-01"}`,
+	"staff":               `{"id":"e-s","name":"Врач","role":"vet","is_active":true,"photo":"data:image/png;base64,AAAA"}`,
+	"appointments":        `{"id":"e-ap","pet_id":"e-p","starts_at":"2026-09-02T10:00:00Z","status":"scheduled"}`,
+	"tasks":               `{"id":"e-t","title":"Позвонить владельцу"}`,
+	"diagnosis_templates": `{"id":"e-dt","name":"Гастрит","treatment":"Диета"}`,
+	"protocol_templates":  `{"id":"e-pt","name":"ОАК","kind":"lab","fields":"[]"}`,
+	"visit_results":       `{"id":"e-vr","visit_id":"e-v","pet_id":"e-p","title":"ОАК","kind":"text","status":"pending"}`,
+	"warehouses":          `{"id":"e-w","name":"Основной"}`,
+	"stock_movements":     `{"id":"e-sm","warehouse_id":"e-w","item_id":"e-i","kind":"purchase","quantity":10,"occurred_at":"2026-09-01T09:00:00Z"}`,
+}
+
+func TestEverySyncEntityPushesAndPulls(t *testing.T) {
+	a := testApp(t)
+	for _, e := range syncEntities() {
+		if e.pushAll == nil {
+			continue // только pull (вложения)
+		}
+		sample, ok := entitySamples[e.Name]
+		if !ok {
+			t.Errorf("%s: нет примера записи в entitySamples — добавьте", e.Name)
+			continue
+		}
+		// Сущности идут в порядке реестра (внешние ключи), по одной на push:
+		// так отказ указывает ровно на свою сущность.
+		rec := strings.TrimSuffix(sample, "}") +
+			`,"version":1,"updated_at":"2026-09-01T12:00:00Z","device_id":"dev-e"}`
+		res := doPush(t, a, `{"`+e.Name+`":[`+rec+`]}`)
+		if acc, _ := res["accepted"].(float64); acc != 1 {
+			t.Errorf("%s: push не принят (%v) — сверьте колонки и значения в push%s",
+				e.Name, res, e.Name)
+		}
+	}
+
+	data := doPull(t, a, "")
+	for name, sample := range entitySamples {
+		var want struct{ ID string `json:"id"` }
+		_ = json.Unmarshal([]byte(sample), &want)
+		found := false
+		for _, row := range data[name] {
+			if row["id"] == want.ID {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s: запись %s не вернулась в pull", name, want.ID)
+		}
+	}
+}
+
+// B-009: фото сотрудника доезжает, а пустое фото от старого планшета не
+// стирает серверное.
+func TestStaffPushKeepsPhoto(t *testing.T) {
+	a := testApp(t)
+	doPush(t, a, `{"staff":[{"id":"s-1","name":"Врач","role":"vet","is_active":true,
+		"photo":"data:image/png;base64,AAAA","version":1,"updated_at":"2026-09-01T10:00:00Z"}]}`)
+	res := doPush(t, a, `{"staff":[{"id":"s-1","name":"Врач Иванова","role":"vet","is_active":true,
+		"photo":"","version":2,"updated_at":"2026-09-01T11:00:00Z"}]}`)
+	if acc, _ := res["accepted"].(float64); acc != 1 {
+		t.Fatalf("правка сотрудника не принята: %v", res)
+	}
+	var name, photo string
+	a.db.QueryRow(`SELECT name, COALESCE(photo,'') FROM clinic_staff WHERE id='s-1'`).Scan(&name, &photo)
+	if name != "Врач Иванова" {
+		t.Errorf("имя не обновилось: %q", name)
+	}
+	if photo != "data:image/png;base64,AAAA" {
+		t.Errorf("пустое фото стёрло серверное: %q", photo)
+	}
+}
