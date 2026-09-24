@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -45,12 +46,46 @@ func pushEntity[T interface{ recordID() string }](
 	if !ok || len(rawRecs) == 0 {
 		return
 	}
-	var recs []T
-	if err := json.Unmarshal(rawRecs, &recs); err != nil {
+	// Записи разбираем ПО ОДНОЙ: одна неразборная запись (не тот тип поля)
+	// раньше роняла декодирование всего пакета сущности — все записи
+	// отбрасывались без единой отметки, а планшет считал их отправленными.
+	var items []json.RawMessage
+	if err := json.Unmarshal(rawRecs, &items); err != nil {
 		a.logger.Printf("syncPush %s decode: %v", key, err)
-		return
+		return // не массив — id не извлечь, сообщить не о чем
 	}
-	pushRecords(ctx, a, recs, permTable, authorTable, userID, canPush, pushFn, res)
+	recs := make([]T, 0, len(items))
+	for _, it := range items {
+		var rec T
+		if err := json.Unmarshal(it, &rec); err != nil {
+			var idOnly struct {
+				ID string `json:"id"`
+			}
+			_ = json.Unmarshal(it, &idOnly)
+			a.logger.Printf("syncPush %s %s decode: %v", key, idOnly.ID, err)
+			res.reject(key, idOnly.ID, "запись не разобрана сервером", err)
+			continue
+		}
+		recs = append(recs, rec)
+	}
+	pushRecords(ctx, a, recs, key, permTable, authorTable, userID, canPush, pushFn, res)
+}
+
+// reject — запись не принята: планшет оставит её неотправленной (B-013).
+// Внешний ключ называем отдельно: это самый частый и самый понятный случай —
+// на сервере нет записи, на которую эта ссылается.
+func (r *syncPushResult) reject(entity, id, reason string, err error) {
+	if err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "FOREIGN KEY") {
+			reason = "на сервере нет связанной записи (врача, животного или приёма)"
+		}
+		if len(msg) > 200 {
+			msg = msg[:200]
+		}
+		reason += ": " + msg
+	}
+	r.Rejected = append(r.Rejected, pushReject{Entity: entity, ID: id, Reason: reason})
 }
 
 // recordID — общий доступ к id записи для обобщённого push (простановка автора,
@@ -71,7 +106,7 @@ func (r stockMovementSyncRecord) recordID() string { return r.ID }
 // чтобы сохранить типобезопасность записей и переиспользуемость pushX.
 func pushRecords[T interface{ recordID() string }](
 	ctx context.Context, a *app, recs []T,
-	permTable, authorTable, userID string,
+	key, permTable, authorTable, userID string,
 	canPush func(string) bool,
 	pushFn func(context.Context, *sql.DB, T) (bool, error),
 	res *syncPushResult,
@@ -80,8 +115,11 @@ func pushRecords[T interface{ recordID() string }](
 		return
 	}
 	if !canPush(permTable) {
-		res.Skipped += len(recs)
 		a.logger.Printf("syncPush %s: отклонено, у %s нет права записи", permTable, userID)
+		for _, rec := range recs {
+			res.reject(key, rec.recordID(), "нет права на запись", nil)
+			res.Rejected[len(res.Rejected)-1].Permanent = true
+		}
 		return
 	}
 	for _, rec := range recs {
@@ -90,7 +128,10 @@ func pushRecords[T interface{ recordID() string }](
 			res.Accepted++
 		} else {
 			if err != nil {
-				a.logger.Printf("syncPush %s %s: %v", permTable, rec.recordID(), err)
+				// Не «сервер новее», а отказ записи — планшет обязан узнать.
+				a.logger.Printf("syncPush %s %s: %v", key, rec.recordID(), err)
+				res.reject(key, rec.recordID(), "сервер не смог записать", err)
+				continue
 			}
 			res.Skipped++
 		}

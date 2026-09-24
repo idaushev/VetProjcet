@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -111,5 +114,67 @@ func TestNewStaffAndHisVisitInOnePush(t *testing.T) {
 	}
 	if acc, _ := res["accepted"].(float64); acc != 8 {
 		t.Errorf("принято %v из 8", res["accepted"])
+	}
+}
+
+// B-013. Сервер сообщает, какие записи не смог принять: планшет держит их
+// неотправленными. «Сервер новее» — по-прежнему skipped, не отказ.
+func TestPushReportsRejectedRecords(t *testing.T) {
+	a := testApp(t)
+	const at = `"version":1,"updated_at":"2026-09-01T12:00:00Z"`
+	res := doPush(t, a, `{
+		"owners":[{"id":"r-o","fio":"Хозяин","phone":"+7 700 111 0000",`+at+`}],
+		"pets":[{"id":"r-p","owner_id":"r-o","name":"Шарик","type":"dog","gender":"m",`+at+`},
+		        {"id":"r-orphan","owner_id":"нет-такого","name":"Ничей","type":"cat","gender":"f",`+at+`}],
+		"prescriptions":[{"id":"r-bad","visit_id":"x","pet_id":"r-p","dose":"полтаблетки",`+at+`}]}`)
+
+	if acc, _ := res["accepted"].(float64); acc != 2 {
+		t.Errorf("валидные записи: принято %v, ждём 2 (владелец и Шарик)", res["accepted"])
+	}
+	got := map[string]string{}
+	list, _ := res["rejected"].([]any)
+	for _, x := range list {
+		m := x.(map[string]any)
+		got[m["entity"].(string)+":"+m["id"].(string)] = m["reason"].(string)
+	}
+	if r := got["pets:r-orphan"]; !strings.Contains(r, "нет связанной записи") {
+		t.Errorf("животное без владельца: причина %q, ждём про связанную запись", r)
+	}
+	if r := got["prescriptions:r-bad"]; !strings.Contains(r, "не разобрана") {
+		t.Errorf("неразборная запись: причина %q", r)
+	}
+	if len(got) != 2 {
+		t.Errorf("отказов %d, ждём 2: %v", len(got), got)
+	}
+	if skipped(res) != 0 {
+		t.Errorf("отказы не должны считаться skipped: %v", res["skipped"])
+	}
+
+	// Повтор той же отклонённой записи — снова отказ, без дублей и мусора.
+	res = doPush(t, a, `{"pets":[{"id":"r-orphan","owner_id":"нет-такого","name":"Ничей","type":"cat","gender":"f",`+at+`}]}`)
+	if l, _ := res["rejected"].([]any); len(l) != 1 {
+		t.Errorf("повтор: отказов %d, ждём 1", len(l))
+	}
+
+	// Сервер новее — skipped, не отказ.
+	doPush(t, a, `{"owners":[{"id":"r-o","fio":"Хозяин новый","phone":"+7 700 111 0000","version":5,"updated_at":"2026-09-02T12:00:00Z"}]}`)
+	res = doPush(t, a, `{"owners":[{"id":"r-o","fio":"Хозяин старый","phone":"+7 700 111 0000","version":2,"updated_at":"2026-09-01T13:00:00Z"}]}`)
+	if skipped(res) != 1 || res["rejected"] != nil {
+		t.Errorf("устаревшая правка: ждём skipped=1 без отказов, получили %v", res)
+	}
+}
+
+// Нет права на запись — отказ с причиной, а не молчаливый skipped.
+func TestPushWithoutRightIsRejected(t *testing.T) {
+	a := testApp(t)
+	req := httptest.NewRequest(http.MethodPost, "/sync/push", strings.NewReader(
+		`{"owners":[{"id":"np-o","fio":"Х","phone":"+7 700 222 0000","version":1,"updated_at":"2026-09-01T12:00:00Z"}]}`))
+	viewer := &User{ID: "v", Login: "viewer", Role: "reception", IsActive: true,
+		Permissions: []byte(`{"tables":{"owners":"view"}}`)}
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{}, viewer))
+	rec := httptest.NewRecorder()
+	a.handleSyncPush(rec, req)
+	if !strings.Contains(rec.Body.String(), `"reason":"нет права на запись","permanent":true`) {
+		t.Errorf("отказ по праву не сообщён: %s", rec.Body.String())
 	}
 }

@@ -646,8 +646,26 @@ type staffSyncRecord struct {
 
 type syncPushResult struct {
 	Accepted  int `json:"accepted"`
-	Skipped   int `json:"skipped"`   // server version newer
+	Skipped   int `json:"skipped"`   // на сервере версия новее — pull принесёт её
 	Conflicts int `json:"conflicts"` // обработаны, но не приняты
+	// B-013. Записи, которые сервер НЕ СМОГ принять: ошибка записи в базу
+	// (в т.ч. внешний ключ), неразборная запись, нет права. Раньше они
+	// смешивались со skipped, и планшет считал их отправленными — данные
+	// терялись без следа (B-009). Планшет держит их неотправленными и
+	// показывает. Старый планшет поле не читает — для него всё как раньше.
+	Rejected []pushReject `json:"rejected,omitempty"`
+}
+
+// pushReject — одна непринятая запись: сущность (ключ push), id, причина.
+type pushReject struct {
+	Entity string `json:"entity"`
+	ID     string `json:"id"`
+	Reason string `json:"reason"`
+	// Permanent — повтор не поможет (нет права): планшет не держит запись
+	// неотправленной вечно, а уступает серверной версии и сообщает врачу.
+	// Без флага — временный отказ (внешний ключ, ошибка записи, неразборная
+	// запись): планшет повторяет, пока сервер не примет.
+	Permanent bool `json:"permanent,omitempty"`
 }
 
 // Ответ pull теперь собирается картой в handleSyncPull по реестру

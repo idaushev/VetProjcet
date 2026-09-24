@@ -113,20 +113,54 @@
     try {
       var result = await req("POST", "/sync/push", payload);
 
-      // Помечаем всё как synced — даже skipped.
-      // Причина: если сервер skipped (его версия выше) → следующий pull
-      // принесёт серверную версию и Rule 3 её применит.
-      // Если оставить pending → Rule 1 заблокирует pull навсегда.
+      // Помечаем synced всё, кроме непринятого (B-013).
+      // skipped (у сервера версия выше) — тоже synced: следующий pull
+      // принесёт серверную версию и Rule 3 её применит; оставь pending —
+      // Rule 1 заблокирует pull навсегда.
+      // rejected — сервер НЕ СМОГ принять (ошибка записи, внешний ключ,
+      // неразборная запись, нет права). Раньше они тоже становились synced,
+      // и данные терялись без следа (B-009). Теперь остаются pending с
+      // причиной, уходят в каждый следующий push и видны в статусе синка.
+      // Старый сервер поля не шлёт — всё как прежде.
+      var rejected = {};
+      (result.rejected || []).forEach(function (x) { rejected[x.entity + ":" + x.id] = x; });
+      var nRejected = 0, dropped = [];
       for (var store of STORE_ORDER) {
         for (var r of (payload[store] || [])) {
-          await window.VetDB.markSynced(store, r.id);
+          var rej = rejected[store + ":" + r.id];
+          var why = rej && (rej.reason || "не принято");
+          if (rej && rej.permanent) {
+            // Постоянный отказ (нет права): повтор не поможет. Держать запись
+            // pending вечно нельзя — правило 1 не пустит к ней серверную
+            // версию, а clearForbiddenStores не очистит стор, в котором она
+            // лежит, и закрытые данные останутся на планшете. Статус
+            // rejected: в push не идёт, при pull уступает серверу.
+            dropped.push({ store: store, id: r.id, reason: why });
+            await window.VetDB.bulkSave(store, [{ id: r.id, sync_status: "rejected", sync_error: why, sync_error_at: new Date().toISOString() }], { keep: true });
+          } else if (rej) {
+            // Временный отказ (внешний ключ, ошибка записи, неразборная
+            // запись): остаётся pending и повторяется, пока сервер не примет.
+            nRejected++;
+            // Причина та же — не пишем: иначе каждые 15 секунд лишняя запись
+            // в IndexedDB на каждую отклонённую.
+            if (r.sync_error === why) continue;
+            // Только поля ошибки поверх того, что лежит сейчас: запись могли
+            // поправить, пока шёл push, — снимок из payload её бы откатил.
+            await window.VetDB.bulkSave(store, [{ id: r.id, sync_error: why, sync_error_at: new Date().toISOString() }], { keep: true });
+          } else {
+            // Версия — чтобы не пометить отправленной правку, сделанную,
+            // пока шёл push: её сервер ещё не видел.
+            await window.VetDB.markSynced(store, r.id, null, r.version);
+          }
         }
       }
+      if (nRejected) console.warn("[Sync] push: %d записей не принято сервером", nRejected);
+      if (dropped.length) console.warn("[Sync] push: %d записей отклонено окончательно", dropped.length, dropped);
 
       if ((result.skipped || 0) > 0) {
         console.info("[Sync] push: %d skipped → pull will resolve", result.skipped);
       }
-      return { pushed: result.accepted || 0, skipped: result.skipped || 0 };
+      return { pushed: result.accepted || 0, skipped: result.skipped || 0, rejected: nRejected, dropped: dropped };
 
     } catch (err) {
       // Fallback: поштучно через REST (без photo — petPayload его не принимает)
@@ -145,7 +179,7 @@
   const SYNC_META = new Set([
     "sync_status","server_id","created_at","updated_at","deleted_at","is_deleted","device_id","version",
     // VET-017: служебные поля синка — строгий REST их отвергнет.
-    "base_version","conflict_json","conflict_resolved"
+    "base_version","conflict_json","conflict_resolved","sync_error","sync_error_at"
   ]);
   const REST_PATH = {
     owners:"/owners", pets:"/pets", items:"/items", visits:"/visits",
@@ -263,6 +297,14 @@
         // изменением: каждые 15 секунд страница перестраивалась целиком.
         // Экран «дрожал» на ровном месте, а в списке сбивалась прокрутка.
         if (localByID.has(remote.id)) toDelete.push(remote.id);
+        return;
+      }
+
+      // ── Правило 0.5: окончательно отклонённая сервером правка (B-013) ──────
+      // Сервер её не примет (нет права). Уступает серверной версии всегда,
+      // иначе правило 2 по версии оставило бы её локально навсегда.
+      if (local && local.sync_status === "rejected") {
+        toSave.push(Object.assign({}, remote, { sync_status: "synced" }));
         return;
       }
 

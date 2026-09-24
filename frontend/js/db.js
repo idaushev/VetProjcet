@@ -311,11 +311,16 @@
     });
   }
 
-  function markSynced(storeName, id, serverUpdatedAt) {
+  // expectedVersion — версия, которую отправили. Если запись успели поправить,
+  // пока шёл push (версия выросла), её НЕ помечаем: сервер эту правку ещё не
+  // видел, и synced навсегда оставил бы её только на планшете.
+  function markSynced(storeName, id, serverUpdatedAt, expectedVersion) {
     return getById(storeName, id).then(function (existing) {
       if (!existing) return null;
+      if (expectedVersion != null && existing.version !== expectedVersion) return existing;
       return putRecord(storeName, Object.assign({}, existing, {
         sync_status: "synced",
+        sync_error:  "",   // B-013: сервер принял — прежний отказ снят
         updated_at:  serverUpdatedAt || existing.updated_at || nowISO()
       }));
     });

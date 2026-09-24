@@ -143,6 +143,7 @@ GET/PUT/DELETE /items/{id}
 ```bash
 go test ./backend/...                   # сервер, включая цикл синхронизации
 node scripts/test-plan-visit-items.js   # план сохранения позиций приёма (VET-017)
+node scripts/test-push-rejects.js       # разбор отказов сервера при push (B-013)
 ```
 
 Отдельный стенд на пустой базе `data/scratch/` (порт 8091) — конфигурация
