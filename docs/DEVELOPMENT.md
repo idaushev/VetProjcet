@@ -138,6 +138,16 @@ GET/PUT/DELETE /items/{id}
 
 ## Проверка работы
 
+Автотесты:
+
+```bash
+go test ./backend/...                   # сервер, включая цикл синхронизации
+node scripts/test-plan-visit-items.js   # план сохранения позиций приёма (VET-017)
+```
+
+Отдельный стенд на пустой базе `data/scratch/` (порт 8091) — конфигурация
+`vet-scratch` в `.claude/launch.json`.
+
 ```bash
 # Health check
 curl http://localhost:8080/health

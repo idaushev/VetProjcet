@@ -1841,6 +1841,77 @@
     row.querySelector('[data-rem]').onclick=function(){row.remove();updateVitTotal();};
     updateVitRow(id);
     if(prefill.item_id) row.dataset.itemId=prefill.item_id;
+    // id позиции приёма, из которой построена строка. Нужен только правке:
+    // неизменённая строка сохраняется под своим id, а не пересоздаётся (VET-017).
+    // В collectVisitItems НЕ попадает — копия приёма создала бы позиции с
+    // чужими id и перетёрла бы исходный приём. Источник: сама позиция приёма
+    // (id + visit_id) или черновик правки (vi_id).
+    var viId = prefill.vi_id || (prefill.id && prefill.visit_id ? prefill.id : '');
+    if(viId) row.dataset.viId=viId;
+  }
+
+  // План сохранения позиций при правке приёма (VET-017). Чистая функция:
+  //   rows      — collectVisitItemsForEdit(): [{vi_id, item}];
+  //   openedById — позиции приёма, какими их видел врач при открытии формы;
+  //   aliveById  — они же сейчас в IndexedDB (могли измениться синком).
+  // Возвращает plan [{op:'keep'|'update'|'create', id?, it?, total, row}],
+  // toDelete [id], elsewhere [что изменили на другом устройстве], gross и
+  // items — итоговый счёт по порядку (по нему заводятся ожидающие результаты).
+  function planVisitItems(rows, openedById, aliveById) {
+    var r2 = function(x){ return Math.round((Number(x) || 0) * 100) / 100; };
+    // Себестоимость сравниваем только для «тронул ли врач»: на сервере у
+    // позиций её нет, и после pull она обнуляется — это не чужая правка.
+    var same = function(a, it, withCost) {
+      return (a.item_id || null) === (it.item_id || null) && a.name === it.name && a.type === it.type &&
+        r2(a.quantity) === r2(it.quantity) && r2(a.price) === r2(it.price) && r2(a.total) === r2(it.total) &&
+        (!withCost || r2(a.cost_price) === r2(it.cost_price));
+    };
+    var plan = [], inForm = {}, elsewhere = [];
+    rows.forEach(function(row) {
+      var it = row.item, opened = row.vi_id && openedById[row.vi_id];
+      if (!opened) { plan.push({ op: 'create', it: it, total: r2(it.total), row: it }); return; }
+      inForm[opened.id] = true;
+      var cur = aliveById[opened.id];
+      if (same(opened, it, true)) {
+        // Врач строку не трогал: не отправляем, в сумму — свежая версия.
+        if (!cur) { elsewhere.push('«' + it.name + '» убрана'); return; }
+        if (!same(opened, cur)) elsewhere.push('«' + it.name + '» изменена');
+        plan.push({ op: 'keep', total: r2(cur.total), row: cur });
+      } else if (cur) {
+        // Правка врача явная и побеждает, но если ту же строку успели
+        // поправить на другом устройстве — сказать, что её правка заменена.
+        if (!same(opened, cur)) elsewhere.push('«' + it.name + '» правили и там — оставлена ваша правка');
+        plan.push({ op: 'update', id: opened.id, it: it, total: r2(it.total), row: it });
+      } else {
+        // Врач правил строку, которую на другом устройстве уже убрали:
+        // правка явная — заводим строку заново, а не теряем молча.
+        elsewhere.push('«' + it.name + '» была убрана, добавлена снова');
+        plan.push({ op: 'create', it: it, total: r2(it.total), row: it });
+      }
+    });
+    // Убрано врачом — только то, что он видел при открытии и убрал из формы.
+    var toDelete = Object.keys(openedById).filter(function(k){ return !inForm[k] && aliveById[k]; });
+    // Добавлено на другом устройстве после открытия формы: врач этих строк
+    // не видел — не удаляем, в сумму включаем.
+    Object.keys(aliveById).forEach(function(k) {
+      if (openedById[k]) return;
+      elsewhere.push('«' + aliveById[k].name + '» добавлена');
+      plan.push({ op: 'keep', total: r2(aliveById[k].total), row: aliveById[k] });
+    });
+    var gross = r2(plan.reduce(function(s, p){ return s + p.total; }, 0));
+    return { plan: plan, toDelete: toDelete, elsewhere: elsewhere, gross: gross,
+             items: plan.map(function(p){ return p.row; }) };
+  }
+
+  // Позиции формы вместе с id исходной позиции приёма (vi_id, '' у новой
+  // строки). Тот же отбор, что в collectVisitItems. Только для правки приёма.
+  function collectVisitItemsForEdit(){
+    var ids=[];
+    document.querySelectorAll('.vitem-row').forEach(function(row){
+      var n=document.getElementById('vit-n-'+row.dataset.rowId);
+      if(n&&n.value.trim()) ids.push(row.dataset.viId||'');
+    });
+    return collectVisitItems().map(function(it,i){ return { vi_id: ids[i]||'', item: it }; });
   }
 
   function updateVitRow(id){var q=parseFloat(document.getElementById('vit-q-'+id).value)||0;var p=parseFloat(document.getElementById('vit-p-'+id).value)||0;var t=Math.round(q*p*100)/100;document.getElementById('vit-tot-'+id).textContent=t.toFixed(0)+' ₸';updateVitTotal();}
@@ -1939,7 +2010,11 @@
   // attachKey кладём в черновик, чтобы восстановленная форма нашла свои файлы:
   // они лежат в очереди под этим ключом, и без него после падения планшета
   // снимок остался бы в очереди ничей.
-  function startVisitDraftAutosave(key, attachKey) {
+  // openedItems — позиции приёма, какими врач увидел их при ПЕРВОМ открытии
+  // правки. Кладём в черновик: восстановленная форма сравнивается с ними, а не
+  // с тем, что лежит в базе к моменту восстановления, — иначе чужая правка,
+  // пришедшая синком, выглядела бы как правка врача (VET-017).
+  function startVisitDraftAutosave(key, attachKey, openedItems) {
     stopVisitDraftAutosave();
     _draftTimer = setInterval(function() {
       if (!document.getElementById('vf-root')) { stopVisitDraftAutosave(); return; }
@@ -1963,7 +2038,13 @@
             treatment: vs.treatment, notes: vs.notes,
             staff_id: vs.staff_id, discount: vs.discount,
             discount_reason: vs.discount_reason, payment_card: vs.payment_card,
-            items: vs.items,
+            // У черновика ПРАВКИ строки помнят id исходной позиции: иначе
+            // восстановленный черновик пересоздал бы все строки, и
+            // конкурентная правка снова задвоила бы счёт (VET-017).
+            items: key.indexOf('edit:') === 0
+              ? collectVisitItemsForEdit().map(function(r){ return Object.assign({ vi_id: r.vi_id }, r.item); })
+              : vs.items,
+            opened_items: openedItems || null,
           },
         }));
       } catch(e) {}
@@ -2256,6 +2337,8 @@
     initVisitForm:initVisitForm,
     addVisitItemRow:addVisitItemRow,
     collectVisitItems:collectVisitItems,
+    collectVisitItemsForEdit:collectVisitItemsForEdit,
+    planVisitItems:planVisitItems,
     getVisitItemRows:getVisitItemRows,
     refreshVisitNav:refreshVisitNav,
     getVisitState:getVisitState,

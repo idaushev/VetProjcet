@@ -17,11 +17,9 @@ import (
 // Сценарий повторяет реальный путь планшета:
 //   - каждое сохранение на планшете прибавляет к version единицу
 //     (normalizeRecord, frontend/js/db.js); сервер хранит присланную как есть;
-//   - правка приёма шлёт запись приёма целиком, а позиции счёта удаляет и
-//     создаёт заново с новыми id (frontend/js/pages.js, сохранение правки);
+//   - правка приёма шлёт запись приёма целиком; позиции счёта — только
+//     изменённые, под своими id (frontend/js/pages.js, сохранение правки);
 //   - цикл синка — сначала pull, потом push (syncAll, frontend/js/sync.js).
-//     Pull применяет удаления поверх неотправленных записей, поэтому второй
-//     планшет надгробие исходной позиции уже НЕ отправляет: его стёр pull.
 
 const (
 	concBase = "2026-09-01T10:00:00Z" // приём создан и доехал до обоих планшетов
@@ -49,22 +47,11 @@ type edit struct {
 	at                   string // время правки на планшете
 	version              int    // 2 — одно сохранение от исходной v1, 3 — два
 	diagnosis, treatment string // что в приёме на этом планшете
-	newItem              string // id пересозданной позиции
-	tombstone            bool   // шлёт ли надгробие i-base (только первый, см. выше)
 }
 
 func (e edit) payload() string {
-	items := fmt.Sprintf(`{"id":"%s","visit_id":"v-c","item_id":"it-exam","name":"Осмотр","type":"service",
-		"quantity":1,"price":5000,"total":5000,"version":1,"updated_at":"%s"}`, e.newItem, e.at)
-	if e.tombstone {
-		items = fmt.Sprintf(`{"id":"i-base","visit_id":"v-c","item_id":"it-exam","name":"Осмотр","type":"service",
-			"quantity":1,"price":5000,"total":5000,"is_deleted":1,"deleted_at":"%[1]s","version":2,"updated_at":"%[1]s"},`,
-			e.at) + items
-	}
-	return fmt.Sprintf(`{
-		"visits":[{"id":"v-c","pet_id":"p-c","date":"%s","diagnosis":"%s","treatment":"%s",
-			"total_amount":5000,"version":%d,"updated_at":"%s"}],
-		"visit_items":[%s]}`, concBase, e.diagnosis, e.treatment, e.version, e.at, items)
+	return fmt.Sprintf(`{"visits":[{"id":"v-c","pet_id":"p-c","date":"%s","diagnosis":"%s","treatment":"%s",
+		"total_amount":5000,"version":%d,"updated_at":"%s"}]}`, concBase, e.diagnosis, e.treatment, e.version, e.at)
 }
 
 func concVisit(t *testing.T, a *app) (diagnosis, treatment string) {
@@ -92,8 +79,8 @@ func skipped(res map[string]any) float64 { v, _ := res["skipped"].(float64); ret
 // исчезла, и ни один планшет об этом не узнал.
 func TestConcurrentVisitEditEarlierFirstLosesEdit(t *testing.T) {
 	a := concSeed(t)
-	resA := doPush(t, a, edit{concA, 2, "Гастроэнтерит", "Диета", "i-a", true}.payload())
-	resB := doPush(t, a, edit{concB, 2, "Гастрит", "Диета, пробиотик", "i-b", false}.payload())
+	resA := doPush(t, a, edit{concA, 2, "Гастроэнтерит", "Диета"}.payload())
+	resB := doPush(t, a, edit{concB, 2, "Гастрит", "Диета, пробиотик"}.payload())
 
 	diagnosis, treatment := concVisit(t, a)
 	if treatment != "Диета, пробиотик" {
@@ -117,8 +104,8 @@ func TestConcurrentVisitEditEarlierFirstLosesEdit(t *testing.T) {
 // перезаписывает его диагноз серверным.
 func TestConcurrentVisitEditLaterFirstRejectsEdit(t *testing.T) {
 	a := concSeed(t)
-	doPush(t, a, edit{concB, 2, "Гастрит", "Диета, пробиотик", "i-b", true}.payload())
-	resA := doPush(t, a, edit{concA, 2, "Гастроэнтерит", "Диета", "i-a", false}.payload())
+	doPush(t, a, edit{concB, 2, "Гастрит", "Диета, пробиотик"}.payload())
+	resA := doPush(t, a, edit{concA, 2, "Гастроэнтерит", "Диета"}.payload())
 
 	diagnosis, treatment := concVisit(t, a)
 	if treatment != "Диета, пробиотик" {
@@ -129,8 +116,7 @@ func TestConcurrentVisitEditLaterFirstRejectsEdit(t *testing.T) {
 	if diagnosis != "Гастрит" {
 		t.Errorf("поведение изменилось: диагноз %q — обновить тест под VET-017", diagnosis)
 	}
-	// Отклонён только приём A; его новая позиция i-a — новая запись, сервер
-	// её принимает. Это и даёт задвоение (следующий тест).
+	// Отклонён приём A — единственная запись в его push.
 	if skipped(resA) != 1 {
 		t.Errorf("поведение изменилось: skipped A=%v, ждали 1", resA["skipped"])
 	}
@@ -141,8 +127,8 @@ func TestConcurrentVisitEditLaterFirstRejectsEdit(t *testing.T) {
 // новее, и лечение B пропадает — даже если B синхронизировался первым.
 func TestConcurrentVisitEditHigherVersionWinsRegardlessOfTime(t *testing.T) {
 	a := concSeed(t)
-	doPush(t, a, edit{concB, 2, "Гастрит", "Диета, пробиотик", "i-b", true}.payload())
-	doPush(t, a, edit{concA, 3, "Гастроэнтерит", "Диета", "i-a", false}.payload())
+	doPush(t, a, edit{concB, 2, "Гастрит", "Диета, пробиотик"}.payload())
+	doPush(t, a, edit{concA, 3, "Гастроэнтерит", "Диета"}.payload())
 
 	diagnosis, treatment := concVisit(t, a)
 	// TODO(VET-017): лечение от B («Диета, пробиотик») потеряно — версия A
@@ -153,31 +139,67 @@ func TestConcurrentVisitEditHigherVersionWinsRegardlessOfTime(t *testing.T) {
 	}
 }
 
-// Позиции счёта. Каждый планшет удалил исходную позицию и создал свою, с
-// новым id. Сервер принимает обе новые — в приёме два «Осмотра» на 10 000
-// при total_amount 5000. Порядок синхронизации не важен.
-//
-// Отчёты по деньгам (дневной, выручка за период, заработок врача) считают
-// по позициям — выручка завышена вдвое. Список приёмов и карточка владельца —
-// по total_amount, и с отчётом расходятся. Следующее сохранение приёма
-// пересоздаст обе строки и сделает total_amount = 10 000.
-func TestConcurrentVisitEditDuplicatesItems(t *testing.T) {
+// Позиции счёта (VET-017, шаг 1). Планшет больше не пересоздаёт строки при
+// правке приёма: неизменённая строка не отправляется, изменённая правится
+// под своим id. Раньше каждый планшет удалял исходную позицию и создавал
+// свою с новым id — сервер принимал обе, и в приёме было два «Осмотра» на
+// 10 000 при сумме 5000 (отчёты по деньгам считают по позициям).
+
+// itemEdit — push позиции под её прежним id, как его шлёт правка приёма.
+func itemEdit(at string, version int, qty, price float64) string {
+	return fmt.Sprintf(`{"visit_items":[{"id":"i-base","visit_id":"v-c","item_id":"it-exam","name":"Осмотр",
+		"type":"service","quantity":%[3]g,"price":%[4]g,"total":%[5]g,"version":%[2]d,"updated_at":"%[1]s"}]}`,
+		at, version, qty, price, qty*price)
+}
+
+// Оба планшета поправили в приёме только текст — позиции не тронуты и не
+// отправляются. В приёме одна позиция при любом порядке синка.
+func TestConcurrentVisitEditKeepsSingleItemWhenUntouched(t *testing.T) {
+	a := concSeed(t)
+	doPush(t, a, `{"visits":[{"id":"v-c","pet_id":"p-c","date":"`+concBase+`","diagnosis":"Гастроэнтерит",
+		"treatment":"Диета","total_amount":5000,"version":2,"updated_at":"`+concA+`"}]}`)
+	doPush(t, a, `{"visits":[{"id":"v-c","pet_id":"p-c","date":"`+concBase+`","diagnosis":"Гастрит",
+		"treatment":"Диета, пробиотик","total_amount":5000,"version":2,"updated_at":"`+concB+`"}]}`)
+	if n, sum := concItems(t, a); n != 1 || sum != 5000 {
+		t.Errorf("позиций %d на %.0f, ждём одну на 5000", n, sum)
+	}
+}
+
+// Оба планшета поправили ОДНУ И ТУ ЖЕ строку: A — количество, B — цену.
+// Строка одна (id общий), побеждает правка по правилам синка — сегодня
+// более поздняя при равных версиях. Дубля нет при любом порядке.
+func TestConcurrentVisitEditSameItemStaysSingle(t *testing.T) {
 	for _, order := range []string{"A затем B", "B затем A"} {
 		t.Run(order, func(t *testing.T) {
 			a := concSeed(t)
+			pa, pb := itemEdit(concA, 2, 2, 5000), itemEdit(concB, 2, 1, 6000)
 			if order == "A затем B" {
-				doPush(t, a, edit{concA, 2, "Гастрит", "Диета", "i-a", true}.payload())
-				doPush(t, a, edit{concB, 2, "Гастрит", "Диета", "i-b", false}.payload())
+				doPush(t, a, pa)
+				doPush(t, a, pb)
 			} else {
-				doPush(t, a, edit{concB, 2, "Гастрит", "Диета", "i-b", true}.payload())
-				doPush(t, a, edit{concA, 2, "Гастрит", "Диета", "i-a", false}.payload())
+				doPush(t, a, pb)
+				doPush(t, a, pa)
 			}
 			n, sum := concItems(t, a)
-			// TODO(VET-017): должна остаться одна позиция на 5000 — сегодня
-			// их две на 10 000.
-			if n != 2 || sum != 10000 {
-				t.Errorf("поведение изменилось: позиций %d на %.0f — обновить тест под VET-017", n, sum)
+			if n != 1 {
+				t.Fatalf("позиций %d, ждём одну", n)
+			}
+			// TODO(VET-017, шаг 2): правка A по этой строке теряется молча —
+			// должна быть сообщена конфликтом.
+			if sum != 6000 {
+				t.Errorf("поведение изменилось: сумма %.0f, ждали 6000 (правка B)", sum)
 			}
 		})
+	}
+}
+
+// Новая строка, добавленная одним планшетом, законно добавляется к счёту:
+// это не дубль, а новая услуга.
+func TestConcurrentVisitEditNewItemIsAdded(t *testing.T) {
+	a := concSeed(t)
+	doPush(t, a, `{"visit_items":[{"id":"i-new","visit_id":"v-c","item_id":"it-exam","name":"Осмотр",
+		"type":"service","quantity":1,"price":5000,"total":5000,"version":1,"updated_at":"`+concA+`"}]}`)
+	if n, sum := concItems(t, a); n != 2 || sum != 10000 {
+		t.Errorf("позиций %d на %.0f, ждём две на 10 000", n, sum)
 	}
 }

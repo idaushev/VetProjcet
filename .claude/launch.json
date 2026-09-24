@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "vet-scratch",
+      "runtimeExecutable": "pwsh",
+      "runtimeArgs": ["-NoProfile", "-Command", "$env:PORT = '8091'; $env:DB_PATH = 'data/scratch/vet.db'; go run ./backend/"],
+      "port": 8091
+    }
+  ]
+}

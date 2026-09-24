@@ -79,7 +79,9 @@ model: opus
 
 ## Тесты
 
-Запусти `go test ./backend/...` из корня. Если меняли синк или новую
+Запусти `go test ./backend/...` из корня, а если менялось сохранение приёма
+(`frontend/js/ui.js`, `frontend/js/pages.js`) — ещё `node scripts/test-plan-visit-items.js`.
+Если меняли синк или новую
 сущность — проверь, есть ли она в `sync_cycle_test.go`; если нет — это
 замечание (roadmap: «тест цикла синхронизации расширяется ДО изменения»).
 Образец полного цикла — `TestItemResultModeSurvivesCreateUpdateAndSync`.

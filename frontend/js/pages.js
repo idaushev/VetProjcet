@@ -1211,6 +1211,11 @@
         { yes: 'Восстановить', no: 'Открыть как есть' });
       if (!restore) { UI.clearVisitDraft(); draft = null; }
     }
+    // Позиции, какими врач их увидел при ПЕРВОМ открытии правки: с ними
+    // сравнивается форма при сохранении (VET-017). У восстановленного
+    // черновика — снимок из черновика, а не то, что в базе сейчас.
+    var openedItems = (draft && draft.opened_items) ||
+      visitItems.filter(function(vi){ return !vi.is_deleted; });
 
     UI.showModal({
       title: 'Приём',
@@ -1226,7 +1231,7 @@
             UI.addVisitItemRow(data.items||[], vi);
           });
         }
-        UI.startVisitDraftAutosave('edit:'+id);
+        UI.startVisitDraftAutosave('edit:'+id, '', openedItems);
 
         renderAttachments(id);
         // VET-007: прививки этого приёма. У сохранённого приёма id есть, поэтому
@@ -1328,21 +1333,35 @@
         }
 
         if (!(await confirmDiagnosis(vs))) return;
-        var grossAmount = vs.items.reduce(function(s,i){ return s+(i.total||0); }, 0);
+
+        // ── План позиций (VET-017) ─────────────────────────────────────────
+        // Позиции сохраняем РАЗНИЦЕЙ, а не «удалить всё и создать заново»:
+        // иначе каждое сохранение давало строкам новые id, и два планшета,
+        // поправившие один приём офлайн, оставляли на сервере оба набора —
+        // два «Осмотра», выручка в отчётах вдвое.
+        //
+        // Что врач изменил, решаем сравнением формы с тем, что было ПРИ
+        // ОТКРЫТИИ формы (opened). Свежая копия из IndexedDB (alive) может
+        // уже нести чужую правку, пришедшую синком, — сравнение с ней
+        // выдавало бы нетронутую строку за изменённую, и её отправка
+        // перетёрла бы чужую правку. Нетронутая строка не отправляется, а в
+        // сумму идёт по свежей версии — сумма приёма совпадает со счётом.
+        var openedById = {};
+        openedItems.forEach(function(vi){ openedById[vi.id] = vi; });
+        var aliveById = openedById;
+        try {
+          var freshVI = await window.VetDB.getAll('visit_items');
+          aliveById = {};
+          freshVI.filter(function(vi){ return !vi.is_deleted && vi.visit_id === id; })
+                 .forEach(function(vi){ aliveById[vi.id] = vi; });
+        } catch(ignoreErr) {}
+
+        var ip = UI.planVisitItems(UI.collectVisitItemsForEdit(), openedById, aliveById);
+        var plan = ip.plan, toDelete = ip.toDelete, elsewhere = ip.elsewhere;
+        var grossAmount = ip.gross;
         var discount = Math.min(vs.discount || 0, grossAmount);
         var totalAmount = Math.max(0, grossAmount - discount);
         if (discount > 0 && !vs.discount_reason) { UI.toast('Укажите причину скидки', 'err'); return; }
-
-        // Загружаем актуальные позиции ДО основного try — чтобы ошибка не съела toast.
-        // Объединяем closure-список (был при открытии) со свежим из IndexedDB.
-        var currentItemIds = {};
-        visitItems.filter(function(vi){ return !vi.is_deleted; }).forEach(function(vi){ currentItemIds[vi.id]=vi; });
-        try {
-          var freshVI = await window.VetDB.getAll('visit_items');
-          freshVI.filter(function(vi){ return !vi.is_deleted && vi.visit_id===id; })
-                 .forEach(function(vi){ currentItemIds[vi.id]=vi; });
-        } catch(ignoreErr) {}
-        var currentItems = Object.values(currentItemIds);
 
         try {
           // История ПЕРЕД PUT — чтобы vs._change_log был готов до отправки
@@ -1363,32 +1382,39 @@
             status: vs.status || 'completed',
             change_log: vs._change_log || '',
           });
-          // Сохранение правки = удалить все позиции и создать заново.
-          // Если удаление не прошло, а создание прошло — в приёме останутся
-          // и старые, и новые позиции, то есть дубли и задвоенная сумма.
-          // Поэтому ошибку удаления не глотаем: врач должен узнать сразу.
+          // Позиции — по плану выше: нетронутые не отправляются, изменённые
+          // правятся под своим id, новые создаются, убранные удаляются.
           var failedDeletes = 0;
-          for (var i = 0; i < currentItems.length; i++) {
+          for (var j = 0; j < plan.length; j++) {
+            var p = plan[j];
+            if (p.op === 'update') await api('PUT', '/visit-items/'+p.id, Object.assign({ visit_id: id }, p.it));
+            if (p.op === 'create') await api('POST', '/visit-items', Object.assign({ visit_id: id }, p.it));
+          }
+          // Ошибку удаления не глотаем: иначе убранная услуга останется в
+          // счёте, и врач не узнает.
+          for (var i = 0; i < toDelete.length; i++) {
             try {
-              await api('DELETE', '/visit-items/'+currentItems[i].id);
+              await api('DELETE', '/visit-items/'+toDelete[i]);
             } catch(e) {
               failedDeletes++;
-              console.error('[VetPages] не удалось удалить позицию', currentItems[i].id, e);
+              console.error('[VetPages] не удалось удалить позицию', toDelete[i], e);
             }
           }
           if (failedDeletes) {
-            UI.toast('Не удалось обновить позиции ('+failedDeletes+' шт). Приём сохранён, но список услуг мог задвоиться — проверьте.', 'err', 8000);
+            UI.toast('Не удалось убрать позиции ('+failedDeletes+' шт). Приём сохранён, но в счёте могли остаться убранные услуги — проверьте.', 'err', 8000);
           }
-          for (var j = 0; j < vs.items.length; j++) {
-            await api('POST', '/visit-items', Object.assign({ visit_id: id }, vs.items[j]));
+          if (elsewhere.length) {
+            UI.toast('Счёт правили на другом устройстве: ' + elsewhere.join(', ') + '. Сумма приёма пересчитана по счёту.', 'warn', 10000);
           }
-          await ensureVisitResults(id, finalPet.id, vs.items);
+          // Результаты — по итоговому счёту плана, а не по форме: строки,
+          // добавленные или убранные на другом устройстве, в форме не отражены.
+          await ensureVisitResults(id, finalPet.id, ip.items);
           // Протоколы, заполненные в этой сессии до сохранения.
           await applyDraftResults(id);
           // Услугу убрали из счёта — незаполненная строка результата по ней
           // больше не нужна. Заполненные не трогаем: это медицинская запись,
           // а не строка счёта. Порядок важен: сначала перенос, потом уборка.
-          await pruneOrphanResults(id);
+          await pruneOrphanResults(id, ip.items);
           UI.clearVisitDraft();
           if (!failedDeletes) UI.toast('Приём обновлён', 'ok');
           UI.hideModal();
@@ -1409,8 +1435,8 @@
   // файл — и до тех пор она висит в списке «результата нет».
   //
   // Привязка идёт к паре (приём, услуга каталога), а НЕ к строке приёма:
-  // сохранение правки удаляет все visit_items и создаёт заново, поэтому их id
-  // живут ровно до следующего сохранения. Результат так терялся бы каждый раз.
+  // id строк не вечны (копия приёма, а до 3.33.0 — каждое сохранение правки и
+  // восстановленный черновик давали новые). Результат терялся бы.
   // Перерисовать блок результатов, если форма приёма открыта: строки могли
   // появиться только что (ensureVisitResults) или быть заполнены поверх.
   function refreshVisitResultsBlock() {
@@ -2332,12 +2358,14 @@
 
   // Строки ТЕКУЩЕЙ формы, которым положен результат, в порядке отображения.
   // seq — номер исследования по этой услуге внутри приёма: он переживает
-  // сохранение, тогда как id строки счёта — нет (при правке приёма позиции
-  // удаляются и создаются заново).
-  async function resultBearingItems() {
+  // сохранение, тогда как id строки счёта — нет (копия приёма).
+  // items — итоговый счёт вместо строк формы (сохранение правки, VET-017).
+  async function resultBearingItems(items) {
     var out = [];
     try {
-      var rows = UI.getVisitItemRows ? UI.getVisitItemRows() : null;
+      var rows = items
+        ? items.map(function (i) { return { row_id: '', item_id: i.item_id || '', name: i.name || '' }; })
+        : (UI.getVisitItemRows ? UI.getVisitItemRows() : null);
       // Формы нет (перерисовка после закрытия) — работать не с чем.
       if (!rows || !rows.length) return out;
       var catalog = await window.VetDB.getAll('items');
@@ -2575,10 +2603,10 @@
 
   // Удаление незаполненных строк результата, чья услуга убрана из счёта.
   // Заполненные не трогаем — это медицинская запись, а не строка счёта.
-  async function pruneOrphanResults(visitId) {
+  async function pruneOrphanResults(visitId, items) {
     try {
       var wanted = {};
-      (await resultBearingItems()).forEach(function (w) { wanted[resKey(w.item_id, w.seq)] = 1; });
+      (await resultBearingItems(items)).forEach(function (w) { wanted[resKey(w.item_id, w.seq)] = 1; });
       var rows = (await window.VetDB.getAll('visit_results'))
         .filter(function (r) { return r.visit_id === visitId && !r.is_deleted
                                     && r.status !== 'done' && r.item_id
