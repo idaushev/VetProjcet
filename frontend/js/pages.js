@@ -1325,6 +1325,7 @@
             card:      oldV.payment_card ? String(oldV.payment_card) : '0',
             disc:      oldV.discount ? String(oldV.discount) : '0',
             total:     oldV.total_amount     || 0,
+            status:    oldV.status === 'draft' ? 'черновик' : 'завершён',
           };
         } catch(e2) {}
 
@@ -1897,6 +1898,9 @@
         card:      vsState.payment_card    ? String(vsState.payment_card) : '0',
         disc:      newDisc ? String(newDisc) : '0',
         total:     newTotal,
+        // VET-003: «завершён» / «черновик» — видно, кто и когда закрыл или
+        // открыл приём снова.
+        status:    vsState.status === 'draft' ? 'черновик' : 'завершён',
       };
       // Старые поля (из prevSnapshot)
       var prevFields = prev ? {
@@ -1911,11 +1915,13 @@
         card:      prev.card  ? String(prev.card) : '0',
         disc:      prev.disc  ? String(prev.disc) : '0',
         total:     prev.total || 0,
+        status:    prev.status || '',
       } : null;
 
       var entry = {
         ts:     new Date(Date.now() + 5*3600000).toISOString().slice(0,16).replace('T',' '),
         device: window.VetDB.getDeviceID ? window.VetDB.getDeviceID().slice(0,8) : '—',
+        who:    (window.VetAuth && VetAuth.user && VetAuth.user() && VetAuth.user().display_name) || '',
         after:  newFields,
         before: prevFields,
       };
@@ -3395,7 +3401,8 @@
             var isFirst = i === 0;
             var LABELS = {diag:'Диагноз',anamnesis:'Анамнез',treat:'Назначение и рекомендации',
               notes:'Примечания',cond:'Состояние',vtype:'Тип приёма',
-              weight:'Вес (кг)',next:'След. приём',disc:'Скидка (₸)',card:'Карта (₸)',total:'Сумма (₸)'};
+              weight:'Вес (кг)',next:'След. приём',disc:'Скидка (₸)',card:'Карта (₸)',total:'Сумма (₸)',
+              status:'Статус приёма'};
             var after  = e.after  || {diag:e.diag||'',treat:e.treat||'',total:e.total||0};
             var before = e.before || null;
             var diffs = [];
@@ -3407,8 +3414,8 @@
               if (d) diffs.push(d);
             });
             return '<div style="padding:10px 12px;margin-bottom:8px;border-radius:8px;border:1px solid var(--border);background:'+(isFirst?'var(--accent-dim)':'var(--bg-s)')+'">'
-              + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
-              + '<span style="font-weight:700;font-size:.88rem;">'+esc(e.ts)+'</span>'
+              + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px;margin-bottom:6px;">'
+              + '<span style="font-weight:700;font-size:.88rem;">'+esc(e.ts)+(e.who ? ' · '+esc(e.who) : '')+'</span>'
               + '<span style="font-size:.72rem;color:var(--text-3);background:var(--bg);padding:2px 8px;border-radius:99px;">'+esc(e.device)+'</span>'
               + '</div>'
               + (diffs.length ? diffs.join('') : '<div style="font-size:.8rem;color:var(--text-3);">— без изменений —</div>')

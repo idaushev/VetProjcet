@@ -243,3 +243,24 @@ func TestRESTReadsWorkOnSyncedData(t *testing.T) {
 		}
 	}
 }
+
+// VET-003: история правок приёма (с записью о смене статуса и автором)
+// пишется планшетом в change_log и должна пережить синк без изменений.
+func TestVisitChangeLogSurvivesSync(t *testing.T) {
+	a := testApp(t)
+	const at = `"version":1,"updated_at":"2026-09-01T12:00:00Z"`
+	logJSON := `[{"ts":"2026-09-01 17:00","device":"abcd1234","who":"Иванова","before":{"status":"черновик"},"after":{"status":"завершён"}}]`
+	quoted, _ := json.Marshal(logJSON)
+	doPush(t, a, `{"owners":[{"id":"cl-o","fio":"Х","phone":"+7 700 777 0000",`+at+`}],
+		"pets":[{"id":"cl-p","owner_id":"cl-o","name":"Бим","type":"dog","gender":"m",`+at+`}],
+		"visits":[{"id":"cl-v","pet_id":"cl-p","date":"2026-09-01T11:00:00Z","status":"completed","change_log":`+string(quoted)+`,`+at+`}]}`)
+	for _, v := range doPull(t, a, "")["visits"] {
+		if v["id"] == "cl-v" {
+			if v["change_log"] != logJSON || v["status"] != "completed" {
+				t.Errorf("история или статус изменились при синке: %v / %v", v["change_log"], v["status"])
+			}
+			return
+		}
+	}
+	t.Fatal("приём не вернулся в pull")
+}
