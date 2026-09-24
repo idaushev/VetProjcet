@@ -17,10 +17,15 @@ import (
 // См. docs/MODULES.md, раздел «Синк».
 type syncEntity struct {
 	Name string // JSON-ключ (в push и в ответе pull) и имя в логах: "owners"
+	// PermTable — строка прав, под которой сущность и отправляется, и
+	// загружается. ЕДИНСТВЕННОЕ место этого отображения: раньше push и pull
+	// держали по своей копии, копии разошлись, и результаты исследований
+	// уезжали на планшет тем, кому приёмы закрыты. Спутник приёма — "visits".
+	PermTable string
 	// pushAll декодирует записи сущности из сырого payload (raw[Name]) и
-	// применяет их (гейт прав внутри), считает accepted/skipped в res.
-	// nil — сущность только для pull (вложения).
-	pushAll func(ctx context.Context, a *app, raw map[string]json.RawMessage, userID string, canPush func(string) bool, res *syncPushResult)
+	// применяет их (гейт прав внутри, по perm = PermTable), считает
+	// accepted/skipped в res. nil — сущность только для pull (вложения).
+	pushAll func(ctx context.Context, a *app, raw map[string]json.RawMessage, perm, userID string, canPush func(string) bool, res *syncPushResult)
 	// pull загружает изменённые с since записи для сборки ответа.
 	pull func(ctx context.Context, db *sql.DB, since time.Time) (any, error)
 }
@@ -97,89 +102,101 @@ func pushRecords[T interface{ recordID() string }](
 // appointments → warehouses → stock_movements). Порядок важен для push (FK).
 // Вложения (attachments) — только pull (файлы грузятся отдельно), pushAll nil.
 //
-// permTable — виртуальная таблица прав (canPush): visit_items и appointments
-// идут под правом "visits"; склад — под "warehouse".
+// PermTable — виртуальная таблица прав для push и pull: спутники приёма
+// (visit_items, prescriptions, visit_results, attachments) идут под "visits",
+// расписание — под своим "appointments", склад — под "warehouse".
 // authorTable — реальная таблица для stampAuthor (staff → "clinic_staff").
 func coreSyncEntities() []syncEntity {
 	return []syncEntity{
 		{
-			Name: "owners",
-			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
-				pushEntity(ctx, a, raw, "owners", "owners", "owners", uid, cp, pushOwner, res)
+			Name:      "owners",
+			PermTable: "owners",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, perm, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "owners", perm, "owners", uid, cp, pushOwner, res)
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullOwners(ctx, db, since) },
 		},
 		{
-			Name: "pets",
-			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
-				pushEntity(ctx, a, raw, "pets", "pets", "pets", uid, cp, pushPet, res)
+			Name:      "pets",
+			PermTable: "pets",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, perm, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "pets", perm, "pets", uid, cp, pushPet, res)
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullPets(ctx, db, since) },
 		},
 		{
-			Name: "items",
-			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
-				pushEntity(ctx, a, raw, "items", "items", "items", uid, cp, pushItem, res)
+			Name:      "items",
+			PermTable: "items",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, perm, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "items", perm, "items", uid, cp, pushItem, res)
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullItems(ctx, db, since) },
 		},
 		{
-			Name: "visits",
-			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
-				pushEntity(ctx, a, raw, "visits", "visits", "visits", uid, cp, pushVisit, res)
+			Name:      "visits",
+			PermTable: "visits",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, perm, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "visits", perm, "visits", uid, cp, pushVisit, res)
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullVisits(ctx, db, since) },
 		},
 		{
-			Name: "visit_items",
-			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
-				pushEntity(ctx, a, raw, "visit_items", "visits", "visit_items", uid, cp, pushVisitItem, res)
+			Name:      "visit_items",
+			PermTable: "visits",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, perm, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "visit_items", perm, "visit_items", uid, cp, pushVisitItem, res)
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullVisitItems(ctx, db, since) },
 		},
 		{
 			// Назначения идут ПОСЛЕ visits: у них visit_id NOT NULL, и приём
 			// должен доехать первым, иначе вставка упадёт по внешнему ключу.
-			Name: "prescriptions",
-			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
-				pushEntity(ctx, a, raw, "prescriptions", "visits", "prescriptions", uid, cp, pushPrescription, res)
+			Name:      "prescriptions",
+			PermTable: "visits",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, perm, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "prescriptions", perm, "prescriptions", uid, cp, pushPrescription, res)
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullPrescriptions(ctx, db, since) },
 		},
 		{
-			Name: "vaccinations",
-			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
-				pushEntity(ctx, a, raw, "vaccinations", "vaccinations", "vaccinations", uid, cp, pushVaccination, res)
+			Name:      "vaccinations",
+			PermTable: "vaccinations",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, perm, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "vaccinations", perm, "vaccinations", uid, cp, pushVaccination, res)
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullVaccinations(ctx, db, since) },
 		},
 		{
-			Name: "staff",
-			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
-				pushEntity(ctx, a, raw, "staff", "staff", "clinic_staff", uid, cp, pushStaff, res)
+			Name:      "staff",
+			PermTable: "staff",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, perm, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "staff", perm, "clinic_staff", uid, cp, pushStaff, res)
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullStaff(ctx, db, since) },
 		},
 		{
-			Name: "appointments",
-			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
-				pushEntity(ctx, a, raw, "appointments", "appointments", "appointments", uid, cp, pushAppointment, res)
+			Name:      "appointments",
+			PermTable: "appointments",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, perm, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "appointments", perm, "appointments", uid, cp, pushAppointment, res)
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullAppointments(ctx, db, since) },
 		},
 		{
-			Name: "tasks",
-			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
-				pushEntity(ctx, a, raw, "tasks", "tasks", "tasks", uid, cp, pushTask, res)
+			Name:      "tasks",
+			PermTable: "tasks",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, perm, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "tasks", perm, "tasks", uid, cp, pushTask, res)
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullTasks(ctx, db, since) },
 		},
 		{
-			Name: "diagnosis_templates",
-			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
-				// Право «templates», а не «visits»: справочник — общая настройка
-				// клиники, а не медицинская запись конкретного приёма.
-				pushEntity(ctx, a, raw, "diagnosis_templates", "templates", "diagnosis_templates", uid, cp, pushDiagnosis, res)
+			// Право «templates», а не «visits»: справочник — общая настройка
+			// клиники, а не медицинская запись конкретного приёма.
+			Name:      "diagnosis_templates",
+			PermTable: "templates",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, perm, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "diagnosis_templates", perm, "diagnosis_templates", uid, cp, pushDiagnosis, res)
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullDiagnoses(ctx, db, since) },
 		},
@@ -187,27 +204,30 @@ func coreSyncEntities() []syncEntity {
 			// Шаблоны протоколов правит только администратор, но синкуются они
 			// как обычная таблица: врачу нужен шаблон офлайн, чтобы заполнить.
 			// Гейт прав — на маршрутах (requireAdmin), а не в синке.
-			Name: "protocol_templates",
-			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
-				// Право «templates», а не «items»: раньше правку бланков анализов
-				// открывало право на каталог — цены и протоколы разные вещи.
-				pushEntity(ctx, a, raw, "protocol_templates", "templates", "protocol_templates", uid, cp, pushProtocol, res)
+			// Право «templates», а не «items»: раньше правку бланков анализов
+			// открывало право на каталог — цены и протоколы разные вещи.
+			Name:      "protocol_templates",
+			PermTable: "templates",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, perm, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "protocol_templates", perm, "protocol_templates", uid, cp, pushProtocol, res)
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullProtocols(ctx, db, since) },
 		},
 		{
 			// Результаты живут под правами приёмов: кто ведёт приём, тот и
 			// вносит результат.
-			Name: "visit_results",
-			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
-				pushEntity(ctx, a, raw, "visit_results", "visits", "visit_results", uid, cp, pushVisitResult, res)
+			Name:      "visit_results",
+			PermTable: "visits",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, perm, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "visit_results", perm, "visit_results", uid, cp, pushVisitResult, res)
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullVisitResults(ctx, db, since) },
 		},
 		{
-			Name:    "attachments", // только pull: метаданные вложений, файлы качаются отдельно
-			pushAll: nil,
-			pull:    func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullAttachments(ctx, db, since) },
+			Name:      "attachments", // только pull: метаданные вложений, файлы качаются отдельно
+			PermTable: "visits",
+			pushAll:   nil,
+			pull:      func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullAttachments(ctx, db, since) },
 		},
 	}
 }
@@ -218,16 +238,18 @@ func coreSyncEntities() []syncEntity {
 func warehouseSyncEntities() []syncEntity {
 	return []syncEntity{
 		{
-			Name: "warehouses",
-			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
-				pushEntity(ctx, a, raw, "warehouses", "warehouse", "warehouses", uid, cp, pushWarehouse, res)
+			Name:      "warehouses",
+			PermTable: "warehouse",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, perm, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "warehouses", perm, "warehouses", uid, cp, pushWarehouse, res)
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullWarehouses(ctx, db, since) },
 		},
 		{
-			Name: "stock_movements",
-			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, uid string, cp func(string) bool, res *syncPushResult) {
-				pushEntity(ctx, a, raw, "stock_movements", "warehouse", "stock_movements", uid, cp, pushStockMovement, res)
+			Name:      "stock_movements",
+			PermTable: "warehouse",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, perm, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "stock_movements", perm, "stock_movements", uid, cp, pushStockMovement, res)
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullStockMovements(ctx, db, since) },
 		},

@@ -211,7 +211,7 @@ func TestTemplatesPermissionGuardsReferenceBooks(t *testing.T) {
 // доступа ни через API, ни через синхронизацию.
 func TestPrescriptionsAreGuardedLikeMedicalRecord(t *testing.T) {
 	// Право на назначения — это право на приёмы.
-	if got := permTableForTest("prescriptions"); got != "visits" {
+	if got := permTableOf(t, "prescriptions"); got != "visits" {
 		t.Errorf("prescriptions отнесены к праву %q, ждём visits — иначе "+
 			"медицинские назначения поедут в обход прав на медкарту", got)
 	}
@@ -292,15 +292,94 @@ func TestPrescriptionStatusNeverHidesTherapy(t *testing.T) {
 	}
 }
 
-// permTableForTest повторяет отображение из handleSyncPull: тест обязан
-// сломаться, если новую сущность добавят мимо прав.
-func permTableForTest(name string) string {
-	switch name {
-	case "visit_items", "appointments", "attachments", "prescriptions":
-		return "visits"
-	case "protocol_templates", "diagnosis_templates":
-		return "templates"
-	default:
-		return name
+// permTableOf — право сущности по реестру синка, тому же, что читают push и
+// pull. Раньше тест держал СВОЮ копию отображения и проверял копию, а не
+// сервер: pull тем временем отдавал visit_results по праву по умолчанию.
+func permTableOf(t *testing.T, name string) string {
+	t.Helper()
+	for _, e := range syncEntities() {
+		if e.Name == name {
+			return e.PermTable
+		}
+	}
+	t.Fatalf("сущности %q нет в реестре синка", name)
+	return ""
+}
+
+// Каждая синкаемая сущность обязана назвать своё право явно. Сущность без
+// PermTable проверялась бы по пустому имени — а для таблицы без настроенных
+// прав это edit, то есть доступ всем.
+func TestEverySyncEntityDeclaresPermission(t *testing.T) {
+	want := map[string]string{
+		// Медкарта: всё, что без приёма не имеет смысла, — под правом приёмов.
+		"visits": "visits", "visit_items": "visits", "prescriptions": "visits",
+		"visit_results": "visits", "attachments": "visits",
+		// Расписание — своё право: регистратура записывает, не видя медкарту.
+		"appointments": "appointments",
+		"diagnosis_templates": "templates", "protocol_templates": "templates",
+		"warehouses": "warehouse", "stock_movements": "warehouse",
+	}
+	for _, e := range syncEntities() {
+		if e.PermTable == "" {
+			t.Errorf("%s: не указано право (PermTable)", e.Name)
+			continue
+		}
+		if w, ok := want[e.Name]; ok && e.PermTable != w {
+			t.Errorf("%s под правом %q, ждём %q", e.Name, e.PermTable, w)
+		}
+	}
+}
+
+// Регистратор с закрытыми приёмами не получает на планшет ни одной части
+// медкарты — в том числе результаты анализов и УЗИ, которые раньше уезжали
+// по праву по умолчанию. Расписание при этом получает: у него своё право.
+func TestPullHidesMedicalRecordWhenVisitsClosed(t *testing.T) {
+	a := testApp(t)
+	doPush(t, a, `{
+		"owners":[{"id":"o-l","fio":"Хозяин","phone":"+7 700 111 2233","version":1,"updated_at":"2026-09-01T10:00:00Z"}],
+		"pets":[{"id":"p-l","owner_id":"o-l","name":"Барс","type":"cat","gender":"m","version":1,"updated_at":"2026-09-01T10:01:00Z"}],
+		"visits":[{"id":"v-l","pet_id":"p-l","date":"2026-09-01T11:00:00Z","version":1,"updated_at":"2026-09-01T11:00:00Z"}],
+		"visit_results":[{"id":"r-l","visit_id":"v-l","pet_id":"p-l","title":"УЗИ","kind":"text",
+			"conclusion":"Новообразование печени","status":"done","version":1,"updated_at":"2026-09-01T12:00:00Z"}]}`)
+
+	reg := &User{ID: "r", Login: "reg", Role: "reception", IsActive: true,
+		Permissions: []byte(`{"tables":{"visits":"none","appointments":"edit"}}`)}
+	data := pullAs(t, a, reg, "")
+	for _, name := range []string{"visits", "visit_items", "prescriptions", "visit_results", "attachments"} {
+		if _, ok := data[name]; ok {
+			t.Errorf("%s отданы пользователю с закрытыми приёмами", name)
+		}
+	}
+	if _, ok := data["appointments"]; !ok {
+		t.Error("расписание не отдано, хотя право на него есть")
+	}
+	if _, ok := data["owners"]; !ok {
+		t.Error("владельцы не отданы, хотя право на них есть (умолчание)")
+	}
+
+	// Продавец склада получает свои таблицы: pull спрашивал право "warehouses",
+	// а модуль знает только "warehouse" — и отвечал none.
+	seller := &User{ID: "w", Login: "seller", Role: "warehouse", IsActive: true}
+	data = pullAs(t, a, seller, "")
+	for _, name := range []string{"warehouses", "stock_movements"} {
+		if _, ok := data[name]; !ok {
+			t.Errorf("продавцу склада не отданы %s", name)
+		}
+	}
+	if _, ok := data["visit_results"]; ok {
+		t.Error("продавцу склада отданы результаты исследований")
+	}
+}
+
+// REST: назначения закрыты тем же правом, что приёмы. Маршрут /prescriptions
+// не был в pathTable и не проверялся вовсе.
+func TestPrescriptionsRESTGuardedByVisits(t *testing.T) {
+	blocked := &User{ID: "b", Login: "reg", Role: "reception", IsActive: true,
+		Permissions: []byte(`{"tables":{"visits":"none"}}`)}
+	for _, p := range []string{"/prescriptions", "/results", "/visits"} {
+		req := httptest.NewRequest(http.MethodGet, p, nil)
+		if deniedByPermissions(blocked, req) == "" {
+			t.Errorf("GET %s разрешён пользователю с закрытыми приёмами", p)
+		}
 	}
 }

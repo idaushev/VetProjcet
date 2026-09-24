@@ -77,7 +77,7 @@ func (a *app) handleSyncPush(w http.ResponseWriter, r *http.Request) {
 	// логика — в pushX внутри замыканий реестра, см. sync_registry.go.
 	for _, e := range syncEntities() {
 		if e.pushAll != nil {
-			e.pushAll(ctx, a, raw, pushUserID, canPush, &result)
+			e.pushAll(ctx, a, raw, e.PermTable, pushUserID, canPush, &result)
 		}
 	}
 
@@ -125,26 +125,16 @@ func (a *app) handleSyncPull(w http.ResponseWriter, r *http.Request) {
 	// пользователя нет даже права view. tableLevel по умолчанию отдаёт edit
 	// (админ и пользователь без настроенных прав), так что незакрытые роли
 	// не задеты; модульные роли (склад) разрешаются через moduleRolePermission
-	// внутри tableLevel, поэтому для их таблиц permTable == Name работает.
-	// permTable повторяет отображение из sync_registry.go (push): visit_items,
-	// appointments и attachments относятся к праву на visits (медкарта).
+	// внутри tableLevel.
+	//
+	// Право берётся из e.PermTable — того же поля, по которому идёт push.
+	// Раньше здесь была своя копия отображения, и она разошлась с push:
+	// visit_results попадали в default (= edit всем), расписание читалось по
+	// праву приёмов, а продавец склада не получал складских таблиц вовсе.
+	// Справочникам ("templates") умолчание — view: читать их нужно всем.
 	pullUser := userFromCtx(ctx)
-	permTableFor := func(name string) string {
-		switch name {
-		case "visit_items", "appointments", "attachments", "prescriptions":
-			// Назначения — часть медкарты: право на них то же, что на приёмы.
-			return "visits"
-		case "protocol_templates", "diagnosis_templates":
-			// Справочники: своё право. ЧИТАТЬ их нужно всем, кто заполняет
-			// приём (иначе бланк анализа не откроется), поэтому умолчание
-			// для «templates» — view; ограничивается именно ПРАВКА.
-			return "templates"
-		default:
-			return name
-		}
-	}
-	canPull := func(name string) bool {
-		return pullUser == nil || pullUser.tableLevel(permTableFor(name)) >= permLevels["view"]
+	canPull := func(e syncEntity) bool {
+		return pullUser == nil || pullUser.tableLevel(e.PermTable) >= permLevels["view"]
 	}
 
 	// Загружаем каждую сущность независимо: ошибка одной НЕ прерывает остальные.
@@ -153,7 +143,7 @@ func (a *app) handleSyncPull(w http.ResponseWriter, r *http.Request) {
 		if e.pull == nil {
 			continue
 		}
-		if !canPull(e.Name) {
+		if !canPull(e) {
 			continue // таблица недоступна этой роли — не отдаём её на устройство
 		}
 		if v, err := e.pull(ctx, a.db, since); err != nil {

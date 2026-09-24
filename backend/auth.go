@@ -334,8 +334,10 @@ func pathTable(p string) string {
 		return "appointments"
 	// Вложения, шаблоны диагнозов и результаты — части приёма, отдельной
 	// настройки не требуют: кто ведёт приём, тот и работает с ними.
+	// Назначения — тоже: без этой строки /prescriptions не проверялся вовсе,
+	// и медицинские назначения отдавались любому вошедшему.
 	case strings.HasPrefix(p, "/visits"), strings.HasPrefix(p, "/visit-items"),
-		strings.HasPrefix(p, "/attachments"),
+		strings.HasPrefix(p, "/attachments"), strings.HasPrefix(p, "/prescriptions"),
 		strings.HasPrefix(p, "/diagnoses"), strings.HasPrefix(p, "/results"):
 		return "visits"
 	case strings.HasPrefix(p, "/vaccinations"):
