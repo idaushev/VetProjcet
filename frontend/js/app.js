@@ -267,6 +267,12 @@
       // Push-first гарантирует что изменения (редактирования, удаления) уходят
       // на сервер до того как pull может их перезаписать.
       // Pull после push получает подтверждённое состояние сервера.
+      // B-012: один раз после обновления — вернуть в отправку записи, которые
+      // застряли на этом планшете из-за B-009 (флаг в sync_state).
+      if (window.VetSync.recoverStuckRecords && window.VetAuth && window.VetAuth.user && window.VetAuth.user()) {
+        try { await window.VetSync.recoverStuckRecords(); }
+        catch (e) { console.warn("[VetApp] recovery B-012:", e); }
+      }
       var pushResult = await window.VetSync.pushSync();
       // Инкрементально (?since=), а не полным снимком. Полная выгрузка тянула
       // ВСЮ базу каждые 15 секунд — на клинике с историей это мегабайты в

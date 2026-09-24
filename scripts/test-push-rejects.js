@@ -37,12 +37,13 @@ function makeDB() {
       });
     },
     hardDelete: async function (n, id) { delete st(n)[id]; },
-    getSyncState: async function () { return ''; },
-    setSyncState: async function () {}
+    state: {},
+    getSyncState: async function (k) { return this.state[k] || ''; },
+    setSyncState: async function (k, v) { this.state[k] = v; }
   };
 }
 
-function load(db, respond) {
+function load(db, respond, extra) {
   var sent = [];
   var ctx = {
     console: { log: function () {}, info: function () {}, warn: function () {}, error: console.error },
@@ -56,6 +57,7 @@ function load(db, respond) {
       return { status: 200, ok: true, json: async function () { return { status: 'ok', data: data }; } };
     }
   };
+  Object.assign(ctx, extra || {});
   ctx.window = ctx;
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'frontend', 'js', 'sync.js'), 'utf8'), ctx);
@@ -149,6 +151,48 @@ function check(name, cond, detail) {
   check('pushSync передаёт отправленную версию', db5.lastExpected === 1, String(db5.lastExpected));
   check('правка во время push осталась неотправленной', db5.stores.owners.g.sync_status === 'pending' && db5.stores.owners.g.version === 2,
     JSON.stringify(db5.stores.owners.g));
+
+  // B-012: разовая повторная отправка своих записей, которых нет на сервере.
+  function b012db() {
+    var d = makeDB();
+    d.stores.staff  = { 's-mine':  { id: 's-mine',  name: 'Мой врач', sync_status: 'synced', device_id: 'dev-test', version: 1 },
+                        's-other': { id: 's-other', name: 'Чужой',    sync_status: 'synced', device_id: 'dev-b',    version: 1 } };
+    d.stores.visits = { 'v-mine':   { id: 'v-mine',   sync_status: 'synced',  device_id: 'dev-test', version: 3, base_version: 2 },
+                        'v-onsrv':  { id: 'v-onsrv',  sync_status: 'synced',  device_id: 'dev-test', version: 2, total_amount: 0 },
+                        'v-pend':   { id: 'v-pend',   sync_status: 'pending', device_id: 'dev-test', version: 4, base_version: 3 } };
+    d.stores.vaccinations = { 'vac-mine': { id: 'vac-mine', sync_status: 'synced', device_id: 'dev-test' } };
+    d.stores.owners = { 'o-mine': { id: 'o-mine', sync_status: 'synced', device_id: 'dev-test' } };
+    return d;
+  }
+  // Снимок сервера: v-onsrv у него есть (с настоящей суммой), vaccinations
+  // этому пользователю не видны — стора в снимке нет.
+  function b012server(url) {
+    if (url.indexOf('/sync/pull') >= 0) return { staff: [{ id: 's-other' }], visits: [{ id: 'v-onsrv', total_amount: 5000 }, { id: 'v-pend' }] };
+    return { accepted: 2, skipped: 0 };
+  }
+  var can = function (t, a) { return true; };
+
+  var dbNo = b012db();
+  var envNo = load(dbNo, b012server, { VetAuth: { can: function (t) { return t !== 'staff'; }, token: function () { return ''; } } });
+  check('B-012: без права создавать сотрудников — не запускается и ждёт', (await envNo.S.recoverStuckRecords()) === 0 &&
+    !dbNo.state.recovery_b012);
+
+  var db6 = b012db();
+  var env6 = load(db6, b012server, { VetAuth: { can: can, token: function () { return ''; } } });
+  var n6 = await env6.S.recoverStuckRecords();
+  check('B-012: в отправку — только свои записи, которых нет на сервере', n6 === 2 &&
+    db6.stores.staff['s-mine'].sync_status === 'pending' && db6.stores.visits['v-mine'].sync_status === 'pending', 'помечено ' + n6);
+  check('B-012: то, что сервер уже принял, не повторяется (суммы не затрёт)', db6.stores.visits['v-onsrv'].sync_status === 'synced');
+  check('B-012: стор, невидимый пользователю, не трогается', db6.stores.vaccinations['vac-mine'].sync_status === 'synced');
+  check('B-012: чужие записи и другие сущности не тронуты', db6.stores.staff['s-other'].sync_status === 'synced' &&
+    db6.stores.owners['o-mine'].sync_status === 'synced');
+  check('B-012: base_version снят — повтор без ложного конфликта', db6.stores.visits['v-mine'].base_version === null);
+  check('B-012: уже неотправленная правка не тронута', db6.stores.visits['v-pend'].base_version === 3);
+  check('B-012: второй запуск ничего не делает', (await env6.S.recoverStuckRecords()) === 0);
+  await env6.S.pushSync();
+  var sent6 = env6.sent[env6.sent.length - 1].body;
+  check('B-012: записи ушли в push, приём — без base_version', (sent6.staff || []).length === 1 &&
+    (sent6.visits || []).some(function (v) { return v.id === 'v-mine' && v.base_version === null; }));
 
   console.log(failed ? '\n' + failed + ' провалено' : '\nвсе прошли');
   process.exit(failed ? 1 : 0);

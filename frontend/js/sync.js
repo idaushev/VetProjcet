@@ -40,7 +40,9 @@
   // вложение создаётся загрузкой файла через POST /attachments, а не push-ом.
   // Порядок = порядок внешних ключей. visit_results идут ПОСЛЕ visits и
   // visit_items: результат ссылается на приём, и на сервере это FK.
-  const CORE_STORE_ORDER = ["owners", "pets", "items", "diagnosis_templates", "protocol_templates", "tasks", "visits", "visit_items", "visit_results", "prescriptions", "vaccinations", "staff", "appointments"];
+  // staff — раньше visits и vaccinations: у них внешний ключ на врача (B-009);
+  // важно для запасного поштучного пути (_legacyPush), он идёт этим порядком.
+  const CORE_STORE_ORDER = ["owners", "pets", "items", "staff", "diagnosis_templates", "protocol_templates", "tasks", "visits", "visit_items", "visit_results", "prescriptions", "vaccinations", "appointments"];
   const MODULE_STORES = (window.VetModules && window.VetModules.stores()) || ["warehouses", "stock_movements"];
   const STORE_ORDER = CORE_STORE_ORDER.concat(MODULE_STORES).concat(["attachments"]);
 
@@ -526,6 +528,62 @@
     }
   }
 
+  // ── B-012: разовая повторная отправка застрявших записей ─────────────────
+  //
+  // С первого коммита (2026-07-19) push сотрудников падал на ошибке SQL
+  // (B-009), а планшет всё отправленное помечал synced, даже отклонённое
+  // (B-013). Из-за внешнего ключа за сотрудниками не доезжали и приёмы с
+  // таким врачом, их позиции, назначения, результаты, вакцинации. Эти записи
+  // живут только в IndexedDB этого планшета и сами на сервер не уйдут.
+  //
+  // Один раз после обновления возвращаем в pending СВОИ записи (device_id
+  // этого планшета) этих сущностей — и только те, которых на сервере НЕТ
+  // вовсе (сверка с полным снимком). Повторять то, что сервер уже принял,
+  // нельзя: при равной версии он перезаписал бы свои данные тем, что лежит на
+  // планшете, — а там у чужих приёмов суммы замаскированы нулями — и сменил бы
+  // автора у всех приёмов. Чего сервер не сможет принять, он сообщит (B-013).
+  // base_version снимаем: повтор идёт по прежнему правилу, не как конфликт.
+  var RECOVERY_KEY = "recovery_b012";
+  var RECOVERY_STORES = ["staff", "visits", "visit_items", "prescriptions", "visit_results", "vaccinations"];
+
+  async function recoverStuckRecords() {
+    try {
+      if (await window.VetDB.getSyncState(RECOVERY_KEY)) return 0;
+    } catch (e) { return 0; }
+    // Без права создавать сотрудников и приёмы сервер откажет окончательно,
+    // и повтор был бы потрачен впустую — ждём того, у кого право есть.
+    var A = window.VetAuth;
+    if (!A || !A.can || !A.can("staff", "create") || !A.can("visits", "create")) return 0;
+    // Полный снимок сервера — какие id у него есть. Нет связи — попробуем в
+    // следующем цикле (флаг не ставим).
+    var snap;
+    try { snap = await req("GET", "/sync/pull?device_id=" + encodeURIComponent(deviceID())); }
+    catch (e) { return 0; }
+    var me = deviceID(), marked = 0;
+    for (var store of RECOVERY_STORES) {
+      // Стора нет в снимке — у пользователя нет права его видеть; повторять
+      // вслепую нельзя: получили бы окончательный отказ по праву.
+      if (!snap || !Array.isArray(snap[store])) continue;
+      var onServer = {};
+      snap[store].forEach(function (r) { onServer[r.id] = true; });
+      var rows;
+      try { rows = await window.VetDB.getAll(store); } catch (e) { continue; }
+      var mine = (rows || []).filter(function (r) {
+        return r && r.sync_status === "synced" && r.device_id === me && !onServer[r.id];
+      }).map(function (r) {
+        return { id: r.id, sync_status: "pending", base_version: null };
+      });
+      if (mine.length) {
+        await window.VetDB.bulkSave(store, mine, { keep: true });
+        marked += mine.length;
+      }
+    }
+    // Флаг — после разметки: если планшет упал посередине, повтор безопасен.
+    await window.VetDB.setSyncState(RECOVERY_KEY, new Date().toISOString());
+    if (marked) console.info("[Sync] B-012: повторно отправляется записей:", marked);
+    return marked;
+  }
+
   async function bootstrap() {
     // Всегда пробуем pullFull — даже если navigator.onLine=false.
     // На Android в локальной сети (без интернета) navigator.onLine может быть false,
@@ -676,6 +734,7 @@
 
   window.VetSync = {
     bootstrap,
+    recoverStuckRecords,
     syncAll,
     pushSync,
     pullSync,
