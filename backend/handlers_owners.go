@@ -354,15 +354,20 @@ func softDeletePetCascade(ctx context.Context, tx *sql.Tx, petID string) error {
 }
 
 func softDeleteVisitCascade(ctx context.Context, tx *sql.Tx, visitID string) error {
+	// Одно время на приём и его позиции: по нему правка, вернувшая приём
+	// (VET-017, «правка сильнее удаления»), вернёт и позиции этого каскада
+	// (B-011). device_id — NULL: REST — не устройство синка; иначе push
+	// планшета, последним писавшего приём, счёл бы удаление своей правкой и
+	// конфликт не определился бы.
 	now := T(nowUTC())
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE visit_items SET is_deleted=1, deleted_at=?, updated_at=?, version=version+1
+		`UPDATE visit_items SET is_deleted=1, deleted_at=?, updated_at=?, version=version+1, device_id=NULL
 		 WHERE visit_id=? AND is_deleted=0`,
 		now, now, visitID); err != nil {
 		return err
 	}
 	_, err := tx.ExecContext(ctx,
-		`UPDATE visits SET is_deleted=1, deleted_at=?, updated_at=?, version=version+1 WHERE id=?`,
+		`UPDATE visits SET is_deleted=1, deleted_at=?, updated_at=?, version=version+1, device_id=NULL WHERE id=?`,
 		now, now, visitID)
 	return err
 }

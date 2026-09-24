@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -589,5 +590,110 @@ func TestItemConflictRepeatTwoItemsNoDuplicates(t *testing.T) {
 	}
 	if up1 != up2 {
 		t.Errorf("повтор сдвинул updated_at приёма %s → %s — лишняя перерисовка на всех планшетах", up1, up2)
+	}
+}
+
+// B-011. Приём удалили онлайн (REST DELETE каскадом удаляет позиции), а
+// другой планшет правил его офлайн. Push правки возвращает приём («правка
+// сильнее удаления») — и вместе с ним позиции, удалённые тем же каскадом.
+// Удаление сохраняется в конфликте, врач решит сам.
+func TestOnlineDeleteThenOfflineEditRestoresItems(t *testing.T) {
+	a := concSeed(t)
+	req := httptest.NewRequest(http.MethodDelete, "/visits/v-c", nil)
+	req.SetPathValue("id", "v-c")
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{},
+		&User{ID: "adm", Login: "admin", Role: "admin", IsActive: true}))
+	rec := httptest.NewRecorder()
+	a.handleVisitByID(rec, req)
+	if rec.Code != http.StatusOK && rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE: HTTP %d %s", rec.Code, rec.Body.String())
+	}
+	if n, _ := concItems(t, a); n != 0 {
+		t.Fatalf("каскад не удалил позиции: %d", n)
+	}
+
+	// Планшет B правил приём офлайн (от версии 1) и синхронизируется. У
+	// приёма на сервере device_id того, кто создавал, — каскад его сбросил.
+	doPush(t, a, `{"device_id":"tab-b","visits":[{"id":"v-c","pet_id":"p-c","date":"`+concBase+`","diagnosis":"Гастроэнтерит",
+		"treatment":"Диета","total_amount":5000,"version":2,"base_version":1,"updated_at":"`+concB+`"}]}`)
+
+	var deleted int
+	a.db.QueryRow(`SELECT is_deleted FROM visits WHERE id='v-c'`).Scan(&deleted)
+	if deleted != 0 {
+		t.Fatal("приём остался удалённым — правка пропала")
+	}
+	if n, sum := concItems(t, a); n != 1 || sum != 5000 {
+		t.Errorf("позиций %d на %.0f — приём вернулся без счёта", n, sum)
+	}
+	_, lost := visitConflicts(t, a)
+	if len(lost) != 1 || lost[0].IsDeleted != 1 {
+		t.Errorf("удаление должно лежать в конфликте: %+v", lost)
+	}
+}
+
+func restDelete(t *testing.T, a *app, h http.HandlerFunc, path, id string) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodDelete, path, nil)
+	req.SetPathValue("id", id)
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{},
+		&User{ID: "adm", Login: "admin", Role: "admin", IsActive: true}))
+	rec := httptest.NewRecorder()
+	h(rec, req)
+	if rec.Code != http.StatusOK && rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE %s: HTTP %d %s", path, rec.Code, rec.Body.String())
+	}
+}
+
+// B-011: планшет, вернувший приём, в том же push убрал одну строку и
+// поправил другую. Убранная не должна вернуться, поправленная — без ложного
+// конфликта; в отметке — только удаление приёма.
+func TestOnlineDeleteThenOfflineEditWithItemChanges(t *testing.T) {
+	a := concSeed(t)
+	doPush(t, a, `{"visit_items":[{"id":"i-2","visit_id":"v-c","name":"УЗИ","type":"service","quantity":1,"price":7000,"total":7000,
+		"version":1,"updated_at":"`+concBase+`"}]}`)
+	restDelete(t, a, a.handleVisitByID, "/visits/v-c", "v-c")
+
+	doPush(t, a, `{"device_id":"tab-b",
+		"visits":[{"id":"v-c","pet_id":"p-c","date":"`+concBase+`","diagnosis":"Гастроэнтерит","total_amount":14000,
+			"version":2,"base_version":1,"updated_at":"`+concB+`"}],
+		"visit_items":[
+			{"id":"i-base","visit_id":"v-c","name":"Осмотр","type":"service","quantity":1,"price":5000,"total":5000,
+			 "is_deleted":1,"deleted_at":"`+concB+`","version":2,"base_version":1,"updated_at":"`+concB+`"},
+			{"id":"i-2","visit_id":"v-c","name":"УЗИ","type":"service","quantity":2,"price":7000,"total":14000,
+			 "version":2,"base_version":1,"updated_at":"`+concB+`"}]}`)
+
+	var delBase, del2 int
+	var qty2 float64
+	a.db.QueryRow(`SELECT is_deleted FROM visit_items WHERE id='i-base'`).Scan(&delBase)
+	a.db.QueryRow(`SELECT is_deleted, quantity FROM visit_items WHERE id='i-2'`).Scan(&del2, &qty2)
+	if delBase != 1 {
+		t.Error("строка, убранная планшетом, вернулась в счёт")
+	}
+	if del2 != 0 || qty2 != 2 {
+		t.Errorf("поправленная строка: удалена=%d, количество %v", del2, qty2)
+	}
+	if n, sum := concItems(t, a); n != 1 || sum != 14000 {
+		t.Errorf("счёт: %d позиций на %.0f, ждём 1 на 14000 (= сумма приёма)", n, sum)
+	}
+	if lost := itemConflicts(t, a); len(lost) != 0 {
+		t.Errorf("ложные конфликты по строкам вернувшего планшета: %+v", lost)
+	}
+}
+
+// B-011: владельца удалили онлайн, приём его животного правили офлайн. Приём
+// не воскресает под удалённым животным — правка сохраняется в конфликте.
+func TestOwnerDeleteThenOfflineVisitEdit(t *testing.T) {
+	a := concSeed(t)
+	restDelete(t, a, a.handleOwnerByID, "/owners/o-c", "o-c")
+	doPush(t, a, `{"device_id":"tab-b","visits":[{"id":"v-c","pet_id":"p-c","date":"`+concBase+`","diagnosis":"Гастроэнтерит",
+		"total_amount":5000,"version":2,"base_version":1,"updated_at":"`+concB+`"}]}`)
+	var deleted int
+	a.db.QueryRow(`SELECT is_deleted FROM visits WHERE id='v-c'`).Scan(&deleted)
+	if deleted != 1 {
+		t.Error("приём воскрес под удалённым животным")
+	}
+	_, lost := visitConflicts(t, a)
+	if len(lost) != 1 || lost[0].Diagnosis != "Гастроэнтерит" {
+		t.Errorf("правка должна сохраниться в конфликте: %+v", lost)
 	}
 }

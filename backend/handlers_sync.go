@@ -636,11 +636,33 @@ func pushVisit(ctx context.Context, db *sql.DB, rec visitSyncRecord) (bool, erro
 				incomingWins = false
 			} else if rec.IsDeleted == 0 && cur.IsDeleted != 0 {
 				incomingWins = true
+				// B-011: но не под удалённым животным (каскад от удаления
+				// владельца или животного) — живой приём без карточки животного
+				// никто не откроет, а его сумма числилась бы у несуществующего
+				// владельца. Приём остаётся удалённым, правка — в конфликте.
+				var petDeleted int
+				if db.QueryRowContext(ctx, `SELECT is_deleted FROM pets WHERE id=?`, cur.PetID).Scan(&petDeleted) == nil && petDeleted != 0 {
+					incomingWins = false
+				}
 			}
 			if incomingWins {
 				// Входящая правка позже — она становится приёмом, серверная
 				// версия уходит в конфликт.
 				cj := appendConflict(cur.ConflictJSON, conflictFromVisit(cur, prevClient.t, detected))
+				if cur.IsDeleted != 0 && rec.IsDeleted == 0 {
+					// B-011: правка вернула удалённый приём — вернуть и позиции,
+					// удалённые тем же каскадом (у них то же время удаления).
+					// Иначе приём воскресал без счёта: сумма есть, строк нет.
+					// device_id — вернувшего планшета: его же правки и удаления
+					// этих строк (в этом или следующем push) — его собственные, а
+					// не конфликт; иначе убранная им строка вернулась бы в счёт,
+					// а каждая поправленная дала бы ложный блок сравнения.
+					_, _ = db.ExecContext(ctx, `UPDATE visit_items
+						SET is_deleted=0, deleted_at=NULL, updated_at=?, version=version+1, device_id=?
+						WHERE visit_id=? AND is_deleted=1
+						  AND deleted_at = (SELECT deleted_at FROM visits WHERE id=?)`,
+						T(nowUTC()), nullableString(rec.DeviceID), rec.ID, rec.ID)
+				}
 				return applyVisit(ctx, db, rec, newVersion, &cj)
 			}
 			// B-016: в проигравшую версию — серверные деньги, если пишущий их не
