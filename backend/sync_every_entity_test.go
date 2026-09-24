@@ -264,3 +264,24 @@ func TestVisitChangeLogSurvivesSync(t *testing.T) {
 	}
 	t.Fatal("приём не вернулся в pull")
 }
+
+// B-014: REST-правка сотрудника без фото не стирает серверное — как push.
+func TestStaffRESTUpdateKeepsPhoto(t *testing.T) {
+	a := testApp(t)
+	doPush(t, a, `{"staff":[{"id":"sp-1","name":"Врач","role":"vet","is_active":true,
+		"photo":"data:image/png;base64,AAAA","version":1,"updated_at":"2026-09-01T10:00:00Z"}]}`)
+	req := httptest.NewRequest(http.MethodPut, "/staff/sp-1", strings.NewReader(`{"name":"Врач Петрова","role":"vet"}`))
+	req.SetPathValue("id", "sp-1")
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{},
+		&User{ID: "adm", Login: "admin", Role: "admin", IsActive: true}))
+	rec := httptest.NewRecorder()
+	a.handleStaffByID(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT: HTTP %d %s", rec.Code, rec.Body.String())
+	}
+	var name, photo string
+	a.db.QueryRow(`SELECT name, COALESCE(photo,'') FROM clinic_staff WHERE id='sp-1'`).Scan(&name, &photo)
+	if name != "Врач Петрова" || photo != "data:image/png;base64,AAAA" {
+		t.Errorf("имя %q, фото %q — фото не должно стереться", name, photo)
+	}
+}

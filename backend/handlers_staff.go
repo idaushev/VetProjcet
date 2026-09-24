@@ -153,7 +153,10 @@ func (a *app) updateStaff(w http.ResponseWriter, r *http.Request, id string) {
 	defer cancel()
 
 	res, err := a.db.ExecContext(ctx,
-		`UPDATE clinic_staff SET name=?, role=?, phone=?, email=?, is_active=?, notes=?, photo=?,
+		`UPDATE clinic_staff SET name=?, role=?, phone=?, email=?, is_active=?, notes=?,
+		                         -- B-014: пустое фото (старый планшет, запасной путь синка без
+		                         -- поля) не стирает серверное — как в pushStaff.
+		                         photo=COALESCE(NULLIF(?,''), photo),
 		                         updated_at=?, version=version+1
 		 WHERE id=? AND is_deleted=0`,
 		strings.TrimSpace(p.Name), strings.TrimSpace(p.Role),
