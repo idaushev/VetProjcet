@@ -551,6 +551,15 @@ func (a *app) createVisitItem(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// B-018: запасной REST-путь — те же правила скрытых сумм, что в push
+	// (B-016): цена строки чужого приёма — не замаскированный ноль, итог
+	// приёма — по позициям.
+	_, hidden := hiddenVisitOf(ctx, a.db, userFromCtx(r.Context()), vi.VisitID)
+	if hidden {
+		vi.Price = hiddenItemPrice(ctx, a.db, visitItemSyncRecord{ID: vi.ID, VisitID: vi.VisitID, ItemID: vi.ItemID, Price: vi.Price})
+		vi.Total = roundMoney(vi.Price * vi.Quantity)
+	}
+
 	now := T(nowUTC())
 	if _, err := a.db.ExecContext(ctx,
 		`INSERT INTO visit_items (id, visit_id, item_id, name, type, quantity, price, total,
@@ -564,6 +573,9 @@ func (a *app) createVisitItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if hidden {
+		recomputeHiddenTotal(ctx, a.db, vi.VisitID)
+	}
 	created, _ := a.getVisitItemByID(ctx, vi.ID)
 	writeJSON(w, http.StatusCreated, apiResponse{Status: "ok", Data: created})
 }
@@ -571,6 +583,8 @@ func (a *app) createVisitItem(w http.ResponseWriter, r *http.Request) {
 func (a *app) deleteVisitItem(w http.ResponseWriter, r *http.Request, id string) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	var visitID string
+	_ = a.db.QueryRowContext(ctx, `SELECT visit_id FROM visit_items WHERE id=?`, id).Scan(&visitID)
 
 	now := T(nowUTC())
 	res, err := a.db.ExecContext(ctx,
@@ -586,6 +600,9 @@ func (a *app) deleteVisitItem(w http.ResponseWriter, r *http.Request, id string)
 	if n, _ := res.RowsAffected(); n == 0 {
 		writeError(w, http.StatusNotFound, "visit item not found")
 		return
+	}
+	if _, hidden := hiddenVisitOf(ctx, a.db, userFromCtx(r.Context()), visitID); hidden {
+		recomputeHiddenTotal(ctx, a.db, visitID) // B-018
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: map[string]string{"id": id}})
 }

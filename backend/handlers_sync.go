@@ -1410,6 +1410,16 @@ func hiddenItemPrice(ctx context.Context, db *sql.DB, rec visitItemSyncRecord) f
 	if sameItem {
 		return srvPrice // та же услуга — цену пишущий видел нулём
 	}
+	// B-018: строку той же услуги убрали и завели заново — берём цену убранной
+	// (в этом приёме она могла быть и бесплатной), а не каталожную.
+	if rec.Price == 0 && rec.ItemID != nil {
+		var prev float64
+		if db.QueryRowContext(ctx, `SELECT COALESCE(price,0) FROM visit_items
+			WHERE visit_id=? AND item_id=? AND is_deleted=1 ORDER BY updated_at DESC LIMIT 1`,
+			rec.VisitID, *rec.ItemID).Scan(&prev) == nil {
+			return prev
+		}
+	}
 	if rec.Price == 0 && rec.ItemID != nil {
 		var catalog float64
 		if db.QueryRowContext(ctx, `SELECT COALESCE(price,0) FROM items WHERE id=?`, *rec.ItemID).Scan(&catalog) == nil {

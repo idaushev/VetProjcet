@@ -356,3 +356,44 @@ func TestHiddenSumsEdgeCases(t *testing.T) {
 		t.Errorf("сумма приёма без врача затёрта: %v", v)
 	}
 }
+
+// B-018: хвосты B-016 — бесплатная строка, заведённая заново, остаётся
+// бесплатной; REST-путь позиций пересчитывает итог скрытого приёма.
+func TestHiddenSumsTails(t *testing.T) {
+	a := testApp(t)
+	if _, err := a.db.Exec(`INSERT INTO clinic_staff (id, name) VALUES ('docA','А'), ('docB','Б')`); err != nil {
+		t.Fatal(err)
+	}
+	const at = `"version":1,"updated_at":"2026-09-01T12:00:00Z"`
+	doPush(t, a, `{
+		"owners":[{"id":"t-o","fio":"Х","phone":"+7 700 999 0000",`+at+`}],
+		"pets":[{"id":"t-p","owner_id":"t-o","name":"Бим","type":"dog","gender":"m",`+at+`}],
+		"items":[{"id":"it-uzi","name":"УЗИ","type":"service","price":7500,`+at+`}],
+		"visits":[{"id":"t-v","pet_id":"t-p","staff_id":"docB","date":"2026-09-01T11:00:00Z","total_amount":7500,`+at+`}],
+		"visit_items":[{"id":"t-free","visit_id":"t-v","item_id":"it-uzi","name":"УЗИ","type":"service","quantity":1,"price":0,"total":0,`+at+`},
+		               {"id":"t-paid","visit_id":"t-v","item_id":"it-uzi","name":"УЗИ","type":"service","quantity":1,"price":7500,"total":7500,`+at+`}]}`)
+	doc := userWithSums("own", "docA")
+	doc.ID = "u-doc"
+	num := func(q string) (f float64) { a.db.QueryRow(q).Scan(&f); return }
+
+	// Бесплатную строку завели заново (надгробие + новая с нулём) — осталась 0.
+	doPushAs(t, a, doc, `{"visit_items":[
+		{"id":"t-free","visit_id":"t-v","item_id":"it-uzi","name":"УЗИ","type":"service","quantity":1,"price":0,"total":0,"is_deleted":1,"deleted_at":"2026-09-01T13:00:00Z","version":2,"updated_at":"2026-09-01T13:00:00Z"},
+		{"id":"t-free2","visit_id":"t-v","item_id":"it-uzi","name":"УЗИ","type":"service","quantity":1,"price":0,"total":0,"version":1,"updated_at":"2026-09-01T13:00:00Z"}]}`)
+	if p := num(`SELECT price FROM visit_items WHERE id='t-free2'`); p != 0 {
+		t.Errorf("бесплатная строка получила цену %v", p)
+	}
+
+	// REST: удаление платной строки чужого приёма пересчитывает итог.
+	req := httptest.NewRequest(http.MethodDelete, "/visit-items/t-paid", nil)
+	req.SetPathValue("id", "t-paid")
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{}, doc))
+	rec := httptest.NewRecorder()
+	a.handleVisitItemByID(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE: HTTP %d %s", rec.Code, rec.Body.String())
+	}
+	if v := num(`SELECT total_amount FROM visits WHERE id='t-v'`); v != 0 {
+		t.Errorf("итог приёма %v после удаления платной строки, ждём 0", v)
+	}
+}
