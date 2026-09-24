@@ -1113,6 +1113,83 @@
     return localDatetimeStr(new Date());
   }
 
+  // ── VET-017: приём правили на двух устройствах ─────────────────────────
+  // Сервер оставил в приёме более позднюю правку, а проигравшую сохранил в
+  // conflict_json. Блок показывает поля, где проигравшая версия расходится с
+  // приёмом, и даёт перенести значение в форму. «Разобрано» запоминает метку
+  // последней версии — при сохранении сервер снимет отметку, только если
+  // пока врач смотрел, новых конфликтов не пришло.
+  var _conflictLost = [];
+  // Время — по Астане (UTC+5), как везде в форме приёма.
+  function _cfWhen(iso) {
+    var d = new Date(iso); if (isNaN(d)) return '';
+    var s = new Date(d.getTime() + 5 * 3600000).toISOString();
+    return s.slice(8,10) + '.' + s.slice(5,7) + '.' + s.slice(0,4) + ' ' + s.slice(11,16);
+  }
+  function _cfMoney(x) { return Math.round(Number(x) || 0).toLocaleString('ru-RU') + ' ₸'; }
+  var CONFLICT_FIELDS = [
+    { key: 'diagnosis', label: 'Диагноз',        input: 'f-diagnosis' },
+    { key: 'anamnesis', label: 'Анамнез, жалобы', input: 'f-anamnesis' },
+    { key: 'treatment', label: 'Лечение',        input: 'f-treatment' },
+    { key: 'notes',     label: 'Примечания',     input: 'f-vnotes' },
+    { key: 'vitals',    label: 'Показатели',     input: '' },
+    { key: 'patient_condition', label: 'Состояние', input: '' },
+    { key: 'total_amount',      label: 'Сумма',     input: '' }
+  ];
+  function buildVisitConflictHTML(prefill) {
+    _conflictLost = [];
+    if (!prefill || !prefill.conflict_json) return '';
+    try { _conflictLost = JSON.parse(prefill.conflict_json) || []; } catch (e) { _conflictLost = []; }
+    if (!_conflictLost.length) return '';
+    var last = _conflictLost[_conflictLost.length - 1];
+    var versions = _conflictLost.map(function (lost, i) {
+      var when0 = lost.client_updated_at ? _cfWhen(lost.client_updated_at) : '';
+      if (lost.is_deleted) {
+        // Правка сильнее одновременного удаления: приём сохранён.
+        return '<div class="vf-conflict-version"><div class="vf-conflict-when">На другом устройстве приём удалили'
+          + (when0 ? ' ' + esc(when0) : '') + '</div>'
+          + '<div class="form-hint">Приём сохранён, потому что его одновременно правили. Если удаление было нужно — удалите приём ещё раз.</div></div>';
+      }
+      var rows = CONFLICT_FIELDS.filter(function (f) {
+        return String(lost[f.key] == null ? '' : lost[f.key]) !== String(prefill[f.key] == null ? '' : prefill[f.key]);
+      }).map(function (f) {
+        var val = f.key === 'total_amount' ? _cfMoney(lost[f.key]) : (lost[f.key] || '—');
+        return '<div class="vf-conflict-row"><div class="vf-conflict-label">' + esc(f.label) + '</div>'
+          + '<div class="vf-conflict-val">' + esc(val) + '</div>'
+          + (f.input && lost[f.key] ? '<button type="button" class="btn btn-ghost btn-sm" data-act="ui.conflictTake"'
+             + ' data-idx="' + i + '" data-key="' + f.key + '" data-input="' + f.input + '">Взять эту</button>' : '')
+          + '</div>';
+      }).join('');
+      var when = lost.client_updated_at ? _cfWhen(lost.client_updated_at) : '';
+      return '<div class="vf-conflict-version"><div class="vf-conflict-when">Не попавшая в приём правка'
+        + (when ? ' от ' + esc(when) : '') + '</div>'
+        + (rows || '<div class="form-hint">Отличий в тексте и сумме нет.</div>') + '</div>';
+    }).join('');
+    return '<div class="vf-conflict" id="vf-conflict" data-last="' + esc(last.detected_at || '') + '">'
+      + '<div class="vf-conflict-head">' + icon('warn', 'vf-conflict-icon')
+      + '<div><strong>Приём правили на двух устройствах одновременно.</strong>'
+      + '<div class="form-hint">В приём попала более поздняя правка. Ниже — то, что было в другой и не вошло. Перенесите нужное, затем «Разобрано» и сохраните приём.</div></div></div>'
+      + versions
+      + '<div class="vf-conflict-actions"><button type="button" class="btn btn-secondary btn-sm" data-act="ui.conflictDone">Разобрано</button></div>'
+      + '</div>';
+  }
+  function conflictTake(el) {
+    var lost = _conflictLost[+el.dataset.idx] || {};
+    var input = document.getElementById(el.dataset.input);
+    if (!input) return;
+    input.value = lost[el.dataset.key] || '';
+    _autoGrow(input);
+    el.textContent = 'Взято';
+    el.disabled = true;
+  }
+  function conflictDone() {
+    var box = document.getElementById('vf-conflict');
+    if (!box) return;
+    box.dataset.resolved = box.dataset.last || '';
+    box.innerHTML = '<div class="vf-conflict-head">' + icon('check', 'vf-conflict-icon')
+      + '<div>Отмечено как разобранное — сохраните приём, чтобы отметка снялась на всех устройствах.</div></div>';
+  }
+
   function buildVisitFormHTML(serverTime, prefill, allStaff) {
     prefill  = prefill || {};
     // Врач: у существующего приёма — сохранённый, у нового — привязанный
@@ -1139,6 +1216,7 @@
     var foldTop = isEdit ? ' collapsed' : '';
 
     return `<div class="visit-form" id="vf-root">
+${buildVisitConflictHTML(prefill)}
 
   <!-- U22. Карта разделов приёма. Форма занимает почти три экрана на планшете
        и четыре с половиной на телефоне ещё ДО заполнения — врач не видел её
@@ -2118,6 +2196,8 @@
       staff_id:document.getElementById('f-staff')?document.getElementById('f-staff').value:'',
       discount:discount,
       discount_reason:document.getElementById('f-discount-reason')?document.getElementById('f-discount-reason').value.trim():'',
+      // VET-017: метка разобранного конфликта ("" — врач его не разбирал).
+      conflict_resolved:(document.getElementById('vf-conflict')||{dataset:{}}).dataset.resolved||'',
       owner:_vs.owner, ownerNew:ownerNew, ownerMode:_vs.ownerMode,
       pet:_vs.pet, petNew:petNew,
       date:document.getElementById('f-visit-date')?document.getElementById('f-visit-date').value:'',
@@ -2296,6 +2376,8 @@
       'ui.treatment':      function () { recalcTreatment(); },
       'ui.nextVisit':      function (el) { setNextVisitPreset(el.dataset.preset); },
       'ui.autoGrow':       function (el) { _autoGrow(el); },
+      'ui.conflictTake':   function (el) { conflictTake(el); },
+      'ui.conflictDone':   function () { conflictDone(); },
       'ui.diagInput':      function (el) { _diagAutocomplete(el); _autoGrow(el); },
       'ui.paySummary':     function () { _updatePaymentSummary(); },
       'ui.modal.close':    function () { hideModal(); },

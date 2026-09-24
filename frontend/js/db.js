@@ -157,6 +157,15 @@
     //     Критично: если взять src.updated_at (старый серверный штамп), сервер
     //     посчитает свою версию новее и отклонит push → pull перезапишет правку.
     //  3. Иначе (synced, приходит с сервера) → src.updated_at || now
+    // opts.keep — дописать поля, не трогая статус, время и версию записи
+    // (pull слил историю в неотправленную правку: правка должна остаться
+    // неотправленной и со своим временем, иначе она не уйдёт на сервер или
+    // станет «позже», чем была на самом деле).
+    if (opts && opts.keep) {
+      record.sync_status = record.sync_status || "pending";
+      record.device_id   = record.device_id   || getDeviceID();
+      return record;
+    }
     var newSyncStatus = (opts && opts.sync_status) ? opts.sync_status : "pending";
     record.sync_status = newSyncStatus;
 
@@ -173,6 +182,15 @@
     // Инкрементируем version при каждом пользовательском сохранении (pending).
     // Сервер принимает push если client.version > server.version — без зависимости от часов.
     record.version = ((record.version || 0) + (newSyncStatus === 'pending' ? 1 : 0)) || 1;
+    // VET-017. base_version — версия, от которой начата правка. Правим
+    // синхронизированную запись — её версия и есть последняя, что знает
+    // сервер от нас, она и становится базой. Правим уже неотправленную —
+    // база прежняя. Ставится в момент правки, поэтому защиту получают и
+    // записи, скачанные до 3.34.0. Сервер по базе узнаёт, что запись успели
+    // поправить на другом устройстве.
+    if (newSyncStatus === 'pending' && existing && existing.sync_status !== 'pending') {
+      record.base_version = existing.version || 1;
+    }
 
     return record;
   }

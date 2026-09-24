@@ -69,3 +69,66 @@ func TestCanSeeSumAdminAndAll(t *testing.T) {
 		t.Error(`scope "all" видит любые суммы`)
 	}
 }
+
+// VET-017: проигравшая версия приёма в conflict_json несёт суммы целиком —
+// маскируются по врачу каждой версии, а не только поля самого приёма.
+func TestConflictSumsMaskedPerVersion(t *testing.T) {
+	u := userWithSums("own", "docA")
+	cj := `[{"detected_at":"t1","staff_id":"docA","total_amount":100,"payment_card":50,"discount":10,"discount_reason":"свой"},
+	        {"detected_at":"t2","staff_id":"docB","total_amount":200,"payment_card":70,"discount":20,"discount_reason":"чужой"},
+	        {"detected_at":"t3","total_amount":300}]`
+	var got []conflictEntry
+	if err := json.Unmarshal([]byte(maskConflictSums(u, cj, "docB")), &got); err != nil || len(got) != 3 {
+		t.Fatalf("маскировка сломала JSON: %v %+v", err, got)
+	}
+	if got[0].TotalAmount != 100 || got[0].DiscountReason != "свой" {
+		t.Errorf("своя версия замаскирована: %+v", got[0])
+	}
+	if got[1].TotalAmount != 0 || got[1].PaymentCard != 0 || got[1].Discount != 0 || got[1].DiscountReason != "" {
+		t.Errorf("версия чужого врача не замаскирована: %+v", got[1])
+	}
+	if got[2].TotalAmount != 0 {
+		t.Errorf("версия без врача — по врачу приёма (чужой), не замаскирована: %+v", got[2])
+	}
+	if maskConflictSums(u, "не JSON", "docA") != "" {
+		t.Error("неразборный conflict_json отдан без проверки")
+	}
+}
+
+// Сквозная проверка: pull от имени врача с правом «свои суммы» не отдаёт
+// чужие деньги внутри conflict_json.
+func TestPullMasksConflictSums(t *testing.T) {
+	a := concSeed(t)
+	// Сотрудников — прямо в базу: push сотрудников сейчас сломан (B-009).
+	if _, err := a.db.Exec(`INSERT INTO clinic_staff (id, name) VALUES ('docA','А'), ('docB','Б')`); err != nil {
+		t.Fatal(err)
+	}
+	doPush(t, a, `{"visits":[{"id":"v-c","pet_id":"p-c","staff_id":"docB","date":"`+concBase+`","diagnosis":"Гастрит",
+		"total_amount":7000,"version":2,"base_version":1,"device_id":"tab-b","updated_at":"`+concB+`"}]}`)
+	doPush(t, a, `{"visits":[{"id":"v-c","pet_id":"p-c","staff_id":"docB","date":"`+concBase+`","diagnosis":"Гастроэнтерит",
+		"total_amount":9000,"discount":500,"discount_reason":"постоянный","version":2,"base_version":1,"device_id":"tab-a","updated_at":"`+concA+`"}]}`)
+	if _, lost := visitConflicts(t, a); len(lost) != 1 || lost[0].TotalAmount != 9000 {
+		t.Fatalf("на сервере конфликт с суммой 9000, получили %+v", lost)
+	}
+
+	doc := userWithSums("own", "docA")
+	doc.ID = "u-doc"
+	for _, v := range pullAs(t, a, doc, "")["visits"] {
+		if v["id"] != "v-c" {
+			continue
+		}
+		var lost []conflictEntry
+		cj, _ := v["conflict_json"].(string)
+		if json.Unmarshal([]byte(cj), &lost) != nil || len(lost) != 1 {
+			t.Fatalf("conflict_json не доехал: %q", cj)
+		}
+		if lost[0].TotalAmount != 0 || lost[0].Discount != 0 || lost[0].DiscountReason != "" {
+			t.Errorf("чужие суммы в conflict_json отданы врачу: %+v", lost[0])
+		}
+		if lost[0].Diagnosis != "Гастроэнтерит" {
+			t.Errorf("маскировка задела медицинскую часть: %+v", lost[0])
+		}
+		return
+	}
+	t.Fatal("приём не пришёл в pull")
+}

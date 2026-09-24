@@ -212,12 +212,16 @@ func (a *app) updateVisit(w http.ResponseWriter, r *http.Request, id string) {
 		}
 	}
 	days, until := resolveTreatment(intOrZero(treatDays), v.Date)
+	// device_id сбрасываем: правка по REST (запасной путь, когда push упал)
+	// не от устройства синка. Иначе следующий push планшета, оставившего
+	// прежнюю версию, счёл бы её своей и затёр эту правку без конфликта (VET-017).
 	res, err := a.db.ExecContext(ctx,
 		`UPDATE visits SET pet_id=?, staff_id=?, visit_type=?, animal_weight=?,
 		                   temperature=?, vitals=?,
 		                   date=?, next_visit_date=?, treatment_days=?, treatment_until=?,
 		                   patient_condition=?, anamnesis=?, diagnosis=?, treatment=?,
-		                   notes=?, total_amount=?, discount=?, discount_reason=?, payment_card=?, change_log=?, status=?, updated_at=?, version=version+1
+		                   notes=?, total_amount=?, discount=?, discount_reason=?, payment_card=?, change_log=?, status=?, updated_at=?, version=version+1,
+		                   device_id=NULL
 		 WHERE id=? AND is_deleted=0`,
 		v.PetID, nullableString(v.StaffID), visitType, v.AnimalWeight,
 		v.Temperature, nullableString(v.Vitals),
@@ -608,7 +612,7 @@ SELECT v.id, v.pet_id, COALESCE(v.staff_id,''), COALESCE(v.visit_type,'перв�
        COALESCE(v.diagnosis,''), COALESCE(v.treatment,''), COALESCE(v.notes,''),
        v.total_amount, COALESCE(v.discount,0), COALESCE(v.discount_reason,''), COALESCE(v.payment_card,0), COALESCE(v.change_log,''), v.created_at, v.updated_at, v.deleted_at,
        v.is_deleted, COALESCE(v.device_id,''), COALESCE(v.version,1),
-       COALESCE(v.status,'completed')
+       COALESCE(v.status,'completed'), COALESCE(v.conflict_json,'')
 FROM visits v`
 
 const visitItemSelectAll = `
@@ -640,7 +644,7 @@ func scanVisit(s interface{ Scan(...interface{}) error }) (Visit, error) {
 		&visitDate, &nextVisitDate, &v.TreatmentDays, &treatmentUntil,
 		&v.PatientCondition, &v.Anamnesis, &v.Diagnosis, &v.Treatment, &v.Notes,
 		&v.TotalAmount, &v.Discount, &v.DiscountReason, &v.PaymentCard, &v.ChangeLog, &createdAt, &updatedAt, &deletedAt,
-		&v.IsDeleted, &v.DeviceID, &v.Version, &v.Status,
+		&v.IsDeleted, &v.DeviceID, &v.Version, &v.Status, &v.ConflictJSON,
 	)
 	if err != nil {
 		return Visit{}, err

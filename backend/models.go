@@ -106,6 +106,11 @@ type Visit struct {
 	// показатели — свободными парами «название: значение».
 	Temperature    *float64   `json:"temperature,omitempty"`
 	Vitals         string     `json:"vitals,omitempty"`
+	// VET-017: проигравшие версии при конкурентной правке, JSON-массив
+	// conflictEntry. Пусто — конфликта нет. Пишет только сервер.
+	// Без omitempty: пустое значение — это «отметку сняли», и планшет обязан
+	// его получить, иначе у него останется старая отметка.
+	ConflictJSON   string     `json:"conflict_json"`
 	SyncMeta
 }
 
@@ -547,6 +552,16 @@ type visitSyncRecord struct {
 	ChangeLog        string   `json:"change_log"`
 	// VET-003: пусто = старый клиент, значит приём считаем завершённым.
 	Status           string   `json:"status"`
+	// VET-017. BaseVersion — версия, которую планшет последней получил с
+	// сервера: от неё начата правка. nil — планшет до 3.34.0, конфликт не
+	// определяем (прежнее правило).
+	// ConflictResolved — detected_at последней версии в conflict_json, которую
+	// врач разобрал: сервер очищает отметку, только если она совпала. Пустое
+	// поле или устаревшее значение ничего не снимает — так планшет, ещё не
+	// получивший отметку, не сотрёт её обычной правкой. Сам conflict_json с
+	// планшета сервер не читает: пишет его только он.
+	BaseVersion      *int     `json:"base_version"`
+	ConflictResolved string   `json:"conflict_resolved"`
 	UpdatedAt        string   `json:"updated_at"`
 	DeletedAt        *string  `json:"deleted_at"`
 	IsDeleted        int      `json:"is_deleted"`

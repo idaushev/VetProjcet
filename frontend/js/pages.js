@@ -344,6 +344,24 @@
         });
       } catch (e) {}
 
+      // VET-017. Приём правили на двух устройствах одновременно: в приём
+      // попала более поздняя правка, другая сохранена рядом. Показываем всем,
+      // кто видит приёмы: врач, чья правка проиграла, узнаёт об этом здесь.
+      try {
+        (d.visits || []).forEach(function (v) {
+          if (v.is_deleted || !v.conflict_json) return;
+          var pet = (d.pets || []).find(function (p) { return p.id === v.pet_id; }) || {};
+          attention.push({
+            icon: 'warn', tone: 'danger',
+            title: 'Приём правили на двух устройствах — ' + esc(pet.name || 'животное'),
+            sub: 'приём от ' + fmtDate(v.date) + ' · сравнить версии',
+            phone: '',
+            act: 'visit.edit', data: { id: v.id },
+            sortKey: '0' + (v.date || '')
+          });
+        });
+      } catch (e) {}
+
       // 0) Ручные задачи сотрудников — в той же очереди: у врача один
       //    рабочий список на день, а не отдельный экран задач.
       var manualTasks = await loadTasks();
@@ -1367,7 +1385,7 @@
           // История ПЕРЕД PUT — чтобы vs._change_log был готов до отправки
           await _visitHistorySave(id, vs, _prevVisitSnapshot);
           _prevVisitSnapshot = null;
-          await api('PUT', '/visits/'+id, {
+          await api('PUT', '/visits/'+id, Object.assign({
             pet_id: finalPet.id,
             staff_id: vs.staff_id || '',
             date: vs.date, patient_condition: vs.condition,
@@ -1381,7 +1399,10 @@
             total_amount: totalAmount, discount: discount, discount_reason: vs.discount_reason || '', payment_card: vs.payment_card || 0,
             status: vs.status || 'completed',
             change_log: vs._change_log || '',
-          });
+            // VET-017: врач разобрал конфликт — отметку снимает сервер по метке;
+            // локально снимаем сразу, чтобы блок сравнения не всплыл снова.
+            conflict_resolved: vs.conflict_resolved || '',
+          }, vs.conflict_resolved ? { conflict_json: '' } : {}));
           // Позиции — по плану выше: нетронутые не отправляются, изменённые
           // правятся под своим id, новые создаются, убранные удаляются.
           var failedDeletes = 0;

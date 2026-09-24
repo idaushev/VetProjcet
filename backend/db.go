@@ -628,6 +628,10 @@ var migrations = []string{
 	// парами «название: значение» в vitals.
 	`ALTER TABLE visits ADD COLUMN temperature REAL`,
 	`ALTER TABLE visits ADD COLUMN vitals TEXT`,
+	// VET-017: проигравшие версии приёма при конкурентной правке — JSON-массив.
+	// Пишет только сервер (pushVisit), планшет лишь очищает, когда врач разобрал.
+	// Пусто — конфликтов нет.
+	`ALTER TABLE visits ADD COLUMN conflict_json TEXT NOT NULL DEFAULT ''`,
 	// VET-008 (ответ клиники на вопрос 14: «нужна»). Кто делал исследование,
 	// раньше читалось только из названия услуги — то есть никак, если услуга
 	// называется «Биохимия крови». При разборе спорного результата это первое,

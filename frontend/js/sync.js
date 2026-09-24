@@ -143,7 +143,9 @@
   }
 
   const SYNC_META = new Set([
-    "sync_status","server_id","created_at","updated_at","deleted_at","is_deleted","device_id","version"
+    "sync_status","server_id","created_at","updated_at","deleted_at","is_deleted","device_id","version",
+    // VET-017: служебные поля синка — строгий REST их отвергнет.
+    "base_version","conflict_json","conflict_resolved"
   ]);
   const REST_PATH = {
     owners:"/owners", pets:"/pets", items:"/items", visits:"/visits",
@@ -267,7 +269,7 @@
       // ── Правило 1: pending — защищаем, но мержим спецполя ─────────────────
       if (local && local.sync_status === "pending") {
         var patched = _mergeSpecialFields(local, remote, storeName);
-        if (patched) toSave.push(patched);
+        if (patched) toSavePending.push(patched); // НЕ toSave: там она стала бы synced и не ушла бы на сервер
         return;
       }
 
@@ -314,7 +316,9 @@
 
     // Pending-записи с обновлёнными спецполями — сохраняем БЕЗ изменения sync_status
     if (toSavePending.length) {
-      await window.VetDB.bulkSave(storeName, toSavePending); // без opts — sync_status не меняется
+      // keep: статус, время и версия правки не меняются — она уйдёт в push
+      // такой, какой её сделал врач.
+      await window.VetDB.bulkSave(storeName, toSavePending, { keep: true });
     }
 
     // Физически удаляем записи с is_deleted=1 — гарантированное исчезновение из UI.

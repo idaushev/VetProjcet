@@ -165,6 +165,36 @@ func (a *app) handleSyncPull(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: data})
 }
 
+// maskConflictSums — то же для проигравших версий приёма (VET-017): в них
+// лежат суммы целиком. Врач у версии может отличаться от врача приёма, поэтому
+// право проверяется по каждой; без врача в версии — по врачу приёма.
+func maskConflictSums(u *User, cj, visitStaff string) string {
+	if cj == "" {
+		return cj
+	}
+	var list []conflictEntry
+	if json.Unmarshal([]byte(cj), &list) != nil {
+		return "" // разобрать нельзя — не отдаём вовсе, чем отдать непроверенным
+	}
+	changed := false
+	for i := range list {
+		staff := list[i].StaffID
+		if staff == "" {
+			staff = visitStaff
+		}
+		if !u.canSeeSum(staff) {
+			list[i].TotalAmount, list[i].PaymentCard, list[i].Discount = 0, 0, 0
+			list[i].DiscountReason = ""
+			changed = true
+		}
+	}
+	if !changed {
+		return cj
+	}
+	b, _ := json.Marshal(list)
+	return string(b)
+}
+
 // maskForeignSums затирает денежные поля визитов и позиций, чей врач вне
 // scope пользователя. Свои визиты не трогаются — клиенту нужны собственные
 // суммы для расчётов и отчёта. Вызывается только для ограниченного scope.
@@ -177,6 +207,7 @@ func (a *app) maskForeignSums(ctx context.Context, u *User, data map[string]any)
 				vs[i].Discount = 0
 				vs[i].DiscountReason = ""
 			}
+			vs[i].ConflictJSON = maskConflictSums(u, vs[i].ConflictJSON, vs[i].StaffID)
 		}
 	}
 
@@ -422,14 +453,191 @@ func pushItem(ctx context.Context, db *sql.DB, rec itemSyncRecord) (bool, error)
 	return err == nil, err
 }
 
+// ─── VET-017: конкурентная правка приёма ─────────────────────────────────────
+//
+// Два планшета правят один приём офлайн от одной версии. Раньше второй push
+// либо молча затирал первый целиком, либо молча отклонялся — правка одного
+// врача пропадала без следа. Теперь такой push опознаётся по base_version
+// (версия, от которой планшет начал правку, отстала от серверной), побеждает
+// более поздняя по времени правка, а проигравшая версия целиком сохраняется
+// в visits.conflict_json. Оба планшета получают приём с отметкой конфликта,
+// врач сравнивает версии и отмечает разобранным (планшет шлёт conflict_json "").
+
+// conflictEntry — проигравшая версия приёма: то, что иначе пропало бы.
+type conflictEntry struct {
+	DetectedAt       string   `json:"detected_at"`       // когда сервер заметил
+	ClientUpdatedAt  string   `json:"client_updated_at"` // когда правили на планшете
+	DeviceID         string   `json:"device_id,omitempty"`
+	StaffID          string   `json:"staff_id,omitempty"`
+	VisitType        string   `json:"visit_type,omitempty"`
+	PatientCondition string   `json:"patient_condition,omitempty"`
+	Anamnesis        string   `json:"anamnesis,omitempty"`
+	Diagnosis        string   `json:"diagnosis,omitempty"`
+	Treatment        string   `json:"treatment,omitempty"`
+	Notes            string   `json:"notes,omitempty"`
+	Vitals           string   `json:"vitals,omitempty"`
+	AnimalWeight     *float64 `json:"animal_weight,omitempty"`
+	Temperature      *float64 `json:"temperature,omitempty"`
+	NextVisitDate    *string  `json:"next_visit_date,omitempty"`
+	TreatmentDays    *int     `json:"treatment_days,omitempty"`
+	TotalAmount      float64  `json:"total_amount"`
+	Discount         float64  `json:"discount"`
+	DiscountReason   string   `json:"discount_reason,omitempty"`
+	PaymentCard      float64  `json:"payment_card"`
+	Status           string   `json:"status,omitempty"`
+	IsDeleted        int      `json:"is_deleted,omitempty"`
+}
+
+func conflictFromRecord(rec visitSyncRecord, detected string) conflictEntry {
+	return conflictEntry{
+		DetectedAt: detected, ClientUpdatedAt: rec.UpdatedAt, DeviceID: rec.DeviceID,
+		StaffID: rec.StaffID, VisitType: rec.VisitType, PatientCondition: rec.PatientCondition,
+		Anamnesis: rec.Anamnesis, Diagnosis: rec.Diagnosis, Treatment: rec.Treatment, Notes: rec.Notes,
+		Vitals: rec.Vitals, AnimalWeight: rec.AnimalWeight, Temperature: rec.Temperature,
+		NextVisitDate: rec.NextVisitDate, TreatmentDays: rec.TreatmentDays,
+		TotalAmount: rec.TotalAmount, Discount: rec.Discount, DiscountReason: rec.DiscountReason,
+		PaymentCard: rec.PaymentCard, Status: rec.Status, IsDeleted: rec.IsDeleted,
+	}
+}
+
+func conflictFromVisit(v Visit, clientAt *time.Time, detected string) conflictEntry {
+	e := conflictEntry{
+		DetectedAt: detected, DeviceID: v.DeviceID, StaffID: v.StaffID, VisitType: v.VisitType,
+		PatientCondition: v.PatientCondition, Anamnesis: v.Anamnesis, Diagnosis: v.Diagnosis,
+		Treatment: v.Treatment, Notes: v.Notes, Vitals: v.Vitals,
+		AnimalWeight: v.AnimalWeight, Temperature: v.Temperature, TotalAmount: v.TotalAmount,
+		Discount: v.Discount, DiscountReason: v.DiscountReason, PaymentCard: v.PaymentCard,
+		Status: v.Status, IsDeleted: v.IsDeleted,
+	}
+	if clientAt != nil {
+		e.ClientUpdatedAt = clientAt.UTC().Format(time.RFC3339)
+	}
+	if v.NextVisitDate != nil {
+		s := v.NextVisitDate.UTC().Format(time.RFC3339)
+		e.NextVisitDate = &s
+	}
+	td := v.TreatmentDays
+	e.TreatmentDays = &td
+	return e
+}
+
+// appendConflict дописывает проигравшую версию к уже накопленным. Повтор того
+// же push (ответ потерялся) второй записи не заводит.
+func appendConflict(existing string, e conflictEntry) string {
+	var list []conflictEntry
+	if existing != "" {
+		_ = json.Unmarshal([]byte(existing), &list) // испорченное — начинаем заново
+	}
+	if n := len(list); n > 0 && list[n-1].DeviceID == e.DeviceID && list[n-1].ClientUpdatedAt == e.ClientUpdatedAt {
+		return existing
+	}
+	list = append(list, e)
+	b, _ := json.Marshal(list)
+	return string(b)
+}
+
+// resolvedConflictJSON — что станет с отметкой после правки без конфликта:
+// nil — оставить; "" — врач разобрал ровно ту версию, что последней в списке.
+func resolvedConflictJSON(existing, resolved string) *string {
+	if resolved == "" || existing == "" {
+		return nil
+	}
+	var list []conflictEntry
+	if json.Unmarshal([]byte(existing), &list) != nil || len(list) == 0 {
+		return nil
+	}
+	if list[len(list)-1].DetectedAt != resolved {
+		return nil // пока врач смотрел, пришёл ещё один конфликт — не снимаем
+	}
+	empty := ""
+	return &empty
+}
+
 func pushVisit(ctx context.Context, db *sql.DB, rec visitSyncRecord) (bool, error) {
 	if rec.ID == "" {
 		return false, fmt.Errorf("empty id")
 	}
+
+	// Конфликт: планшет правил от версии, которую сервер уже перерос.
+	// Планшеты до 3.34.0 base_version не шлют — для них прежнее правило.
+	if rec.BaseVersion != nil {
+		cur, err := scanVisit(db.QueryRowContext(ctx, visitSelectAll+` WHERE v.id=?`, rec.ID))
+		// Серверную версию оставил этот же планшет — это не конфликт, а его
+		// собственная более поздняя правка или повтор push, ответ на который
+		// потерялся. Сам с собой планшет разойтись не может.
+		sameDevice := rec.DeviceID != "" && rec.DeviceID == cur.DeviceID
+		if err == nil && !sameDevice && *rec.BaseVersion < cur.Version {
+			var prevClient timeScanner
+			_ = db.QueryRowContext(ctx, `SELECT client_updated_at FROM visits WHERE id=?`, rec.ID).Scan(&prevClient)
+			detected := nowUTC().Format(time.RFC3339)
+			// Выше обеих версий: иначе планшет-проигравший с большей
+			// локальной версией не примет результат при pull.
+			newVersion := cur.Version
+			if rec.Version > newVersion {
+				newVersion = rec.Version
+			}
+			newVersion++
+			clientTime := parseSyncTime(rec.UpdatedAt)
+			incomingWins := prevClient.t == nil || !clientTime.Before(*prevClient.t)
+			// Правка сильнее одновременного удаления: удалённый приём никто не
+			// откроет, и проигравшая правка пропала бы из виду. Приём остаётся,
+			// удаление уходит в конфликт — врач увидит его и удалит сам.
+			if rec.IsDeleted != 0 && cur.IsDeleted == 0 {
+				incomingWins = false
+			} else if rec.IsDeleted == 0 && cur.IsDeleted != 0 {
+				incomingWins = true
+			}
+			if incomingWins {
+				// Входящая правка позже — она становится приёмом, серверная
+				// версия уходит в конфликт.
+				cj := appendConflict(cur.ConflictJSON, conflictFromVisit(cur, prevClient.t, detected))
+				return applyVisit(ctx, db, rec, newVersion, &cj)
+			}
+			// Входящая правка раньше — приём остаётся, она уходит в конфликт.
+			// updated_at и version двигаем, чтобы отметку получили все планшеты.
+			cj := appendConflict(cur.ConflictJSON, conflictFromRecord(rec, detected))
+			if cj == cur.ConflictJSON {
+				// Повтор уже записанного push: писать нечего. Версию не
+				// двигаем — иначе каждый повтор перерисовывал бы приём на всех
+				// планшетах без изменения данных (правило 5).
+				return true, nil
+			}
+			_, err := db.ExecContext(ctx,
+				`UPDATE visits SET conflict_json=?, version=?, updated_at=? WHERE id=?`,
+				cj, newVersion, T(nowUTC()), rec.ID)
+			return err == nil, err
+		}
+	}
+
 	wins, err := clientWinsVersion(ctx, db, "visits", rec.ID, rec.UpdatedAt, rec.Version)
 	if err != nil || !wins {
 		return false, err
 	}
+	// Без конфликта отметку планшет может только снять — и только ту, что
+	// врач разобрал (conflict_resolved = её detected_at).
+	var cj *string
+	if rec.ConflictResolved != "" {
+		var existing string
+		_ = db.QueryRowContext(ctx, `SELECT COALESCE(conflict_json,'') FROM visits WHERE id=?`, rec.ID).Scan(&existing)
+		cj = resolvedConflictJSON(existing, rec.ConflictResolved)
+	}
+	// Версия на сервере не уменьшается. clientWinsVersion принимает и меньшую
+	// версию с более поздним временем (планшет ещё не получил версию max+1
+	// после конфликта) — записать её как есть значит откатить версию: другие
+	// планшеты такую запись при pull отбросят, а их следующая правка пройдёт
+	// мимо конфликта.
+	version := rec.Version
+	var curVersion int
+	if db.QueryRowContext(ctx, `SELECT COALESCE(version,1) FROM visits WHERE id=?`, rec.ID).Scan(&curVersion) == nil && curVersion > version {
+		version = curVersion + 1
+	}
+	return applyVisit(ctx, db, rec, version, cj)
+}
+
+// applyVisit записывает приём с планшета. version — какую версию хранить;
+// conflictJSON: nil — не трогать накопленное, иначе записать как есть.
+func applyVisit(ctx context.Context, db *sql.DB, rec visitSyncRecord, version int, conflictJSON *string) (bool, error) {
+	var err error
 	visitDate, dateErr := parseFlexibleDate(rec.Date)
 	if dateErr != nil {
 		visitDate = nowUTC()
@@ -459,8 +667,9 @@ func pushVisit(ctx context.Context, db *sql.DB, rec visitSyncRecord) (bool, erro
 		INSERT INTO visits (id, pet_id, staff_id, visit_type, animal_weight, temperature, vitals, date, next_visit_date,
 		                    treatment_days, treatment_until,
 		                    patient_condition, anamnesis, diagnosis, treatment, notes,
-		                    total_amount, discount, discount_reason, payment_card, change_log, status, updated_at, deleted_at, is_deleted, device_id, version, created_at, client_updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                    total_amount, discount, discount_reason, payment_card, change_log, status, updated_at, deleted_at, is_deleted, device_id, version, created_at, client_updated_at,
+		                    conflict_json)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, ''))
 		ON CONFLICT(id) DO UPDATE SET
 		  pet_id=excluded.pet_id, staff_id=excluded.staff_id,
 		  visit_type=excluded.visit_type, animal_weight=excluded.animal_weight,
@@ -473,7 +682,8 @@ func pushVisit(ctx context.Context, db *sql.DB, rec visitSyncRecord) (bool, erro
 		  change_log=excluded.change_log, status=excluded.status,
 		  updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, is_deleted=excluded.is_deleted,
 		  device_id=excluded.device_id, version=excluded.version,
-		  client_updated_at=excluded.client_updated_at`,
+		  client_updated_at=excluded.client_updated_at,
+		  conflict_json=CASE WHEN ? IS NULL THEN visits.conflict_json ELSE excluded.conflict_json END`,
 		rec.ID, rec.PetID, nullableString(rec.StaffID), visitType, rec.AnimalWeight,
 		rec.Temperature, nullableString(rec.Vitals), T(visitDate), nextVisitDate,
 		treatDays, Tp(treatUntil),
@@ -481,7 +691,8 @@ func pushVisit(ctx context.Context, db *sql.DB, rec visitSyncRecord) (bool, erro
 		nullableString(rec.Diagnosis), nullableString(rec.Treatment), nullableString(rec.Notes),
 		rec.TotalAmount, rec.Discount, nullableString(rec.DiscountReason), rec.PaymentCard, rec.ChangeLog,
 		normalizeVisitStatus(rec.Status), serverNow, deletedAt, rec.IsDeleted,
-		nullableString(rec.DeviceID), rec.Version, serverNow, clientAt,
+		nullableString(rec.DeviceID), version, serverNow, clientAt,
+		conflictJSON, conflictJSON,
 	)
 	return err == nil, err
 }

@@ -2618,6 +2618,27 @@ mark {
 /* Блок оплаты. Раньше .vf-section в CSS не было вовсе: стрелка рисовалась,
    по ней кликали, класс collapsed навешивался — но правила, которое прячет
    тело, не существовало, и секция не сворачивалась. */
+/* VET-017: приём правили на двух устройствах — блок сравнения версий. */
+.vf-conflict {
+  border: 1.5px solid var(--warn-border); border-left: 4px solid var(--warn);
+  background: var(--warn-dim); border-radius: var(--r);
+  padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-4);
+}
+.vf-conflict-head { display: flex; gap: var(--sp-3); align-items: flex-start; }
+.vf-conflict-icon { color: var(--warn); flex: none; width: 20px; height: 20px; margin-top: 2px; }
+.vf-conflict-version { margin-top: var(--sp-3); }
+.vf-conflict-when { font-weight: 600; margin-bottom: var(--sp-2); }
+.vf-conflict-row {
+  display: grid; grid-template-columns: 9rem minmax(0, 1fr) auto; gap: var(--sp-2) var(--sp-3);
+  align-items: start; padding: var(--sp-2) 0; border-top: 1px solid var(--warn-border);
+}
+.vf-conflict-label { color: var(--text-3); font-size: var(--fs-sm); }
+.vf-conflict-val { white-space: pre-wrap; overflow-wrap: anywhere; }
+.vf-conflict-actions { margin-top: var(--sp-3); display: flex; justify-content: flex-end; }
+@media (max-width: 767px) {
+  .vf-conflict-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .vf-conflict-label { grid-column: 1 / -1; }
+}
 .vf-section { border-top: 1px solid var(--border); margin-top: var(--sp-4); padding-top: var(--sp-3); }
 .vf-section-title {
   display: flex; align-items: center; gap: var(--sp-2);
