@@ -207,3 +207,146 @@ func TestRESTMasksForeignSums(t *testing.T) {
 		t.Errorf("ответ PUT отдал чужие суммы из conflict_json: %s", b)
 	}
 }
+
+// doPushAs — push от имени пользователя (doPush шлёт от админа).
+func doPushAs(t *testing.T, a *app, u *User, payload string) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/sync/push", strings.NewReader(payload))
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{}, u))
+	rec := httptest.NewRecorder()
+	a.handleSyncPush(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("push HTTP %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// B-016. Врач с правом «свои суммы» получает чужой приём с нулями вместо сумм;
+// поправив в нём диагноз, он шлёт эти нули назад. Сервер не должен их
+// записывать: суммы и цены чужого приёма остаются прежними.
+func TestHiddenSumsNotOverwritten(t *testing.T) {
+	a := testApp(t)
+	if _, err := a.db.Exec(`INSERT INTO clinic_staff (id, name) VALUES ('docA','А'), ('docB','Б')`); err != nil {
+		t.Fatal(err)
+	}
+	const at = `"version":1,"updated_at":"2026-09-01T12:00:00Z"`
+	doPush(t, a, `{
+		"owners":[{"id":"h-o","fio":"Х","phone":"+7 700 555 0000",`+at+`}],
+		"pets":[{"id":"h-p","owner_id":"h-o","name":"Рыжик","type":"cat","gender":"m",`+at+`}],
+		"visits":[{"id":"h-v","pet_id":"h-p","staff_id":"docB","date":"2026-09-01T11:00:00Z","diagnosis":"Гастрит",
+			"total_amount":7000,"discount":500,"discount_reason":"постоянный","payment_card":2000,`+at+`}],
+		"visit_items":[{"id":"h-i","visit_id":"h-v","name":"УЗИ","type":"service","quantity":1,"price":7500,"total":7500,`+at+`}]}`)
+
+	doc := userWithSums("own", "docA")
+	doc.ID = "u-doc"
+	// Планшет врача А: диагноз поправлен, суммы — замаскированные нули;
+	// количество в позиции увеличено, цена — ноль.
+	doPushAs(t, a, doc, `{
+		"visits":[{"id":"h-v","pet_id":"h-p","staff_id":"docB","date":"2026-09-01T11:00:00Z","diagnosis":"Гастроэнтерит",
+			"total_amount":0,"discount":0,"discount_reason":"","payment_card":0,"version":2,"updated_at":"2026-09-01T13:00:00Z"}],
+		"visit_items":[{"id":"h-i","visit_id":"h-v","name":"УЗИ","type":"service","quantity":2,"price":0,"total":0,"version":2,"updated_at":"2026-09-01T13:00:00Z"}]}`)
+
+	var diag, reason string
+	var total, disc, card, price, itotal, qty float64
+	a.db.QueryRow(`SELECT diagnosis, total_amount, discount, discount_reason, payment_card FROM visits WHERE id='h-v'`).
+		Scan(&diag, &total, &disc, &reason, &card)
+	a.db.QueryRow(`SELECT quantity, price, total FROM visit_items WHERE id='h-i'`).Scan(&qty, &price, &itotal)
+	if diag != "Гастроэнтерит" {
+		t.Errorf("медицинская правка не применена: %q", diag)
+	}
+	// Итог — по позициям: 2 × 7500 − скидка 500. Скидка и карта — серверные.
+	if total != 14500 || disc != 500 || reason != "постоянный" || card != 2000 {
+		t.Errorf("push: сумма %v (ждём 14500 по позициям), скидка %v %q, карта %v", total, disc, reason, card)
+	}
+	if qty != 2 || price != 7500 || itotal != 15000 {
+		t.Errorf("позиция: количество %v, цена %v, итог %v — ждём 2 × 7500 = 15000", qty, price, itotal)
+	}
+
+	// REST-правка — то же правило.
+	req := httptest.NewRequest(http.MethodPut, "/visits/h-v", strings.NewReader(
+		`{"pet_id":"h-p","staff_id":"docB","date":"2026-09-01T11:00:00Z","diagnosis":"Панкреатит","total_amount":0}`))
+	req.SetPathValue("id", "h-v")
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{}, doc))
+	rec := httptest.NewRecorder()
+	a.handleVisitByID(rec, req)
+	a.db.QueryRow(`SELECT diagnosis, total_amount FROM visits WHERE id='h-v'`).Scan(&diag, &total)
+	if rec.Code != http.StatusOK || diag != "Панкреатит" || total != 14500 {
+		t.Errorf("REST: HTTP %d, диагноз %q, сумма %v — ждём 14500", rec.Code, diag, total)
+	}
+
+	// Свой приём и новый приём — суммы пишущего принимаются.
+	doPushAs(t, a, doc, `{"visits":[
+		{"id":"h-own","pet_id":"h-p","staff_id":"docA","date":"2026-09-02T11:00:00Z","total_amount":3000,`+at+`},
+		{"id":"h-new","pet_id":"h-p","staff_id":"docB","date":"2026-09-02T12:00:00Z","total_amount":4000,`+at+`}]}`)
+	var own, fresh float64
+	a.db.QueryRow(`SELECT total_amount FROM visits WHERE id='h-own'`).Scan(&own)
+	a.db.QueryRow(`SELECT total_amount FROM visits WHERE id='h-new'`).Scan(&fresh)
+	if own != 3000 || fresh != 4000 {
+		t.Errorf("свой %v (ждём 3000), новый %v (ждём 4000)", own, fresh)
+	}
+}
+
+// B-016, дыры: смена врача на себя, строка заново с нулевой ценой, замена
+// услуги в строке, проигравшая версия с нулями, взять приём без врача.
+func TestHiddenSumsEdgeCases(t *testing.T) {
+	a := testApp(t)
+	if _, err := a.db.Exec(`INSERT INTO clinic_staff (id, name) VALUES ('docA','А'), ('docB','Б')`); err != nil {
+		t.Fatal(err)
+	}
+	const at = `"version":1,"updated_at":"2026-09-01T12:00:00Z"`
+	doPush(t, a, `{
+		"owners":[{"id":"e-o","fio":"Х","phone":"+7 700 666 0000",`+at+`}],
+		"pets":[{"id":"e-p","owner_id":"e-o","name":"Бим","type":"dog","gender":"m",`+at+`}],
+		"items":[{"id":"it-uzi","name":"УЗИ","type":"service","price":7500,`+at+`},
+		         {"id":"it-exam","name":"Осмотр","type":"service","price":3000,`+at+`}],
+		"visits":[{"id":"e-v","pet_id":"e-p","staff_id":"docB","date":"2026-09-01T11:00:00Z","total_amount":7500,"device_id":"tab-b",`+at+`},
+		          {"id":"e-free","pet_id":"e-p","date":"2026-09-01T12:00:00Z","total_amount":5000,`+at+`}],
+		"visit_items":[{"id":"e-i1","visit_id":"e-v","item_id":"it-uzi","name":"УЗИ","type":"service","quantity":1,"price":7500,"total":7500,`+at+`}]}`)
+	doc := userWithSums("own", "docA")
+	doc.ID = "u-doc"
+	one := func(q string, args ...any) (s string) { a.db.QueryRow(q, args...).Scan(&s); return }
+	num := func(q string, args ...any) (f float64) { a.db.QueryRow(q, args...).Scan(&f); return }
+
+	// 1. Назначить себя врачом чужого приёма — врач не меняется.
+	doPushAs(t, a, doc, `{"visits":[{"id":"e-v","pet_id":"e-p","staff_id":"docA","date":"2026-09-01T11:00:00Z",
+		"total_amount":0,"version":2,"updated_at":"2026-09-01T13:00:00Z"}]}`)
+	if s := one(`SELECT staff_id FROM visits WHERE id='e-v'`); s != "docB" {
+		t.Errorf("врач чужого приёма сменён на %q — выручка ушла бы в чужой отчёт", s)
+	}
+
+	// 2. Строка заведена заново с замаскированной ценой 0 — цена из каталога.
+	doPushAs(t, a, doc, `{"visit_items":[
+		{"id":"e-i1","visit_id":"e-v","item_id":"it-uzi","name":"УЗИ","type":"service","quantity":1,"price":0,"total":0,"is_deleted":1,"deleted_at":"2026-09-01T13:10:00Z","version":2,"updated_at":"2026-09-01T13:10:00Z"},
+		{"id":"e-i2","visit_id":"e-v","item_id":"it-uzi","name":"УЗИ","type":"service","quantity":1,"price":0,"total":0,"version":1,"updated_at":"2026-09-01T13:10:00Z"}]}`)
+	if p := num(`SELECT price FROM visit_items WHERE id='e-i2'`); p != 7500 {
+		t.Errorf("строка заново: цена %v, ждём 7500 из каталога", p)
+	}
+	if v := num(`SELECT total_amount FROM visits WHERE id='e-v'`); v != 7500 {
+		t.Errorf("итог приёма %v, ждём 7500 по живым позициям", v)
+	}
+
+	// 3. В той же строке другая услуга — цена пришедшая (из каталога), не старая.
+	doPushAs(t, a, doc, `{"visit_items":[{"id":"e-i2","visit_id":"e-v","item_id":"it-exam","name":"Осмотр","type":"service",
+		"quantity":1,"price":3000,"total":3000,"version":2,"updated_at":"2026-09-01T13:20:00Z"}]}`)
+	if p := num(`SELECT price FROM visit_items WHERE id='e-i2'`); p != 3000 {
+		t.Errorf("замена услуги: цена %v, ждём 3000", p)
+	}
+
+	// 4. Проигравшая версия от пишущего без права — в ней серверные деньги.
+	doPushAs(t, a, doc, `{"visits":[{"id":"e-v","pet_id":"e-p","staff_id":"docB","date":"2026-09-01T11:00:00Z","diagnosis":"старое",
+		"total_amount":0,"version":2,"base_version":1,"device_id":"tab-a","updated_at":"2026-09-01T10:30:00Z"}]}`)
+	if cj := one(`SELECT COALESCE(conflict_json,'') FROM visits WHERE id='e-v'`); cj == "" {
+		t.Error("конфликт не возник — сценарий не проверен")
+	} else if strings.Contains(cj, `"total_amount":0`) {
+		t.Errorf("проигравшая версия хранит замаскированный ноль: %s", cj)
+	}
+
+	// 5. Приём без врача можно взять на себя.
+	doPushAs(t, a, doc, `{"visits":[{"id":"e-free","pet_id":"e-p","staff_id":"docA","date":"2026-09-01T12:00:00Z",
+		"total_amount":0,"version":2,"updated_at":"2026-09-01T13:30:00Z"}]}`)
+	if s := one(`SELECT staff_id FROM visits WHERE id='e-free'`); s != "docA" {
+		t.Errorf("приём без врача не взят на себя: %q", s)
+	}
+	if v := num(`SELECT total_amount FROM visits WHERE id='e-free'`); v != 5000 {
+		t.Errorf("сумма приёма без врача затёрта: %v", v)
+	}
+}

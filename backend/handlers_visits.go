@@ -204,6 +204,9 @@ func (a *app) updateVisit(w http.ResponseWriter, r *http.Request, id string) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
+	if h, hidden := hiddenVisitOf(ctx, a.db, userFromCtx(r.Context()), id); hidden { // B-016
+		keepHiddenVisit(h, &v.StaffID, &v.TotalAmount, &v.Discount, &v.PaymentCard, &v.DiscountReason)
+	}
 	if _, err := a.getPetByID(ctx, v.PetID); err != nil {
 		writeError(w, http.StatusBadRequest, "pet not found")
 		return

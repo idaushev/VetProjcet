@@ -608,6 +608,11 @@ func pushVisit(ctx context.Context, db *sql.DB, rec visitSyncRecord) (bool, erro
 				cj := appendConflict(cur.ConflictJSON, conflictFromVisit(cur, prevClient.t, detected))
 				return applyVisit(ctx, db, rec, newVersion, &cj)
 			}
+			// B-016: в проигравшую версию — серверные деньги, если пишущий их не
+			// видит: иначе в блоке сравнения стояла бы «Сумма 0 ₸».
+			if h, hidden := hiddenVisitOf(ctx, db, userFromCtx(ctx), rec.ID); hidden {
+				keepHiddenVisit(h, &rec.StaffID, &rec.TotalAmount, &rec.Discount, &rec.PaymentCard, &rec.DiscountReason)
+			}
 			// Входящая правка раньше — приём остаётся, она уходит в конфликт.
 			// updated_at и version двигаем, чтобы отметку получили все планшеты.
 			cj := appendConflict(cur.ConflictJSON, conflictFromRecord(rec, detected))
@@ -653,6 +658,9 @@ func pushVisit(ctx context.Context, db *sql.DB, rec visitSyncRecord) (bool, erro
 // conflictJSON: nil — не трогать накопленное, иначе записать как есть.
 func applyVisit(ctx context.Context, db *sql.DB, rec visitSyncRecord, version int, conflictJSON *string) (bool, error) {
 	var err error
+	if h, hidden := hiddenVisitOf(ctx, db, userFromCtx(ctx), rec.ID); hidden { // B-016
+		keepHiddenVisit(h, &rec.StaffID, &rec.TotalAmount, &rec.Discount, &rec.PaymentCard, &rec.DiscountReason)
+	}
 	visitDate, dateErr := parseFlexibleDate(rec.Date)
 	if dateErr != nil {
 		visitDate = nowUTC()
@@ -720,6 +728,11 @@ func pushVisitItem(ctx context.Context, db *sql.DB, rec visitItemSyncRecord) (bo
 	if err != nil || !wins {
 		return false, err
 	}
+	_, hiddenParent := hiddenVisitOf(ctx, db, userFromCtx(ctx), rec.VisitID)
+	if hiddenParent { // B-016
+		rec.Price = hiddenItemPrice(ctx, db, rec)
+		rec.Total = roundMoney(rec.Price * rec.Quantity)
+	}
 	serverNow := T(nowUTC())
 	// Время клиента сохраняем как есть — по нему разрешаются будущие конфликты.
 	clientAt := Tp(parseSyncTimePtr(&rec.UpdatedAt))
@@ -740,6 +753,9 @@ func pushVisitItem(ctx context.Context, db *sql.DB, rec visitItemSyncRecord) (bo
 		serverNow, deletedAt, rec.IsDeleted,
 		nullableString(rec.DeviceID), rec.Version, serverNow, clientAt,
 	)
+	if err == nil && hiddenParent {
+		recomputeHiddenTotal(ctx, db, rec.VisitID) // B-016: итог — по позициям
+	}
 	return err == nil, err
 }
 
@@ -1220,4 +1236,78 @@ func pullStockMovements(ctx context.Context, db *sql.DB, since time.Time) ([]Sto
 		list = append(list, m)
 	}
 	return list, rows.Err()
+}
+
+// ─── B-016: суммы, которых пишущий не видит, не перезаписываются ─────────────
+//
+// Пользователь с правом sums own/selected получает чужие приёмы с суммами,
+// замаскированными нулями (pull, REST — B-010). Сохранив в таком приёме хоть
+// диагноз, планшет шлёт эти нули назад — и сервер записывал их как настоящие:
+// выручка чужого врача обнулялась для всех, включая руководителя. Поэтому
+// для приёма, суммы которого пишущий не видит («скрытого»):
+//   - деньги приёма берутся из серверной записи;
+//   - врач приёма не меняется (иначе, назначив себя, пишущий забрал бы чужую
+//     выручку в свой отчёт и увидел её) — кроме приёма без врача: взять его
+//     на себя можно;
+//   - цена существующей строки — серверная, если услуга та же; новая строка
+//     с нулевой ценой получает цену из каталога;
+//   - итог приёма пересчитывается по живым позициям минус скидка — иначе
+//     после правки количества приём и позиции разошлись бы.
+// Новая запись — его собственная, её суммы принимаются.
+
+type hiddenVisit struct {
+	staff                 string
+	total, discount, card float64
+	reason                string
+}
+
+// hiddenVisitOf — серверная запись приёма, если пишущий не видит его сумм.
+func hiddenVisitOf(ctx context.Context, db *sql.DB, u *User, visitID string) (hiddenVisit, bool) {
+	var h hiddenVisit
+	if u == nil || u.seesAllSums() {
+		return h, false
+	}
+	if db.QueryRowContext(ctx, `SELECT COALESCE(staff_id,''), COALESCE(total_amount,0), COALESCE(discount,0),
+		COALESCE(discount_reason,''), COALESCE(payment_card,0) FROM visits WHERE id=?`, visitID).
+		Scan(&h.staff, &h.total, &h.discount, &h.reason, &h.card) != nil {
+		return h, false // приёма нет — новый, суммы пишущего
+	}
+	return h, !u.canSeeSum(h.staff)
+}
+
+// keepHiddenVisit подставляет серверные деньги и врача в запись приёма.
+func keepHiddenVisit(h hiddenVisit, staffID *string, total, discount, card *float64, reason *string) {
+	*total, *discount, *card, *reason = h.total, h.discount, h.card, h.reason
+	if h.staff != "" {
+		*staffID = h.staff
+	}
+}
+
+// hiddenItemPrice — какую цену записать строке скрытого приёма.
+func hiddenItemPrice(ctx context.Context, db *sql.DB, rec visitItemSyncRecord) float64 {
+	var srvPrice float64
+	var srvItem sql.NullString
+	err := db.QueryRowContext(ctx, `SELECT COALESCE(price,0), item_id FROM visit_items WHERE id=?`, rec.ID).
+		Scan(&srvPrice, &srvItem)
+	sameItem := err == nil && (rec.ItemID == nil && !srvItem.Valid ||
+		rec.ItemID != nil && srvItem.Valid && *rec.ItemID == srvItem.String)
+	if sameItem {
+		return srvPrice // та же услуга — цену пишущий видел нулём
+	}
+	if rec.Price == 0 && rec.ItemID != nil {
+		var catalog float64
+		if db.QueryRowContext(ctx, `SELECT COALESCE(price,0) FROM items WHERE id=?`, *rec.ItemID).Scan(&catalog) == nil {
+			return catalog // строку завели заново с замаскированной ценой
+		}
+	}
+	return rec.Price // другая услуга — цена из каталога, не замаскирована
+}
+
+// recomputeHiddenTotal — итог скрытого приёма по живым позициям.
+func recomputeHiddenTotal(ctx context.Context, db *sql.DB, visitID string) {
+	_, _ = db.ExecContext(ctx, `UPDATE visits SET
+		total_amount = MAX(0, (SELECT COALESCE(SUM(total),0) FROM visit_items WHERE visit_id=? AND is_deleted=0)
+		                      - COALESCE(discount,0)),
+		updated_at = ?
+		WHERE id=?`, visitID, T(nowUTC()), visitID)
 }
