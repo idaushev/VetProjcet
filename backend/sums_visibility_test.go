@@ -1,7 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -131,4 +135,75 @@ func TestPullMasksConflictSums(t *testing.T) {
 		return
 	}
 	t.Fatal("приём не пришёл в pull")
+}
+
+// B-010. REST-чтение приёмов маскирует чужие суммы так же, как /sync/pull:
+// раньше GET /visits отдавал их любому, у кого есть право на приёмы.
+func TestRESTMasksForeignSums(t *testing.T) {
+	a := testApp(t)
+	if _, err := a.db.Exec(`INSERT INTO clinic_staff (id, name) VALUES ('docA','А'), ('docB','Б')`); err != nil {
+		t.Fatal(err)
+	}
+	const at = `"version":1,"updated_at":"2026-09-01T12:00:00Z"`
+	doPush(t, a, `{
+		"owners":[{"id":"m-o","fio":"Хозяин","phone":"+7 700 333 0000",`+at+`}],
+		"pets":[{"id":"m-p","owner_id":"m-o","name":"Мурзик","type":"cat","gender":"m",`+at+`}],
+		"visits":[{"id":"v-own","pet_id":"m-p","staff_id":"docA","date":"2026-09-01T10:00:00Z","total_amount":1000,"payment_card":1000,`+at+`},
+		          {"id":"v-foreign","pet_id":"m-p","staff_id":"docB","date":"2026-09-01T11:00:00Z","total_amount":7000,"discount":500,"discount_reason":"постоянный",`+at+`}],
+		"visit_items":[{"id":"i-own","visit_id":"v-own","name":"Осмотр","type":"service","quantity":1,"price":1000,"total":1000,`+at+`},
+		               {"id":"i-foreign","visit_id":"v-foreign","name":"УЗИ","type":"service","quantity":1,"price":7500,"total":7500,`+at+`}]}`)
+
+	get := func(u *User, path string) string {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		if i := strings.Index(path, "/visits/"); i >= 0 {
+			req.SetPathValue("id", path[i+len("/visits/"):])
+		}
+		req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{}, u))
+		rec := httptest.NewRecorder()
+		switch {
+		case strings.HasPrefix(path, "/visits/"):
+			a.handleVisitByID(rec, req)
+		case strings.HasPrefix(path, "/visit-items"):
+			a.handleVisitItems(rec, req)
+		default:
+			a.handleVisits(rec, req)
+		}
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: HTTP %d %s", path, rec.Code, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+
+	doc := userWithSums("own", "docA")
+	for _, path := range []string{"/visits", "/visits/v-foreign", "/visit-items"} {
+		body := get(doc, path)
+		for _, leak := range []string{"7000", "7500", "постоянный"} {
+			if strings.Contains(body, leak) {
+				t.Errorf("%s: врачу с правом «свои» отдано %q", path, leak)
+			}
+		}
+	}
+	if body := get(doc, "/visits/v-own"); !strings.Contains(body, `"total_amount":1000`) {
+		t.Errorf("свой приём замаскирован: %s", body)
+	}
+	if body := get(userWithSums("all", "docA"), "/visits"); !strings.Contains(body, "7000") {
+		t.Error("право «все суммы» не видит чужую сумму")
+	}
+
+	// Ответ на правку чужого приёма тоже маскируется: в conflict_json лежат
+	// суммы проигравших версий.
+	a.db.Exec(`UPDATE visits SET conflict_json=? WHERE id='v-foreign'`,
+		`[{"detected_at":"t","staff_id":"docB","total_amount":8888,"discount_reason":"секрет"}]`)
+	req := httptest.NewRequest(http.MethodPut, "/visits/v-foreign", strings.NewReader(
+		`{"pet_id":"m-p","staff_id":"docB","date":"2026-09-01T11:00:00Z","diagnosis":"Гастрит","total_amount":0}`))
+	req.SetPathValue("id", "v-foreign")
+	req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{}, doc))
+	rec := httptest.NewRecorder()
+	a.handleVisitByID(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT: HTTP %d %s", rec.Code, rec.Body.String())
+	}
+	if b := rec.Body.String(); strings.Contains(b, "8888") || strings.Contains(b, "секрет") {
+		t.Errorf("ответ PUT отдал чужие суммы из conflict_json: %s", b)
+	}
 }

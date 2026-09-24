@@ -200,19 +200,34 @@ func maskConflictSums(u *User, cj, visitStaff string) string {
 // суммы для расчётов и отчёта. Вызывается только для ограниченного scope.
 func (a *app) maskForeignSums(ctx context.Context, u *User, data map[string]any) {
 	if vs, ok := data["visits"].([]Visit); ok {
-		for i := range vs {
-			if !u.canSeeSum(vs[i].StaffID) {
-				vs[i].TotalAmount = 0
-				vs[i].PaymentCard = 0
-				vs[i].Discount = 0
-				vs[i].DiscountReason = ""
-			}
-			vs[i].ConflictJSON = maskConflictSums(u, vs[i].ConflictJSON, vs[i].StaffID)
-		}
+		maskVisitSums(u, vs)
 	}
+	if items, ok := data["visit_items"].([]VisitItem); ok {
+		a.maskItemSums(ctx, u, items)
+	}
+}
 
-	items, ok := data["visit_items"].([]VisitItem)
-	if !ok || len(items) == 0 {
+// maskVisitSums — денежные поля приёмов чужих врачей (и их проигравших
+// версий). Общая для pull и REST-чтения: маскировка была только в pull, и
+// GET /visits отдавал чужие суммы тому, кому их видеть нельзя (B-010).
+func maskVisitSums(u *User, vs []Visit) {
+	if u == nil || u.seesAllSums() {
+		return
+	}
+	for i := range vs {
+		if !u.canSeeSum(vs[i].StaffID) {
+			vs[i].TotalAmount = 0
+			vs[i].PaymentCard = 0
+			vs[i].Discount = 0
+			vs[i].DiscountReason = ""
+		}
+		vs[i].ConflictJSON = maskConflictSums(u, vs[i].ConflictJSON, vs[i].StaffID)
+	}
+}
+
+// maskItemSums — цены и суммы позиций приёмов чужих врачей.
+func (a *app) maskItemSums(ctx context.Context, u *User, items []VisitItem) {
+	if u == nil || u.seesAllSums() || len(items) == 0 {
 		return
 	}
 	// Позиции не несут staff_id — врача берём из их визита. Инкрементальный

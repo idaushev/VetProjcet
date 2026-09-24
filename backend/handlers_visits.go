@@ -84,6 +84,7 @@ func (a *app) listVisits(w http.ResponseWriter, r *http.Request) {
 		}
 		visits = append(visits, v)
 	}
+	maskVisitSums(userFromCtx(r.Context()), visits) // B-010: чужие суммы — по праву sums
 	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: visits})
 }
 
@@ -117,7 +118,17 @@ func (a *app) getVisitDetail(w http.ResponseWriter, r *http.Request, id string) 
 		items = append(items, vi)
 	}
 
-	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: visitDetailResponse{Visit: v, Items: items}})
+	// B-010: чужие суммы — по праву sums, как в /sync/pull.
+	u := userFromCtx(r.Context())
+	// Врач приёма уже известен — позиции маскируем по нему, без чтения таблицы.
+	if u != nil && !u.seesAllSums() && !u.canSeeSum(v.StaffID) {
+		for i := range items {
+			items[i].Price, items[i].Total = 0, 0
+		}
+	}
+	vs := []Visit{v}
+	maskVisitSums(u, vs)
+	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: visitDetailResponse{Visit: vs[0], Items: items}})
 }
 
 func (a *app) createVisit(w http.ResponseWriter, r *http.Request) {
@@ -242,7 +253,11 @@ func (a *app) updateVisit(w http.ResponseWriter, r *http.Request, id string) {
 	}
 
 	updated, _ := a.getVisitByID(ctx, id)
-	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: updated})
+	// B-010: в ответе могут быть чужие суммы (проигравшие версии в
+	// conflict_json) — маскируем, как в GET.
+	vs := []Visit{updated}
+	maskVisitSums(userFromCtx(r.Context()), vs)
+	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: vs[0]})
 }
 
 func (a *app) deleteVisit(w http.ResponseWriter, r *http.Request, id string) {
@@ -501,6 +516,7 @@ func (a *app) listVisitItems(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, vi)
 	}
+	a.maskItemSums(r.Context(), userFromCtx(r.Context()), items) // B-010
 	writeJSON(w, http.StatusOK, apiResponse{Status: "ok", Data: items})
 }
 
