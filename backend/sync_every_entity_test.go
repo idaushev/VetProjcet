@@ -89,3 +89,27 @@ func TestStaffPushKeepsPhoto(t *testing.T) {
 		t.Errorf("пустое фото стёрло серверное: %q", photo)
 	}
 }
+
+// Новый врач и его первый приём уходят одним push — как с планшета, где
+// сотрудника завели и тут же приняли пациента. Приём, позиция, назначение и
+// вакцинация ссылаются на врача внешним ключом: сотрудник должен пройти
+// раньше. Раньше в реестре он стоял после приёмов, и всё это отклонялось.
+func TestNewStaffAndHisVisitInOnePush(t *testing.T) {
+	a := testApp(t)
+	const at = `"version":1,"updated_at":"2026-09-01T12:00:00Z","device_id":"dev-n"`
+	res := doPush(t, a, `{
+		"owners":[{"id":"n-o","fio":"Хозяин","phone":"+7 700 900 9000",`+at+`}],
+		"pets":[{"id":"n-p","owner_id":"n-o","name":"Рекс","type":"dog","gender":"m",`+at+`}],
+		"items":[{"id":"n-i","name":"Осмотр","type":"service","price":5000,`+at+`}],
+		"staff":[{"id":"n-s","name":"Новый врач","role":"vet","is_active":true,`+at+`}],
+		"visits":[{"id":"n-v","pet_id":"n-p","staff_id":"n-s","date":"2026-09-01T11:00:00Z","total_amount":5000,`+at+`}],
+		"visit_items":[{"id":"n-vi","visit_id":"n-v","item_id":"n-i","name":"Осмотр","type":"service","quantity":1,"price":5000,"total":5000,`+at+`}],
+		"prescriptions":[{"id":"n-rx","visit_id":"n-v","pet_id":"n-p","staff_id":"n-s","drug_name":"Церукал","dose":0.5,"dose_unit":"мл",`+at+`}],
+		"vaccinations":[{"id":"n-vac","pet_id":"n-p","staff_id":"n-s","visit_id":"n-v","vaccine_name":"Нобивак","administered_at":"2026-09-01",`+at+`}]}`)
+	if skipped(res) != 0 {
+		t.Fatalf("часть записей отклонена: %v", res)
+	}
+	if acc, _ := res["accepted"].(float64); acc != 8 {
+		t.Errorf("принято %v из 8", res["accepted"])
+	}
+}

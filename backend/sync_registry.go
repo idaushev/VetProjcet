@@ -98,8 +98,8 @@ func pushRecords[T interface{ recordID() string }](
 }
 
 // coreSyncEntities — сущности ядра в порядке внешних ключей
-// (owners → pets → items → visits → visit_items → vaccinations → staff →
-// appointments → warehouses → stock_movements). Порядок важен для push (FK).
+// (owners → pets → items → staff → visits → visit_items → prescriptions →
+// vaccinations → appointments → … → warehouses → stock_movements). Порядок важен для push (FK).
 // Вложения (attachments) — только pull (файлы грузятся отдельно), pushAll nil.
 //
 // PermTable — виртуальная таблица прав для push и pull: спутники приёма
@@ -131,6 +131,17 @@ func coreSyncEntities() []syncEntity {
 				pushEntity(ctx, a, raw, "items", perm, "items", uid, cp, pushItem, res)
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullItems(ctx, db, since) },
+		},
+		// Сотрудники — ДО приёмов и вакцинаций: у них внешний ключ staff_id.
+		// Стояли после, и новый врач с его первым приёмом в одном push
+		// отклонялись по внешнему ключу (B-009).
+		{
+			Name:      "staff",
+			PermTable: "staff",
+			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, perm, uid string, cp func(string) bool, res *syncPushResult) {
+				pushEntity(ctx, a, raw, "staff", perm, "clinic_staff", uid, cp, pushStaff, res)
+			},
+			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullStaff(ctx, db, since) },
 		},
 		{
 			Name:      "visits",
@@ -165,14 +176,6 @@ func coreSyncEntities() []syncEntity {
 				pushEntity(ctx, a, raw, "vaccinations", perm, "vaccinations", uid, cp, pushVaccination, res)
 			},
 			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullVaccinations(ctx, db, since) },
-		},
-		{
-			Name:      "staff",
-			PermTable: "staff",
-			pushAll: func(ctx context.Context, a *app, raw map[string]json.RawMessage, perm, uid string, cp func(string) bool, res *syncPushResult) {
-				pushEntity(ctx, a, raw, "staff", perm, "clinic_staff", uid, cp, pushStaff, res)
-			},
-			pull: func(ctx context.Context, db *sql.DB, since time.Time) (any, error) { return pullStaff(ctx, db, since) },
 		},
 		{
 			Name:      "appointments",
