@@ -479,6 +479,14 @@
       return rows;
     }
 
+    // B-019: спутники удалённого приёма (результаты, назначения) не отдаём —
+    // как сервер. Удалённый на сервере приём после pull исчезает с планшета.
+    if (storeName === "visit_results" || storeName === "prescriptions") {
+      var liveVisits = {};
+      (await ensureLoaded("visits")).forEach(function (v) { if (!v.is_deleted) liveVisits[v.id] = true; });
+      rows = rows.filter(function (r) { return liveVisits[r.visit_id]; });
+    }
+
     if (storeName === "visit_results") {
       if (sp.get("visit_id")) rows = rows.filter(function (r) { return r.visit_id === sp.get("visit_id"); });
       if (sp.get("pet_id"))   rows = rows.filter(function (r) { return r.pet_id === sp.get("pet_id"); });

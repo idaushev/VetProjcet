@@ -84,7 +84,10 @@ func (a *app) listPrescriptions(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	q := prescriptionSelectAll + ` WHERE is_deleted=0`
+	// B-019: назначения удалённого приёма — не действующие и не в списке.
+	// Приём удаляют без каскада на назначения (их вернёт правка, вернувшая
+	// приём, B-011), поэтому отсекаем по приёму.
+	q := prescriptionSelectAll + ` WHERE is_deleted=0 AND visit_id IN (SELECT id FROM visits WHERE is_deleted=0)`
 	var args []interface{}
 	if v := strings.TrimSpace(r.URL.Query().Get("visit_id")); v != "" {
 		q += ` AND visit_id=?`

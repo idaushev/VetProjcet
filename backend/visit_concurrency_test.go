@@ -697,3 +697,59 @@ func TestOwnerDeleteThenOfflineVisitEdit(t *testing.T) {
 		t.Errorf("правка должна сохраниться в конфликте: %+v", lost)
 	}
 }
+
+// B-019: назначения удалённого приёма не выдаются как действующие; приём,
+// возвращённый правкой (B-011), возвращает и их — данные не трогались.
+func TestPrescriptionsOfDeletedVisitHidden(t *testing.T) {
+	a := concSeed(t)
+	doPush(t, a, `{"prescriptions":[{"id":"rx-1","visit_id":"v-c","pet_id":"p-c","drug_name":"Церукал","dose":0.5,"dose_unit":"мл",
+		"status":"active","version":1,"updated_at":"`+concBase+`"}]}`)
+	list := func() string {
+		req := httptest.NewRequest(http.MethodGet, "/prescriptions?pet_id=p-c", nil)
+		req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{},
+			&User{ID: "adm", Login: "admin", Role: "admin", IsActive: true}))
+		rec := httptest.NewRecorder()
+		a.handlePrescriptions(rec, req)
+		return rec.Body.String()
+	}
+	if !strings.Contains(list(), "rx-1") {
+		t.Fatal("назначение живого приёма не выдано")
+	}
+	restDelete(t, a, a.handleVisitByID, "/visits/v-c", "v-c")
+	if strings.Contains(list(), "rx-1") {
+		t.Error("назначение удалённого приёма выдано как действующее")
+	}
+	doPush(t, a, `{"device_id":"tab-b","visits":[{"id":"v-c","pet_id":"p-c","date":"`+concBase+`","diagnosis":"Гастроэнтерит",
+		"total_amount":5000,"version":2,"base_version":1,"updated_at":"`+concB+`"}]}`)
+	if !strings.Contains(list(), "rx-1") {
+		t.Error("приём вернулся, а его назначение — нет")
+	}
+}
+
+// B-019 (правило 3): то же для результатов исследований — в REST и, главное,
+// в кабинете владельца: приём, заведённый не на того питомца и удалённый, не
+// должен показывать владельцу своё УЗИ.
+func TestResultsOfDeletedVisitHidden(t *testing.T) {
+	a := concSeed(t)
+	doPush(t, a, `{"visit_results":[{"id":"res-1","visit_id":"v-c","pet_id":"p-c","title":"УЗИ","kind":"text",
+		"conclusion":"Норма","status":"done","version":1,"updated_at":"`+concBase+`"}]}`)
+	rest := func() string {
+		req := httptest.NewRequest(http.MethodGet, "/results?pet_id=p-c", nil)
+		req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{},
+			&User{ID: "adm", Login: "admin", Role: "admin", IsActive: true}))
+		rec := httptest.NewRecorder()
+		a.handleResults(rec, req)
+		return rec.Body.String()
+	}
+	portal := func() bool { _, ok := portalResultsAs(t, a, "o-c", "p-c")["res-1"]; return ok }
+	if !strings.Contains(rest(), "res-1") || !portal() {
+		t.Fatal("результат живого приёма не выдан")
+	}
+	restDelete(t, a, a.handleVisitByID, "/visits/v-c", "v-c")
+	if strings.Contains(rest(), "res-1") {
+		t.Error("REST выдал результат удалённого приёма")
+	}
+	if portal() {
+		t.Error("кабинет владельца показывает результат удалённого приёма")
+	}
+}

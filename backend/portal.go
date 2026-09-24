@@ -249,6 +249,7 @@ func (a *app) handlePortalPetResults(w http.ResponseWriter, r *http.Request) {
 		FROM visit_results r
 		LEFT JOIN protocol_templates t ON t.id = r.template_id
 		WHERE r.pet_id = ? AND r.is_deleted = 0 AND r.status = 'done'
+		  AND r.visit_id IN (SELECT id FROM visits WHERE is_deleted = 0) -- B-019: не результаты удалённого приёма
 		ORDER BY COALESCE(r.filled_at, r.created_at) DESC`, petID)
 	if err != nil {
 		a.logger.Printf("portalPetResults: %v", err)

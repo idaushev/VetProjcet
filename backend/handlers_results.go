@@ -315,7 +315,9 @@ func (a *app) handleResults(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		q := resultSelectAll + ` WHERE is_deleted = 0`
+		// B-019: результаты удалённого приёма — не показываем (данные целы:
+		// приём, возвращённый правкой, вернёт и их).
+		q := resultSelectAll + ` WHERE is_deleted = 0 AND visit_id IN (SELECT id FROM visits WHERE is_deleted = 0)`
 		var args []interface{}
 		if v := strings.TrimSpace(r.URL.Query().Get("visit_id")); v != "" {
 			q += ` AND visit_id = ?`

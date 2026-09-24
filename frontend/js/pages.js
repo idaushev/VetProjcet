@@ -2210,13 +2210,17 @@
     var visits = (all.visits || [])
       .filter(function (v) { return !v.is_deleted && v.pet_id === petId; })
       .sort(function (a, b) { return (b.date || '') > (a.date || '') ? 1 : -1; });
+    // B-019: спутники удалённого приёма (результаты, назначения) не
+    // показываем — удалённый на сервере приём после pull исчезает с планшета.
+    var liveV = {};
+    visits.forEach(function (v) { liveV[v.id] = true; });
     var vaccs = (all.vaccinations || [])
       .filter(function (v) { return !v.is_deleted && v.pet_id === petId; })
       .sort(function (a, b) { return (b.administered_at || '') > (a.administered_at || '') ? 1 : -1; });
     var results = [];
     try {
       results = (await window.VetDB.getAll('visit_results'))
-        .filter(function (r) { return !r.is_deleted && r.pet_id === petId && r.status === 'done'; })
+        .filter(function (r) { return !r.is_deleted && r.pet_id === petId && liveV[r.visit_id] && r.status === 'done'; })
         .sort(function (a, b) {
           var ax = a.filled_at || a.created_at || '', bx = b.filled_at || b.created_at || '';
           return bx > ax ? 1 : -1;
@@ -2281,7 +2285,7 @@
     var running = [];
     try {
       running = (await window.VetDB.getAll('prescriptions'))
-        .filter(function (p) { return !p.is_deleted && p.pet_id === petId && prescIsRunning(p); })
+        .filter(function (p) { return !p.is_deleted && p.pet_id === petId && liveV[p.visit_id] && prescIsRunning(p); })
         .sort(function (a, b) { return (b.started_at || '') > (a.started_at || '') ? 1 : -1; });
     } catch (e) {}
     var runningHTML = running.length
@@ -5778,7 +5782,10 @@
   var _tlFilter = 'all';
 
   async function petTimelineEvents(petId) {
+    // B-019: живые приёмы животного — по ним отсекаем спутники удалённых.
+    var liveV = {};
     var all = await loadAll();
+    (all.visits || []).forEach(function (v) { if (!v.is_deleted && v.pet_id === petId) liveV[v.id] = true; });
     var ev = [];
 
     (all.visits || []).filter(function (v) { return !v.is_deleted && v.pet_id === petId; })
@@ -5809,7 +5816,7 @@
     // рядом стоят структурированные назначения с дозой и путём введения.
     try {
       (await window.VetDB.getAll('prescriptions'))
-        .filter(function (p) { return !p.is_deleted && p.pet_id === petId; })
+        .filter(function (p) { return !p.is_deleted && p.pet_id === petId && liveV[p.visit_id]; })
         .forEach(function (p) {
           var st = PRESC_STATUS[p.status || 'active'] || PRESC_STATUS.active;
           ev.push({ kind: 'course', when: p.started_at || p.created_at || '',
@@ -5821,7 +5828,7 @@
 
     try {
       (await window.VetDB.getAll('visit_results'))
-        .filter(function (r) { return !r.is_deleted && r.pet_id === petId && r.status === 'done'; })
+        .filter(function (r) { return !r.is_deleted && r.pet_id === petId && liveV[r.visit_id] && r.status === 'done'; })
         .forEach(function (r) {
           ev.push({ kind: 'result', when: r.filled_at || r.created_at,
                     title: r.title || 'Результат', sub: r.conclusion || '',
@@ -5833,7 +5840,7 @@
       var visitIds = {};
       (all.visits || []).forEach(function (v) { if (v.pet_id === petId) visitIds[v.id] = v.date; });
       (await window.VetDB.getAll('attachments'))
-        .filter(function (a) { return !a.is_deleted && a.pet_id === petId; })
+        .filter(function (a) { return !a.is_deleted && a.pet_id === petId && (!a.visit_id || liveV[a.visit_id]); })
         .forEach(function (a) {
           ev.push({ kind: 'attach', when: a.created_at || visitIds[a.visit_id] || '',
                     title: a.file_name, sub: attachKindLabel(a.kind) + (a.notes ? ' · ' + a.notes : ''),
