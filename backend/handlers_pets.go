@@ -89,14 +89,8 @@ func (a *app) listPets(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	q := `SELECT id, owner_id, name, type, gender, birth_date, age, COALESCE(breed,''),
-	             COALESCE(color,''), COALESCE(chip_number,''), chip_date,
-       COALESCE(id_method,''), COALESCE(tanba_number,''), tanba_at, COALESCE(keep_address,''),
-       COALESCE(sterilized,0), sterilized_at,
-       COALESCE(photo,''), weight, COALESCE(status,'active'),
-	             death_date, COALESCE(death_reason,''), COALESCE(notes,''),
-	             created_at, updated_at, deleted_at, is_deleted, COALESCE(device_id,''), COALESCE(version,1)
-	      FROM pets WHERE is_deleted=0`
+	// Колонки — из petSelectAll: третья копия списка тоже потеряла аллергии (B-017).
+	q := petSelectAll + ` WHERE is_deleted=0`
 	args := make([]interface{}, 0, 4)
 
 	// По умолчанию только активные; ?status=all — все, ?status=deceased — только умершие
@@ -414,15 +408,10 @@ func resolvePetID(ctx context.Context, tx *sql.Tx, pet Pet) (string, error) {
 
 // ─── DB helpers ───────────────────────────────────────────────────────────────
 
-const petSelectByID = `
-SELECT id, owner_id, name, type, gender, birth_date, age, COALESCE(breed,''),
-       COALESCE(color,''), COALESCE(chip_number,''), chip_date,
-       COALESCE(id_method,''), COALESCE(tanba_number,''), tanba_at, COALESCE(keep_address,''),
-       COALESCE(sterilized,0), sterilized_at,
-       COALESCE(photo,''), weight, COALESCE(status,'active'),
-       death_date, COALESCE(death_reason,''), COALESCE(notes,''),
-       created_at, updated_at, deleted_at, is_deleted, COALESCE(device_id,''), COALESCE(version,1)
-FROM pets WHERE id=?`
+// Тот же список колонок, что и у petSelectAll (pull), — один источник.
+// Своя копия разошлась со scanPetRow, когда добавили аллергии (VET-013):
+// 29 колонок на 30 полей, и любое чтение животного по id падало (B-017).
+const petSelectByID = petSelectAll + ` WHERE id=?`
 
 func (a *app) getPetByID(ctx context.Context, id string) (Pet, error) {
 	row := a.db.QueryRowContext(ctx, petSelectByID, id)

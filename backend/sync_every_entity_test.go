@@ -178,3 +178,68 @@ func TestPushWithoutRightIsRejected(t *testing.T) {
 		t.Errorf("отказ по праву не сообщён: %s", rec.Body.String())
 	}
 }
+
+// B-017. Чтение животного по REST (список, по id и изнутри создания приёма)
+// идёт тем же списком колонок, что pull. Своя копия запроса разошлась со
+// scanPetRow (аллергии, VET-013), и с 2026-09-03 любое такое чтение падало:
+// REST-создание и правка приёма отвечали «pet not found».
+func TestPetReadableByREST(t *testing.T) {
+	a := testApp(t)
+	doPush(t, a, `{"owners":[{"id":"pr-o","fio":"Х","phone":"+7 700 444 0000","version":1,"updated_at":"2026-09-01T12:00:00Z"}],
+		"pets":[{"id":"pr-p","owner_id":"pr-o","name":"Бим","type":"dog","gender":"m","allergies":"пенициллин","version":1,"updated_at":"2026-09-01T12:00:00Z"}]}`)
+	p, err := a.getPetByID(context.Background(), "pr-p")
+	if err != nil || p.Allergies != "пенициллин" {
+		t.Fatalf("getPetByID: %v, аллергии %q", err, p.Allergies)
+	}
+	rec := httptest.NewRecorder()
+	a.handlePets(rec, httptest.NewRequest(http.MethodGet, "/pets", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "пенициллин") {
+		t.Errorf("GET /pets: HTTP %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Правило 3 для чтения: каждый REST GET сущностей отвечает 200 на данных,
+// пришедших синком. Своя копия списка колонок в обработчике расходится со
+// scan-функцией незаметно (B-017) — этот тест ловит весь класс разом.
+func TestRESTReadsWorkOnSyncedData(t *testing.T) {
+	a := testApp(t)
+	for _, e := range syncEntities() {
+		if e.pushAll == nil {
+			continue
+		}
+		rec := strings.TrimSuffix(entitySamples[e.Name], "}") +
+			`,"version":1,"updated_at":"2026-09-01T12:00:00Z","device_id":"dev-e"}`
+		doPush(t, a, `{"`+e.Name+`":[`+rec+`]}`)
+	}
+	admin := &User{ID: "adm", Login: "admin", Role: "admin", IsActive: true}
+	type route struct {
+		path string
+		h    http.HandlerFunc
+		id   string
+	}
+	routes := []route{
+		{"/items", a.handleItems, ""}, {"/items/e-i", a.handleItemByID, "e-i"},
+		{"/owners", a.handleOwners, ""}, {"/owners/e-o", a.handleOwnerByID, "e-o"},
+		{"/pets", a.handlePets, ""}, {"/pets/e-p", a.handlePetByID, "e-p"},
+		{"/visits", a.handleVisits, ""}, {"/visits/e-v", a.handleVisitByID, "e-v"},
+		{"/visit-items", a.handleVisitItems, ""},
+		{"/prescriptions", a.handlePrescriptions, ""},
+		{"/vaccinations", a.handleVaccinations, ""}, {"/vaccinations/e-vac", a.handleVaccinationByID, "e-vac"},
+		{"/appointments", a.handleAppointments, ""},
+		{"/staff", a.handleStaff, ""}, {"/staff/e-s", a.handleStaffByID, "e-s"},
+		{"/tasks", a.handleTasks, ""}, {"/protocols", a.handleProtocols, ""},
+		{"/results", a.handleResults, ""}, {"/diagnoses", a.handleDiagnoses, ""},
+	}
+	for _, rt := range routes {
+		req := httptest.NewRequest(http.MethodGet, rt.path, nil)
+		if rt.id != "" {
+			req.SetPathValue("id", rt.id)
+		}
+		req = req.WithContext(context.WithValue(req.Context(), ctxKeyUser{}, admin))
+		w := httptest.NewRecorder()
+		rt.h(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("GET %s: HTTP %d %s", rt.path, w.Code, w.Body.String())
+		}
+	}
+}
