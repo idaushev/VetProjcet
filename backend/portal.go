@@ -234,10 +234,18 @@ func (a *app) handlePortalPetResults(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Питомец не найден")
 		return
 	}
+	// Поля — из снимка, снятого при заполнении, и только без него из текущего
+	// бланка (правило 6, так же читает врач — fieldsForResult в
+	// frontend/js/modules/protocols.js: пустой, "[]" или испорченный снимок —
+	// значит снимка нет). Иначе клиника правит норму в бланке, и владелец
+	// задним числом видит отклонение там, где его не было; удаляет бланк —
+	// и показатели пропадают.
 	rows, err := a.db.QueryContext(r.Context(), `
 		SELECT r.id, r.title, COALESCE(r.kind,'protocol'), COALESCE(r.values_json,'{}'),
 		       COALESCE(r.attachment_id,''), COALESCE(r.conclusion,''), r.filled_at,
-		       COALESCE(t.name,''), COALESCE(t.fields,'[]')
+		       COALESCE(t.name,''),
+		       CASE WHEN json_valid(r.fields_snapshot) AND r.fields_snapshot <> '[]'
+		            THEN r.fields_snapshot ELSE COALESCE(t.fields, '[]') END
 		FROM visit_results r
 		LEFT JOIN protocol_templates t ON t.id = r.template_id
 		WHERE r.pet_id = ? AND r.is_deleted = 0 AND r.status = 'done'
