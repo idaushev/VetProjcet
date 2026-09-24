@@ -904,7 +904,12 @@ func openDB(dbPath string) (*sql.DB, error) {
 	db.SetMaxOpenConns(1)
 	db.SetConnMaxLifetime(5 * time.Minute)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Один контекст на ВСЮ схему, миграции и дозаполнения — это сотни
+	// запросов. 10 секунд не хватало уже на пустой базе, когда машину грузит
+	// что-то ещё: сервер клиники просто не поднимался бы после перезагрузки
+	// под нагрузкой, а тесты падали на миграциях через раз. Лимит нужен
+	// только от вечного зависания, поэтому с запасом.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	if err := db.PingContext(ctx); err != nil {
