@@ -110,13 +110,90 @@
     _statusNode.textContent = navigator.onLine ? "Запуск…" : "Офлайн";
     var mount = document.querySelector(".topbar");
     if (mount) mount.appendChild(_statusNode);
+    // B-015: при непринятых записях плашка открывает их список.
+    _statusNode.addEventListener("click", function () {
+      if (_statusNode.dataset.problems) showSyncProblems();
+    });
+    _statusNode.addEventListener("keydown", function (e) {
+      if (_statusNode.dataset.problems && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); showSyncProblems(); }
+    });
     return _statusNode;
+  }
+
+  // ─── B-015: какие записи сервер не принял и почему ────────────────────────
+  //
+  // Статус синка говорит «сервер не принял N зап.», а какие и почему — лежало
+  // только в sync_error в IndexedDB. Нажатие на плашку открывает список.
+  // Кнопки «отбросить» нет намеренно: застрявшая запись (B-012) может быть
+  // единственной копией данных — отбросить её одним нажатием нельзя.
+  var SYNC_STORE_LABEL = {
+    owners: "Владелец", pets: "Животное", staff: "Сотрудник", visits: "Приём",
+    visit_items: "Позиция", prescriptions: "Назначение", visit_results: "Результат",
+    vaccinations: "Вакцинация", appointments: "Запись", items: "Каталог", tasks: "Задача",
+    diagnosis_templates: "Заготовка диагноза", protocol_templates: "Шаблон протокола",
+    warehouses: "Склад", stock_movements: "Движение склада"
+  };
+  function syncRecordTitle(r) {
+    return r.fio || r.name || r.drug_name || r.vaccine_name || r.title ||
+      (r.diagnosis ? "диагноз: " + r.diagnosis : "") ||
+      (r.date ? "от " + String(r.date).slice(0, 10) : "") || r.id;
+  }
+  async function listSyncProblems() {
+    var out = [];
+    var stores = (window.VetDB && window.VetDB.ENTITY_STORES) || [];
+    for (var i = 0; i < stores.length; i++) {
+      var rows = [];
+      try { rows = await window.VetDB.getAll(stores[i]); } catch (e) { continue; }
+      rows.forEach(function (r) {
+        if (r && r.sync_error && (r.sync_status === "pending" || r.sync_status === "rejected")) {
+          out.push({ store: stores[i], rec: r });
+        }
+      });
+    }
+    return out;
+  }
+  async function showSyncProblems() {
+    if (!window.VetUI || !window.VetUI.showModal) return;
+    var esc = window.VetUI.esc || function (s) { return String(s == null ? "" : s); };
+    var list = await listSyncProblems();
+    var body = list.length
+      ? '<p class="form-hint">Эти записи есть на этом планшете, но сервер их не принял. ' +
+        'Временные отказы повторяются при каждой синхронизации и уйдут сами, когда ' +
+        'причина исчезнет (например, дойдёт связанная запись). Окончательные — нет права ' +
+        'на запись: будет показана версия с сервера.</p>' +
+        list.map(function (x) {
+          var r = x.rec, final = r.sync_status === "rejected";
+          return '<div class="erow"><div class="erow-body">' +
+            '<div class="erow-title">' + esc((SYNC_STORE_LABEL[x.store] || x.store) + ": " + syncRecordTitle(r)) + '</div>' +
+            '<div class="erow-sub sync-problem-why">' + esc(r.sync_error) + '</div>' +
+            '<div class="erow-sub">' + (final ? "окончательно" : "повторяется") +
+            (r.sync_error_at ? " · " + esc(new Date(r.sync_error_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })) : "") +
+            '</div></div></div>';
+        }).join("")
+      : '<p class="form-hint">Непринятых записей нет.</p>';
+    window.VetUI.showModal({ title: "Сервер не принял записи", size: "lg", bodyHTML: body, onSave: false });
   }
 
   function setStatus(text, tone) {
     // ── Topbar pill ──────────────────────────────────────────────────
     var node = getStatusNode();
     node.textContent = text;
+    var problems = text.indexOf("не принял") !== -1;
+    if (problems) {
+      node.dataset.problems = "1";
+      node.setAttribute("role", "button");
+      node.setAttribute("tabindex", "0");
+      node.title = "Показать, какие записи не приняты";
+      node.classList.add("is-clickable");
+    } else {
+      delete node.dataset.problems;
+      node.removeAttribute("role");
+      node.removeAttribute("tabindex");
+      node.removeAttribute("title");
+      node.classList.remove("is-clickable");
+    }
+    var sideStatus = document.getElementById("sidebar-sync-status");
+    if (sideStatus) { if (problems) sideStatus.dataset.problems = "1"; else delete sideStatus.dataset.problems; }
     var palette = {
       ok:   { color: "#1a8c5e", border: "rgba(26,140,94,.3)",   bg: "#eaf5ee" },
       warn: { color: "#c97a0a", border: "rgba(201,122,10,.28)", bg: "#fef8ec" },
@@ -205,6 +282,13 @@
 
     btn.addEventListener("click", function (e) {
       e.preventDefault();
+      var st = document.getElementById("sidebar-sync-status");
+      // B-015: есть непринятые записи — кнопка открывает их список (синк и
+      // так идёт сам каждые 15 секунд). Одна кнопка — одно действие.
+      if (st && st.dataset.problems) {
+        showSyncProblems();
+        return;
+      }
       if (_syncRunning) return; // уже идёт
       runSync();
     });

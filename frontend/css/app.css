@@ -329,6 +329,13 @@ h4 { font-size: var(--fs-md);   font-weight: 600; }
   flex-shrink: 0;
   transition: color var(--t), border-color var(--t), background var(--t);
 }
+/* B-015: при непринятых записях плашка открывает их список. */
+#pwa-sync-status.is-clickable { cursor: pointer; }
+@media (pointer: coarse) {
+  #pwa-sync-status.is-clickable { min-height: 44px; display: inline-flex; align-items: center; }
+}
+/* Причина отказа — предложение сервера: переносим, а не обрезаем. */
+.erow-sub.sync-problem-why { white-space: normal; overflow: visible; text-overflow: clip; }
 
 /* ── Sidebar ─────────────────────────────────────────────────────── */
 .sidebar {
