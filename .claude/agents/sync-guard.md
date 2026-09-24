@@ -80,7 +80,8 @@ model: opus
 ## Тесты
 
 Запусти `go test ./backend/...` из корня, а если менялось сохранение приёма
-(`frontend/js/ui.js`, `frontend/js/pages.js`) — ещё `node scripts/test-plan-visit-items.js`.
+(`frontend/js/ui.js`, `frontend/js/pages.js`) — ещё `node scripts/test-plan-visit-items.js`;
+если менялся `frontend/js/sync.js` или `db.js` — `node scripts/test-push-rejects.js`.
 Если меняли синк или новую
 сущность — проверь, есть ли она в `sync_cycle_test.go`; если нет — это
 замечание (roadmap: «тест цикла синхронизации расширяется ДО изменения»).
