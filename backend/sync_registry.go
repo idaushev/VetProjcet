@@ -54,8 +54,12 @@ func pushEntity[T interface{ recordID() string }](
 		a.logger.Printf("syncPush %s decode: %v", key, err)
 		return // не массив — id не извлечь, сообщить не о чем
 	}
+	pushDevice, _ := ctx.Value(ctxKeyPushDevice{}).(string)
 	recs := make([]T, 0, len(items))
 	for _, it := range items {
+		if pushDevice != "" {
+			it = withDeviceID(it, pushDevice)
+		}
 		var rec T
 		if err := json.Unmarshal(it, &rec); err != nil {
 			var idOnly struct {
@@ -305,4 +309,23 @@ func warehouseSyncEntities() []syncEntity {
 // handleSyncPush/handleSyncPull идут по нему.
 func syncEntities() []syncEntity {
 	return append(coreSyncEntities(), moduleSyncEntities()...)
+}
+
+// ctxKeyPushDevice — устройство, приславшее push (поле device_id запроса).
+type ctxKeyPushDevice struct{}
+
+// withDeviceID ставит записи device_id пишущего устройства. Не разобралась —
+// оставляем как есть: отказ сообщит разбор ниже.
+func withDeviceID(rec json.RawMessage, device string) json.RawMessage {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(rec, &m) != nil {
+		return rec
+	}
+	d, _ := json.Marshal(device)
+	m["device_id"] = d
+	out, err := json.Marshal(m)
+	if err != nil {
+		return rec
+	}
+	return out
 }

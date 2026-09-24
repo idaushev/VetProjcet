@@ -458,3 +458,136 @@ func TestVisitConflictClearedIsPulledAsEmpty(t *testing.T) {
 		t.Error(`pull не отдаёт "conflict_json":"" у приёма без конфликта`)
 	}
 }
+
+// ─── B-008: конкурентная правка одной строки счёта ───────────────────────────
+
+// iEdit — правка строки i-base планшетом 3.34.0+ (с base_version).
+func iEdit(device, at string, version int, qty float64, deleted int) string {
+	return fmt.Sprintf(`{"visit_items":[{"id":"i-base","visit_id":"v-c","item_id":"it-exam","name":"Осмотр","type":"service",
+		"quantity":%g,"price":5000,"total":%g,"is_deleted":%d,"version":%d,"base_version":1,"device_id":"%s","updated_at":"%s"}]}`,
+		qty, qty*5000, deleted, version, device, at)
+}
+
+func itemConflicts(t *testing.T, a *app) []conflictEntry {
+	t.Helper()
+	_, lost := visitConflicts(t, a)
+	var items []conflictEntry
+	for _, e := range lost {
+		if e.Item != nil {
+			items = append(items, e)
+		}
+	}
+	return items
+}
+
+// A поставил 2 осмотра, B — 3, офлайн оба. Побеждает более поздняя правка,
+// проигравшая сохраняется в conflict_json приёма. Порядок синка не важен.
+func TestItemConflictKeepsLoser(t *testing.T) {
+	for _, order := range []string{"A затем B", "B затем A"} {
+		t.Run(order, func(t *testing.T) {
+			a := concSeed(t)
+			var visitVer0 int
+			a.db.QueryRow(`SELECT version FROM visits WHERE id='v-c'`).Scan(&visitVer0)
+			pa, pb := iEdit("tab-a", concA, 2, 2, 0), iEdit("tab-b", concB, 2, 3, 0)
+			if order == "A затем B" {
+				doPush(t, a, pa)
+				doPush(t, a, pb)
+			} else {
+				doPush(t, a, pb)
+				doPush(t, a, pa)
+			}
+			var qty float64
+			a.db.QueryRow(`SELECT quantity FROM visit_items WHERE id='i-base'`).Scan(&qty)
+			if qty != 3 {
+				t.Errorf("в строке %v осмотров, ждём 3 (правка B позже)", qty)
+			}
+			lost := itemConflicts(t, a)
+			if len(lost) != 1 || lost[0].Item.Quantity != 2 || lost[0].Item.ID != "i-base" {
+				t.Fatalf("правка A по строке должна лежать в конфликте приёма: %+v", lost)
+			}
+			var visitVer int
+			a.db.QueryRow(`SELECT version FROM visits WHERE id='v-c'`).Scan(&visitVer)
+			if visitVer != visitVer0 {
+				t.Errorf("версия приёма изменилась %d → %d — это дало бы ложные конфликты приёма", visitVer0, visitVer)
+			}
+		})
+	}
+}
+
+// Правка строки сильнее её одновременного удаления; повтор — без дублей.
+func TestItemConflictEditBeatsDeleteAndNoDuplicates(t *testing.T) {
+	a := concSeed(t)
+	doPush(t, a, iEdit("tab-a", concB, 2, 1, 1)) // A удалил позже
+	doPush(t, a, iEdit("tab-b", concA, 2, 2, 0)) // B правил раньше
+	doPush(t, a, iEdit("tab-b", concA, 2, 2, 0)) // повтор
+	var deleted int
+	var qty float64
+	a.db.QueryRow(`SELECT is_deleted, quantity FROM visit_items WHERE id='i-base'`).Scan(&deleted, &qty)
+	if deleted != 0 || qty != 2 {
+		t.Errorf("строка: удалена=%d, количество %v — правка должна победить удаление", deleted, qty)
+	}
+	lost := itemConflicts(t, a)
+	if len(lost) != 1 || lost[0].Item.IsDeleted != 1 {
+		t.Errorf("удаление должно лежать в конфликте ровно раз: %+v", lost)
+	}
+}
+
+// Один планшет правит свою строку подряд — не конфликт.
+func TestItemConflictNotWithItself(t *testing.T) {
+	a := concSeed(t)
+	doPush(t, a, iEdit("tab-a", concA, 2, 2, 0))
+	doPush(t, a, iEdit("tab-a", concB, 3, 4, 0))
+	if lost := itemConflicts(t, a); len(lost) != 0 {
+		t.Errorf("планшет разошёлся сам с собой по строке: %+v", lost)
+	}
+}
+
+// Как шлёт настоящий планшет: у строки device_id того, кто её СОЗДАЛ (так она
+// пришла с pull), а свой id — в поле device_id запроса. Сервер обязан
+// опознать пишущего по запросу, иначе правка с другого планшета выглядит
+// правкой «сам с собой» и конфликт теряется молча.
+func TestItemConflictWithInheritedDeviceID(t *testing.T) {
+	a := concSeed(t)
+	edit := func(requestDevice, at string, qty float64) string {
+		return fmt.Sprintf(`{"device_id":"%s","visit_items":[{"id":"i-base","visit_id":"v-c","item_id":"it-exam","name":"Осмотр",
+			"type":"service","quantity":%g,"price":5000,"total":%g,"version":2,"base_version":1,
+			"device_id":"tab-a","updated_at":"%s"}]}`, requestDevice, qty, qty*5000, at)
+	}
+	doPush(t, a, edit("tab-a", concA, 2))
+	doPush(t, a, edit("tab-b", concB, 3))
+	if lost := itemConflicts(t, a); len(lost) != 1 || lost[0].Item.Quantity != 2 {
+		t.Errorf("конфликт по строке не записан при унаследованном device_id: %+v", lost)
+	}
+	var dev string
+	a.db.QueryRow(`SELECT device_id FROM visit_items WHERE id='i-base'`).Scan(&dev)
+	if dev != "tab-b" {
+		t.Errorf("device_id строки %q — должен быть пишущий планшет tab-b", dev)
+	}
+}
+
+// Один push проиграл по двум строкам и повторился: в конфликте по-прежнему
+// две записи, updated_at приёма не сдвинулся (правило 5).
+func TestItemConflictRepeatTwoItemsNoDuplicates(t *testing.T) {
+	a := concSeed(t)
+	const at = `"version":1,"updated_at":"` + concBase + `"`
+	doPush(t, a, `{"visit_items":[{"id":"i-2","visit_id":"v-c","name":"УЗИ","type":"service","quantity":1,"price":7000,"total":7000,`+at+`}]}`)
+	two := func(dev, at string, q float64) string {
+		return fmt.Sprintf(`{"device_id":"%[1]s","visit_items":[
+			{"id":"i-base","visit_id":"v-c","name":"Осмотр","type":"service","quantity":%[3]g,"price":5000,"total":%[4]g,"version":2,"base_version":1,"updated_at":"%[2]s"},
+			{"id":"i-2","visit_id":"v-c","name":"УЗИ","type":"service","quantity":%[3]g,"price":7000,"total":%[5]g,"version":2,"base_version":1,"updated_at":"%[2]s"}]}`,
+			dev, at, q, q*5000, q*7000)
+	}
+	doPush(t, a, two("tab-b", concB, 3))
+	doPush(t, a, two("tab-a", concA, 2)) // проиграл по обеим строкам
+	var up1 string
+	a.db.QueryRow(`SELECT updated_at FROM visits WHERE id='v-c'`).Scan(&up1)
+	doPush(t, a, two("tab-a", concA, 2)) // повтор
+	var up2 string
+	a.db.QueryRow(`SELECT updated_at FROM visits WHERE id='v-c'`).Scan(&up2)
+	if lost := itemConflicts(t, a); len(lost) != 2 {
+		t.Errorf("записей о строках %d, ждём 2 (повтор не должен дублировать)", len(lost))
+	}
+	if up1 != up2 {
+		t.Errorf("повтор сдвинул updated_at приёма %s → %s — лишняя перерисовка на всех планшетах", up1, up2)
+	}
+}

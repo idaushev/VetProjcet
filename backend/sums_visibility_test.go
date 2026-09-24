@@ -94,6 +94,12 @@ func TestConflictSumsMaskedPerVersion(t *testing.T) {
 	if got[2].TotalAmount != 0 {
 		t.Errorf("версия без врача — по врачу приёма (чужой), не замаскирована: %+v", got[2])
 	}
+	// B-008: у проигравшей строки счёта чужого приёма цена и итог тоже скрыты.
+	var withItem []conflictEntry
+	_ = json.Unmarshal([]byte(maskConflictSums(u, `[{"detected_at":"t4","item":{"id":"i","name":"УЗИ","quantity":1,"price":7500,"total":7500}}]`, "docB")), &withItem)
+	if len(withItem) != 1 || withItem[0].Item == nil || withItem[0].Item.Price != 0 || withItem[0].Item.Total != 0 {
+		t.Errorf("цена строки в конфликте чужого приёма не скрыта: %+v", withItem)
+	}
 	if maskConflictSums(u, "не JSON", "docA") != "" {
 		t.Error("неразборный conflict_json отдан без проверки")
 	}

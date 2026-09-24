@@ -194,6 +194,23 @@ function check(name, cond, detail) {
   check('B-012: записи ушли в push, приём — без base_version', (sent6.staff || []).length === 1 &&
     (sent6.visits || []).some(function (v) { return v.id === 'v-mine' && v.base_version === null; }));
 
+  // B-008: отметка конфликта доезжает при pull независимо от часов планшета.
+  var db7 = makeDB();
+  db7.stores.visits = {
+    // часы планшета спешат: локальное время позже серверного при равной версии
+    'v-skew': { id: 'v-skew', diagnosis: 'Гастрит', conflict_json: '', sync_status: 'synced', version: 2, updated_at: '2026-09-01T12:30:00Z' },
+    // врач разобрал конфликт, правка ещё не ушла
+    'v-res':  { id: 'v-res', conflict_json: '', conflict_resolved: 't1', sync_status: 'pending', version: 3, updated_at: '2026-09-01T12:00:00Z' }
+  };
+  var env7 = load(db7, function () { return {}; });
+  await env7.S.mergePulledStore('visits', [
+    { id: 'v-skew', diagnosis: 'Гастрит', conflict_json: '[{"detected_at":"t9","item":{"id":"i"}}]', version: 2, updated_at: '2026-09-01T12:10:00Z' },
+    { id: 'v-res',  conflict_json: '[{"detected_at":"t1"}]', version: 2, updated_at: '2026-09-01T11:00:00Z' }
+  ]);
+  check('B-008: отметка конфликта доезжает при спешащих часах планшета', db7.stores.visits['v-skew'].conflict_json.indexOf('t9') >= 0,
+    JSON.stringify(db7.stores.visits['v-skew']));
+  check('B-008: разобранная и ещё не ушедшая отметка не возвращается', db7.stores.visits['v-res'].conflict_json === '');
+
   console.log(failed ? '\n' + failed + ' провалено' : '\nвсе прошли');
   process.exit(failed ? 1 : 0);
 })().catch(function (e) { console.error(e); process.exit(1); });

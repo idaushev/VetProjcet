@@ -1126,7 +1126,7 @@
     var s = new Date(d.getTime() + 5 * 3600000).toISOString();
     return s.slice(8,10) + '.' + s.slice(5,7) + '.' + s.slice(0,4) + ' ' + s.slice(11,16);
   }
-  function _cfMoney(x) { return Math.round(Number(x) || 0).toLocaleString('ru-RU') + ' ₸'; }
+  function _cfMoney(x) { return Math.round(Number(x) || 0).toLocaleString('ru-RU') + ' ₸'; } // ₸ не отрывается от числа
   var CONFLICT_FIELDS = [
     { key: 'diagnosis', label: 'Диагноз',        input: 'f-diagnosis' },
     { key: 'anamnesis', label: 'Анамнез, жалобы', input: 'f-anamnesis' },
@@ -1144,6 +1144,19 @@
     var last = _conflictLost[_conflictLost.length - 1];
     var versions = _conflictLost.map(function (lost, i) {
       var when0 = lost.client_updated_at ? _cfWhen(lost.client_updated_at) : '';
+      if (lost.item) {
+        // B-008: строку счёта правили на двух устройствах. В счёте — более
+        // поздняя правка; здесь — не попавшая. Переносить руками: строка
+        // счёта — это деньги, автоматом их не подставляем.
+        var it = lost.item;
+        var what = it.is_deleted
+          ? 'на другом устройстве строку удалили — она осталась, потому что её одновременно правили'
+          : 'в другой версии: ' + (Number(it.quantity) || 0) + ' × ' + _cfMoney(it.price) + ' = ' + _cfMoney(it.total);
+        return '<div class="vf-conflict-version"><div class="vf-conflict-when">Строка счёта «' + esc(it.name || '—') + '»'
+          + (when0 ? ' — правка от ' + esc(when0) : '') + '</div>'
+          + '<div class="vf-conflict-row"><div class="vf-conflict-label">Не вошло в счёт</div>'
+          + '<div class="vf-conflict-val">' + esc(what) + '</div></div></div>';
+      }
       if (lost.is_deleted) {
         // Правка сильнее одновременного удаления: приём сохранён.
         return '<div class="vf-conflict-version"><div class="vf-conflict-when">На другом устройстве приём удалили'

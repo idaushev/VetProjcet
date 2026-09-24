@@ -583,6 +583,8 @@ type visitItemSyncRecord struct {
 	IsDeleted int      `json:"is_deleted"`
 	DeviceID  string   `json:"device_id"`
 	Version   int      `json:"version"`
+	// B-008: версия строки, от которой начата правка (как у приёма, VET-017).
+	BaseVersion *int `json:"base_version"`
 }
 
 type vaccinationSyncRecord struct {

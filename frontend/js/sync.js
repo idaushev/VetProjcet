@@ -408,6 +408,18 @@
         changed = true;
       }
     }
+    // VET-017 / B-008: отметку конфликта пишет только сервер — берём его
+    // значение всегда, а не по правилу версий. Конфликт по строке счёта
+    // двигает у приёма только updated_at, и при расхождении часов планшета
+    // серверная запись «проигрывала» бы по времени — врач не увидел бы блок
+    // сравнения. Исключение: врач здесь уже разобрал конфликт, правка ещё не
+    // ушла — не возвращаем старую отметку.
+    if (storeName === "visits" && typeof remote.conflict_json === "string" &&
+        remote.conflict_json !== (local.conflict_json || "") &&
+        !(local.sync_status === "pending" && local.conflict_resolved)) {
+      updated.conflict_json = remote.conflict_json;
+      changed = true;
+    }
     if (storeName === "pets" && remote.photo) {
       var photo = _betterPhoto(local.photo, remote.photo);
       if (photo !== (local.photo || "")) {

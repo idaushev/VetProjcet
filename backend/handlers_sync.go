@@ -53,6 +53,11 @@ func (a *app) handleSyncPush(w http.ResponseWriter, r *http.Request) {
 	}
 	if deviceID != "" {
 		a.upsertDevice(ctx, deviceID)
+		// Устройство ПИШУЩЕГО — в каждую запись (pushEntity). Планшет шлёт у
+		// записи device_id того, кто её СОЗДАЛ (так она пришла с pull), и
+		// правка с другого планшета выглядела на сервере как правка «сам с
+		// собой» — конфликт (VET-017, B-008) не определялся.
+		ctx = context.WithValue(ctx, ctxKeyPushDevice{}, deviceID)
 	}
 
 	var result syncPushResult
@@ -185,6 +190,9 @@ func maskConflictSums(u *User, cj, visitStaff string) string {
 		if !u.canSeeSum(staff) {
 			list[i].TotalAmount, list[i].PaymentCard, list[i].Discount = 0, 0, 0
 			list[i].DiscountReason = ""
+			if list[i].Item != nil { // B-008: цена и итог строки счёта
+				list[i].Item.Price, list[i].Item.Total = 0, 0
+			}
 			changed = true
 		}
 	}
@@ -501,6 +509,19 @@ type conflictEntry struct {
 	PaymentCard      float64  `json:"payment_card"`
 	Status           string   `json:"status,omitempty"`
 	IsDeleted        int      `json:"is_deleted,omitempty"`
+	// B-008: проигравшая версия СТРОКИ СЧЁТА этого приёма (правили её два
+	// планшета офлайн). Поля приёма выше тогда пустые.
+	Item *itemConflict `json:"item,omitempty"`
+}
+
+// itemConflict — строка счёта в проигравшей версии.
+type itemConflict struct {
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Quantity  float64 `json:"quantity"`
+	Price     float64 `json:"price"`
+	Total     float64 `json:"total"`
+	IsDeleted int     `json:"is_deleted,omitempty"`
 }
 
 func conflictFromRecord(rec visitSyncRecord, detected string) conflictEntry {
@@ -543,12 +564,26 @@ func appendConflict(existing string, e conflictEntry) string {
 	if existing != "" {
 		_ = json.Unmarshal([]byte(existing), &list) // испорченное — начинаем заново
 	}
-	if n := len(list); n > 0 && list[n-1].DeviceID == e.DeviceID && list[n-1].ClientUpdatedAt == e.ClientUpdatedAt {
-		return existing
+	// Ищем по всему списку: повтор push, проигравшего по нескольким строкам,
+	// сверял бы строку только с последней записью и дописывал заново.
+	for _, old := range list {
+		if old.DeviceID == e.DeviceID && old.ClientUpdatedAt == e.ClientUpdatedAt && sameConflictItem(old.Item, e.Item) {
+			return existing
+		}
 	}
 	list = append(list, e)
 	b, _ := json.Marshal(list)
 	return string(b)
+}
+
+// sameConflictItem — одна и та же ли строка счёта (или обе записи — о приёме).
+// Одно сохранение с планшета может проиграть по нескольким строкам сразу:
+// у них одно устройство и время, и без id строки они склеились бы в одну.
+func sameConflictItem(a, b *itemConflict) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.ID == b.ID
 }
 
 // resolvedConflictJSON — что станет с отметкой после правки без конфликта:
@@ -724,15 +759,74 @@ func pushVisitItem(ctx context.Context, db *sql.DB, rec visitItemSyncRecord) (bo
 	if rec.ID == "" {
 		return false, fmt.Errorf("empty id")
 	}
-	wins, err := clientWinsVersion(ctx, db, "visit_items", rec.ID, rec.UpdatedAt, rec.Version)
-	if err != nil || !wins {
-		return false, err
-	}
+	// Скрытые суммы — ДО конфликта: иначе в проигравшую версию попала бы
+	// замаскированная нулевая цена.
 	_, hiddenParent := hiddenVisitOf(ctx, db, userFromCtx(ctx), rec.VisitID)
 	if hiddenParent { // B-016
 		rec.Price = hiddenItemPrice(ctx, db, rec)
 		rec.Total = roundMoney(rec.Price * rec.Quantity)
 	}
+
+	// B-008: конкурентная правка одной строки счёта — как у приёма (VET-017).
+	// Строку правили офлайн два планшета: побеждает более поздняя правка,
+	// проигравшая версия строки дописывается в conflict_json ПРИЁМА — врач
+	// увидит её в том же блоке сравнения. Версия приёма не растёт (иначе
+	// правки приёма на других планшетах ложно стали бы конфликтом) — только
+	// updated_at, чтобы отметку получили все.
+	conflictHandled := false
+	if rec.BaseVersion != nil {
+		var curVer, curDel int
+		var curDev, curName string
+		var curQty, curPrice, curTotal float64
+		var prevClient timeScanner
+		err := db.QueryRowContext(ctx, `SELECT COALESCE(version,1), COALESCE(device_id,''), COALESCE(name,''),
+			COALESCE(quantity,0), COALESCE(price,0), COALESCE(total,0), is_deleted, client_updated_at
+			FROM visit_items WHERE id=?`, rec.ID).
+			Scan(&curVer, &curDev, &curName, &curQty, &curPrice, &curTotal, &curDel, &prevClient)
+		sameDevice := rec.DeviceID != "" && rec.DeviceID == curDev
+		if err == nil && !sameDevice && *rec.BaseVersion < curVer {
+			incomingWins := prevClient.t == nil || !parseSyncTime(rec.UpdatedAt).Before(*prevClient.t)
+			if rec.IsDeleted != 0 && curDel == 0 { // правка сильнее удаления
+				incomingWins = false
+			} else if rec.IsDeleted == 0 && curDel != 0 {
+				incomingWins = true
+			}
+			newVersion := curVer
+			if rec.Version > newVersion {
+				newVersion = rec.Version
+			}
+			newVersion++
+			e := conflictEntry{DetectedAt: nowUTC().Format(time.RFC3339)}
+			if incomingWins {
+				e.DeviceID = curDev
+				if prevClient.t != nil {
+					e.ClientUpdatedAt = prevClient.t.UTC().Format(time.RFC3339)
+				}
+				e.Item = &itemConflict{ID: rec.ID, Name: curName, Quantity: curQty, Price: curPrice, Total: curTotal, IsDeleted: curDel}
+			} else {
+				e.DeviceID, e.ClientUpdatedAt = rec.DeviceID, rec.UpdatedAt
+				e.Item = &itemConflict{ID: rec.ID, Name: rec.Name, Quantity: rec.Quantity, Price: rec.Price, Total: rec.Total, IsDeleted: rec.IsDeleted}
+			}
+			changed := appendVisitConflict(ctx, db, rec.VisitID, e)
+			if !incomingWins {
+				if !changed {
+					return true, nil // повтор уже записанного — писать нечего
+				}
+				_, err := db.ExecContext(ctx, `UPDATE visit_items SET version=?, updated_at=? WHERE id=?`,
+					newVersion, T(nowUTC()), rec.ID)
+				return err == nil, err
+			}
+			rec.Version = newVersion
+			conflictHandled = true
+		}
+	}
+	if !conflictHandled {
+		wins, err := clientWinsVersion(ctx, db, "visit_items", rec.ID, rec.UpdatedAt, rec.Version)
+		if err != nil || !wins {
+			return false, err
+		}
+	}
+	var err error
 	serverNow := T(nowUTC())
 	// Время клиента сохраняем как есть — по нему разрешаются будущие конфликты.
 	clientAt := Tp(parseSyncTimePtr(&rec.UpdatedAt))
@@ -1310,4 +1404,20 @@ func recomputeHiddenTotal(ctx context.Context, db *sql.DB, visitID string) {
 		                      - COALESCE(discount,0)),
 		updated_at = ?
 		WHERE id=?`, visitID, T(nowUTC()), visitID)
+}
+
+// appendVisitConflict дописывает проигравшую версию в conflict_json приёма и
+// сдвигает его updated_at (не версию), чтобы отметку получили все планшеты.
+// false — такая запись уже есть (повтор push), ничего не записано.
+func appendVisitConflict(ctx context.Context, db *sql.DB, visitID string, e conflictEntry) bool {
+	var cur string
+	if db.QueryRowContext(ctx, `SELECT COALESCE(conflict_json,'') FROM visits WHERE id=?`, visitID).Scan(&cur) != nil {
+		return false
+	}
+	next := appendConflict(cur, e)
+	if next == cur {
+		return false
+	}
+	_, _ = db.ExecContext(ctx, `UPDATE visits SET conflict_json=?, updated_at=? WHERE id=?`, next, T(nowUTC()), visitID)
+	return true
 }
