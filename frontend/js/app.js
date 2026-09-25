@@ -178,12 +178,12 @@
     // ── Topbar pill ──────────────────────────────────────────────────
     var node = getStatusNode();
     node.textContent = text;
-    var problems = text.indexOf("не принял") !== -1;
+    var problems = text.toLowerCase().indexOf("не принято") !== -1;
     if (problems) {
       node.dataset.problems = "1";
       node.setAttribute("role", "button");
       node.setAttribute("tabindex", "0");
-      node.title = "Показать, какие записи не приняты";
+      node.title = "Сервер не принял записи — нажмите, чтобы увидеть какие";
       node.classList.add("is-clickable");
     } else {
       delete node.dataset.problems;
@@ -211,7 +211,7 @@
     var btnState = stateMap[tone] || "offline";
 
     // Уточняем state для ошибки синхронизации (не просто офлайн)
-    if (tone === "err" && text.toLowerCase().indexOf("ошибка") !== -1) {
+    if (tone === "err" && (problems || text.toLowerCase().indexOf("ошибка") !== -1)) {
       btnState = "error";
     }
 
@@ -385,7 +385,7 @@
       // месяцами терялись сотрудники и приёмы с ними (B-009). Слово
       // «Ошибка» переводит кнопку синка в состояние error.
       if (pushResult.rejected > 0) {
-        setStatus("Ошибка: сервер не принял " + pushResult.rejected + " зап.", "err");
+        setStatus("Не принято: " + pushResult.rejected, "err"); // коротко — плашка в шапке телефона узкая
       } else {
         setStatus("Актуально" + pushInfo, "ok");
       }

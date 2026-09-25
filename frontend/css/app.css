@@ -314,6 +314,12 @@ h4 { font-size: var(--fs-md);   font-weight: 600; }
 }
 
 .topbar-spacer { flex: 1; }
+/* Телефон: подпись логотипа уступает место статусу синка — иначе он сжимался
+   до «А…», а длинный статус растягивал страницу вбок. Иконка остаётся, название
+   есть в боковом меню. */
+@media (max-width: 767px) {
+  .topbar-title { display: none; }
+}
 
 /* Индикатор синхронизации */
 #pwa-sync-status {
@@ -326,13 +332,19 @@ h4 { font-size: var(--fs-md);   font-weight: 600; }
   background: var(--bg-s);
   color: var(--text-3);
   white-space: nowrap;
-  flex-shrink: 0;
+  /* На узкой шапке телефона длинный статус не должен растягивать страницу
+     (горизонтальная прокрутка) — сжимается с многоточием. */
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
   transition: color var(--t), border-color var(--t), background var(--t);
 }
 /* B-015: при непринятых записях плашка открывает их список. */
 #pwa-sync-status.is-clickable { cursor: pointer; }
 @media (pointer: coarse) {
-  #pwa-sync-status.is-clickable { min-height: 44px; display: inline-flex; align-items: center; }
+  /* 44px высотой строки, а не flex: иначе многоточие не работает */
+  #pwa-sync-status.is-clickable { min-height: 44px; padding-top: 0; padding-bottom: 0; line-height: 41px; }
 }
 /* Причина отказа — предложение сервера: переносим, а не обрезаем. */
 .erow-sub.sync-problem-why { white-space: normal; overflow: visible; text-overflow: clip; }
